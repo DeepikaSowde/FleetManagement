@@ -350,8 +350,23 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   };
 
   const handleMarkDepositRefunded = () => {
-    if (!window.confirm(`Mark the ${fmt(inv.deposit)} security deposit as refunded?`)) return;
-    onUpdateBooking(booking.id, { depositRefunded: true });
+    // Ask how much is actually being returned — supports full refunds, partial
+    // refunds (e.g. a deduction for damage/fuel), or a full forfeit (0).
+    const input = window.prompt(
+      `Security deposit held: ${fmt(inv.deposit)}.\nHow much are you returning to the customer?`,
+      String(inv.deposit)
+    );
+    if (input === null) return; // cancelled
+    const amount = Number(input);
+    if (isNaN(amount) || amount < 0 || amount > inv.deposit) {
+      alert(`Enter an amount between 0 and ${fmt(inv.deposit)}.`);
+      return;
+    }
+    onUpdateBooking(booking.id, {
+      depositRefunded: true,
+      depositRefundedAmount: amount,
+      depositRefundedAt: new Date().toISOString(),
+    });
   };
 
   const handleRecordPayment = () => {
@@ -544,7 +559,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 12.5, color: C.textSec }}>
                     <span>Security Deposit</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ ...mono }}>{fmt(inv.deposit)} — {booking.depositRefunded ? "Refunded" : "Held"}</span>
+                      <span style={{ ...mono }}>
+                        {fmt(inv.deposit)} — {booking.depositRefunded
+                          ? `Returned ${fmt(booking.depositRefundedAmount ?? inv.deposit)}${(booking.depositRefundedAmount ?? inv.deposit) < inv.deposit ? " (partial)" : ""}`
+                          : "Held"}
+                      </span>
                       {inv.deposit > 0 && !booking.depositRefunded && (
                         <button onClick={handleMarkDepositRefunded} style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
                           Mark Refunded

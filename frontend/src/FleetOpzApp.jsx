@@ -510,6 +510,7 @@ export default function FleetOpzApp() {
       <Ledger
         earnings={fleetData.earnings}
         expenses={fleetData.expenses}
+        bookings={fleetData.bookings}
         fleet={fleetData.fleet}
       />
     ),

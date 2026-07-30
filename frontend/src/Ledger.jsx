@@ -4,8 +4,11 @@ import { Card, CardHeader, Badge, PlateBadge } from "./components";
 
 // Read-only financial ledger. It is NOT a separate data source — it is a
 // unified, chronological view built from data the app already tracks:
-//   • Earnings  -> "Rental Income" credits
-//   • Expenses  -> "Expense" debits
+//   • Earnings          -> "Rental Income" credits
+//   • Expenses          -> "Expense" debits
+//   • Booking deposits  -> "Deposit IN" credit at pickup, "Deposit OUT" debit
+//                          when refunded (deposits move cash but are NOT profit,
+//                          so they never touch the P&L — only this cash ledger)
 // with a running balance and Opening/Credit/Debit/Closing summary, filtered by
 // period / vehicle / type / search. Same idea as the P&L page: derived, live.
 
@@ -26,7 +29,7 @@ const selectStyle = {
   fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none",
 };
 
-const Ledger = ({ earnings = [], expenses = [], fleet = [] }) => {
+const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => {
   const [period, setPeriod] = useState("all");   // "all" | "YYYY-MM"
   const [vehicle, setVehicle] = useState("all");  // "all" | plate
   const [type, setType] = useState("all");        // "all" | "Rental Income" | "Expense"
@@ -67,6 +70,38 @@ const Ledger = ({ earnings = [], expenses = [], fleet = [] }) => {
       });
     });
 
+    // Deposits come from bookings (money in at pickup, out when refunded).
+    bookings.forEach((b) => {
+      const deposit = Number(b.deductible) || 0;
+      if (deposit > 0) {
+        rows.push({
+          key: `DI-${b.id}`,
+          date: (b.start || "").slice(0, 10),
+          plate: b.plate || "",
+          type: "Deposit IN",
+          description: "Security Deposit",
+          remarks: b.customer || "—",
+          credit: deposit,
+          debit: 0,
+        });
+      }
+      if (b.depositRefunded) {
+        const back = b.depositRefundedAmount ?? deposit;
+        if (back > 0) {
+          rows.push({
+            key: `DO-${b.id}`,
+            date: (b.depositRefundedAt || b.end || b.start || "").slice(0, 10),
+            plate: b.plate || "",
+            type: "Deposit OUT",
+            description: `Deposit Returned${back < deposit ? " (partial)" : ""}`,
+            remarks: b.customer || "—",
+            credit: 0,
+            debit: back,
+          });
+        }
+      }
+    });
+
     // Chronological (oldest first) so the running balance accumulates correctly.
     rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.key < b.key ? -1 : 1));
 
@@ -76,7 +111,7 @@ const Ledger = ({ earnings = [], expenses = [], fleet = [] }) => {
       r.balance = bal;
     });
     return rows;
-  }, [earnings, expenses]);
+  }, [earnings, expenses, bookings]);
 
   // Month options derived from the data present.
   const months = useMemo(
@@ -126,6 +161,14 @@ const Ledger = ({ earnings = [], expenses = [], fleet = [] }) => {
 
   const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
 
+  // Badge colours per transaction type.
+  const typeStyle = {
+    "Rental Income": { color: C.green, bg: C.greenFaint },
+    "Deposit IN": { color: C.teal, bg: C.tealFaint },
+    "Expense": { color: C.red, bg: C.redFaint },
+    "Deposit OUT": { color: C.amber, bg: C.amberFaint },
+  };
+
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
@@ -156,6 +199,8 @@ const Ledger = ({ earnings = [], expenses = [], fleet = [] }) => {
               <option value="all">All Types</option>
               <option value="Rental Income">Rental Income</option>
               <option value="Expense">Expense</option>
+              <option value="Deposit IN">Deposit IN</option>
+              <option value="Deposit OUT">Deposit OUT</option>
             </select>
           </div>
           <div>
@@ -200,7 +245,7 @@ const Ledger = ({ earnings = [], expenses = [], fleet = [] }) => {
                   <td style={{ padding: "10px 12px" }}>{r.plate ? <PlateBadge plate={r.plate} small /> : <span style={{ fontSize: 11, color: C.textMuted }}>—</span>}</td>
                   <td style={{ padding: "10px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{modelOf(r.plate)}</td>
                   <td style={{ padding: "10px 12px" }}>
-                    <Badge color={r.type === "Rental Income" ? C.green : C.red} bg={r.type === "Rental Income" ? C.greenFaint : C.redFaint}>{r.type}</Badge>
+                    <Badge color={(typeStyle[r.type] || typeStyle.Expense).color} bg={(typeStyle[r.type] || typeStyle.Expense).bg}>{r.type}</Badge>
                   </td>
                   <td style={{ padding: "10px 12px", fontSize: 11, color: C.textSec }}>{r.description}</td>
                   <td style={{ padding: "10px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.green, textAlign: "right", whiteSpace: "nowrap" }}>{r.credit ? num(r.credit) : "–"}</td>
