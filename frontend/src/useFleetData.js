@@ -1,0 +1,730 @@
+import { useState, useEffect } from "react";
+import { totalInv } from "./theme";
+import api from "./services/api";
+
+// Desired profit margin layered on top of breakeven costs when deriving the monthly target.
+// Breakeven = money needed just to recover the car and cover its maintenance; the target
+// aims a bit higher so the business is actually profitable, not just breaking even.
+const TARGET_MARGIN_PCT = 15;
+
+// A car should never sit in "Maintenance" for more than this many days before
+// being auto-released back to "Available" (see the effect below). Exported so
+// anything projecting future availability (e.g. the Booking module's 10-day
+// timeline) uses the exact same window instead of a second hardcoded number.
+export const MAINTENANCE_MAX_DAYS = 3;
+
+// Normalizes any date-ish value (a plain "YYYY-MM-DD" or a full datetime
+// string/timestamp) down to its calendar date. Needed because booking.start
+// and booking.end carry a specific pickup/return time — comparing those
+// directly against a plain todayStr as strings is unreliable (e.g. a booking
+// starting today at 12:29 pm would string-compare as "later" than today's
+// bare date and get misread as Upcoming instead of Active). Falls back to a
+// straight slice if the value isn't parseable, rather than throwing.
+const toDateStr = (v) => {
+  const d = new Date(v);
+  return isNaN(d) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10);
+};
+
+// ── STATUS DERIVATION ────────────────────────────────────────────────────────
+// Booking status is derived from today's date vs start/end, instead of being a
+// static field that only changes when someone clicks a button. "Cancelled" is
+// one status nothing can infer from dates, so it stays a manual flag — and so
+// does "forceCompleted", which lets staff close a booking early (car returned
+// ahead of schedule) without needing every other status to become manual too.
+// Exported so any screen that needs "what would this booking's status be on
+// date X" (not just today) can reuse this exact logic — e.g. the Booking
+// module's forward-looking availability timeline calls this once per day.
+export const computeBookingStatus = (booking, todayStr) => {
+  if (booking.cancelled) return "Cancelled";
+  if (booking.forceCompleted) return "Completed";
+  if (!booking.start || !booking.end) return booking.status || "Active";
+  const startStr = toDateStr(booking.start);
+  const endStr = toDateStr(booking.end);
+  if (todayStr < startStr) return "Upcoming";
+  if (todayStr === endStr) return "Ending Today";
+  if (todayStr > endStr) return "Completed";
+  return "Active"; // start <= today < end
+};
+
+// A car's status is fully derived — Maintenance is the one state that can't
+// be inferred from bookings alone (it's a manual/automatic flag set when a
+// rental completes, and cleared when maintenance is completed), everything
+// else follows directly from the car's own bookings:
+//   Maintenance   → set by the "booking completed" effect below / cleared by completeMaintenance()
+//   Ending Today  → has a booking whose derived status is "Ending Today"
+//   On Rental     → has a booking whose derived status is "Active"
+//   Upcoming      → has a future booking ("Upcoming") and nothing above applies
+//   Available     → none of the above
+const computeFleetStatus = (car, bookingsWithStatus) => {
+  if (car.status === "Maintenance") return "Maintenance";
+  const carBookings = bookingsWithStatus.filter(b => b.plate === car.plate);
+  if (carBookings.some(b => b.status === "Ending Today")) return "Ending Today";
+  if (carBookings.some(b => b.status === "Active")) return "On Rental";
+  if (carBookings.some(b => b.status === "Upcoming")) return "Upcoming";
+  return "Available";
+};
+
+// Projects a car's availability forward day-by-day (used by the Booking
+// module's 10-day timeline). Everything it relies on (computeBookingStatus,
+// MAINTENANCE_MAX_DAYS) is the exact same logic "today" status already uses,
+// just replayed once per day instead of once for today. No new status rules
+// are introduced here — but note "Upcoming" is deliberately NOT one of this
+// projection's day statuses. computeBookingStatus only ever returns
+// "Upcoming" for a day strictly before a booking's start (i.e. a day the
+// booking does not actually occupy), so treating it as an occupied/
+// unavailable day here was the bug: it made every day between now and a
+// future booking's start look reserved. "Upcoming" remains valid everywhere
+// else (the car's overall current status, the booking table's status
+// column) — it's just not a per-day timeline state:
+//   Maintenance   → projected using the car's maintenanceStartDate + MAINTENANCE_MAX_DAYS,
+//                   the same window the auto-release effect (above) enforces
+//   Ending Today  → a booking's computeBookingStatus for that day is "Ending Today"
+//   On Rental     → a booking's computeBookingStatus for that day is "Active"
+//   Available     → none of the above (including every day before a future
+//                   booking's start — the car is genuinely free until then)
+// Exported so Booking.jsx renders from this, rather than re-deriving statuses itself.
+export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDateStr) => {
+  const start = fromDateStr ? new Date(fromDateStr) : new Date();
+  const carBookings = bookings.filter(b => b.plate === car.plate && !b.cancelled);
+
+  // Same auto-release window the maintenance effect uses — projected forward
+  // instead of checked against "today", so future days past the release date
+  // correctly fall through to the booking-derived statuses below.
+  const maintenanceEndStr = car.status === "Maintenance" && car.maintenanceStartDate
+    ? new Date(new Date(car.maintenanceStartDate).getTime() + MAINTENANCE_MAX_DAYS * 86400000).toISOString().slice(0, 10)
+    : null;
+
+  const timeline = [];
+  for (let i = 0; i < days; i++) {
+    const dateStr = new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10);
+
+    let status;
+    if (maintenanceEndStr && dateStr < maintenanceEndStr) {
+      status = "Maintenance";
+    } else {
+      const statusesOnDay = carBookings.map(b => computeBookingStatus(b, dateStr));
+      if (statusesOnDay.includes("Ending Today")) status = "Ending Today";
+      else if (statusesOnDay.includes("Active")) status = "On Rental";
+      else status = "Available"; // includes days before a future booking's start
+    }
+
+    timeline.push({ date: dateStr, status });
+  }
+  return timeline;
+};
+
+// Overlap check for double-booking prevention: two rental periods for the
+// same car clash if one starts before the other ends and ends after the
+// other starts. End date is treated as a same-day turnover (checkout in the
+// morning, new pickup that evening is allowed) — a common car-rental convention.
+const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
+
+// Checks every non-cancelled booking for the same plate for a date clash.
+// Pass excludeBookingId when checking an edit to a booking against itself.
+// When more than one existing booking overlaps the requested range, the
+// NEAREST one (earliest start) is returned — that's the one that actually
+// determines "the last available date" the validation message below needs,
+// since it's the first thing blocking the requested range.
+const findOverlappingBooking = (bookings, plate, start, end, excludeBookingId) => {
+  if (!start || !end) return null;
+  const newStart = new Date(start).getTime();
+  const newEnd = new Date(end).getTime();
+  const conflicts = bookings.filter(b =>
+    b.plate === plate &&
+    b.id !== excludeBookingId &&
+    !b.cancelled &&
+    b.start && b.end &&
+    rangesOverlap(newStart, newEnd, new Date(b.start).getTime(), new Date(b.end).getTime())
+  );
+  if (conflicts.length === 0) return null;
+  return conflicts.reduce((nearest, b) =>
+    new Date(b.start).getTime() < new Date(nearest.start).getTime() ? b : nearest
+  );
+};
+
+// Adds/subtracts whole days to a "YYYY-MM-DD" string, staying in plain
+// calendar-date land (no time-of-day/timezone drift).
+const addDaysToDateStr = (dateStr, n) =>
+  new Date(new Date(dateStr + "T00:00:00").getTime() + n * 86400000).toISOString().slice(0, 10);
+
+// Fixed en-US, no-year format ("Aug 1") so the validation message reads the
+// same regardless of the browser's locale — matches the style used in the
+// example the message is modeled on.
+const formatShortDate = (dateStr) =>
+  new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+// Builds the specific, actionable conflict message for the booking form —
+// built entirely from the nearest conflicting booking findOverlappingBooking
+// already found, so this is presentation only, not a second source of truth
+// for what conflicts. Two shapes:
+//   - requested start is BEFORE the conflict's start (a partial overlap,
+//     e.g. requesting Jul 22–Aug 3 against an Aug 1–Aug 12 booking): tell
+//     the person the last date they can still book through.
+//   - requested start is ON/AFTER the conflict's start (the car is already
+//     out for the whole requested window): tell them when it frees up next.
+export const buildAvailabilityConflictMessage = (conflict, requestedStart) => {
+  const conflictStartStr = toDateStr(conflict.start);
+  const conflictEndStr = toDateStr(conflict.end);
+  const requestedStartStr = toDateStr(requestedStart);
+
+  if (requestedStartStr < conflictStartStr) {
+    const lastAvailable = addDaysToDateStr(conflictStartStr, -1);
+    return `This vehicle is available only until ${formatShortDate(lastAvailable)}. An existing booking starts on ${formatShortDate(conflictStartStr)}. Please select an end date on or before ${formatShortDate(lastAvailable)} or choose another vehicle.`;
+  }
+
+  const nextAvailable = addDaysToDateStr(conflictEndStr, 1);
+  return `This vehicle is booked from ${formatShortDate(conflictStartStr)} to ${formatShortDate(conflictEndStr)}. It will be available again from ${formatShortDate(nextAvailable)}. Please choose a different start date or another vehicle.`;
+};
+
+// IC/ID Number → most recent past customer record with that exact IC, if any.
+// Booking history is the only "customer database" this app has (per product
+// decision — no separate customers table), so this scans `bookings` rather
+// than introducing a new data source. Matches on the normalized (uppercase,
+// alphanumeric-only) IC the same way handleICChange in FleetOpzApp.jsx
+// normalizes before calling this, so callers don't need to normalize twice.
+// Returns null (not undefined) when nothing matches, so callers can rely on
+// `match?.field` without worrying about the distinction.
+export const findCustomerByIC = (bookings, ic) => {
+  const normalized = (ic || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!normalized) return null;
+
+  // Sort newest-first (by start date) so if the same IC appears on multiple
+  // past bookings under slightly different details, the most recent one wins
+  // — that's the version of the customer's info most likely still accurate.
+  const matches = bookings
+    .filter(b => (b.ic || "").toUpperCase().replace(/[^A-Z0-9]/g, "") === normalized)
+    .sort((a, b) => new Date(b.start) - new Date(a.start));
+
+  if (matches.length === 0) return null;
+
+  const latest = matches[0];
+  return {
+    customer: latest.customer || "",
+    contact: latest.contact || "",
+    passport: latest.passport || "",
+    license: latest.license || "",
+    licenseExpiry: latest.licenseExpiry || "",
+    address: latest.address || "",
+  };
+};
+
+export const useFleetData = () => {
+  const [fleet, setFleet] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [earnings, setEarnings] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
+
+  // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
+  // On mount, pull all four collections from the API. Everything downstream
+  // (status derivation, KPIs, alerts, P&L) recomputes from these arrays exactly
+  // as it did when the data came from localStorage — only the source changed.
+  const reload = async () => {
+    try {
+      const [f, b, e, x] = await Promise.all([
+        api.get("/fleet"),
+        api.get("/bookings"),
+        api.get("/earnings"),
+        api.get("/expenses"),
+      ]);
+      setFleet(f);
+      setBookings(b);
+      setEarnings(e);
+      setExpenses(x);
+    } catch (err) {
+      console.error("FleetOpz: failed to load data from server", err);
+    } finally {
+      setLoaded(true);
+    }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  // When a write to the server fails, our optimistic local change is now out of
+  // step with the database — pull the authoritative state back down.
+  const onWriteError = (err) => {
+    console.error("FleetOpz: server write failed, resyncing from server", err);
+    reload();
+  };
+
+  const todayStr = new Date().toISOString().split("T")[0];
+
+  // Every consumer of this hook (Dashboard, Fleet, Booking, Alerts, P&L, ...)
+  // reads `bookings` / `fleet` from its return value below — so deriving the
+  // live status here, once, is what makes "add a booking" ripple everywhere:
+  // the booking's own status, the car's status, KPI counts, alerts, and the
+  // P&L all recompute from these same derived arrays on every render.
+  const bookingsWithStatus = bookings.map(b => ({ ...b, status: computeBookingStatus(b, todayStr) }));
+  const fleetWithStatus = fleet.map(c => ({ ...c, status: computeFleetStatus(c, bookingsWithStatus) }));
+
+  // Whenever a booking's derived status becomes "Completed" and it doesn't yet
+  // have a matching earning record, auto-create one (unlocked, pending review)
+  // — locally for an instant UI update, and on the server so it persists.
+  useEffect(() => {
+    if (!loaded) return; // don't act until the initial fetch has populated state
+    const completed = bookings.filter(b => computeBookingStatus(b, todayStr) === "Completed");
+    const existingBookingIds = new Set(earnings.map(e => e.bookingId));
+    const missing = completed.filter(b => !existingBookingIds.has(b.id));
+    if (missing.length === 0) return;
+
+    let nextNum = Math.max(...earnings.map(e => parseInt(e.id.slice(3)) || 0), 0);
+    const newRecords = missing.map(b => {
+      nextNum += 1;
+      const days = Math.round((new Date(b.end) - new Date(b.start)) / 86400000);
+      return {
+        id: `ER-${String(nextNum).padStart(3, "0")}`,
+        bookingId: b.id,
+        plate: b.plate,
+        customer: b.customer,
+        start: b.start,
+        end: b.end,
+        days,
+        rate: b.rate,
+        total: b.rate * days,
+        locked: false,
+      };
+    });
+    setEarnings(prev => [...prev, ...newRecords]);
+    newRecords.forEach(r => api.post("/earnings", r).catch(onWriteError));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, loaded]);
+
+  // Automatically move a car into "Maintenance" once one of its bookings'
+  // derived status becomes "Completed" (end date passed, or force-completed).
+  // We stamp maintenanceStartDate so the 2-day alert and 3-day auto-release
+  // have something to count from, and flag maintenanceTriggered so this effect
+  // doesn't re-fire once handled. Both the fleet and booking changes are
+  // persisted to the backend.
+  useEffect(() => {
+    if (!loaded) return;
+    const newlyCompleted = bookings.filter(
+      b => computeBookingStatus(b, todayStr) === "Completed" && !b.maintenanceTriggered
+    );
+    if (newlyCompleted.length === 0) return;
+
+    const platesToMaintain = [...new Set(newlyCompleted.map(b => b.plate))];
+    setFleet(prev => prev.map(c =>
+      platesToMaintain.includes(c.plate) ? { ...c, status: "Maintenance", maintenanceStartDate: todayStr } : c
+    ));
+    setBookings(prev => prev.map(b =>
+      newlyCompleted.some(nb => nb.id === b.id) ? { ...b, maintenanceTriggered: true } : b
+    ));
+    platesToMaintain.forEach(plate =>
+      api.put(`/fleet/${encodeURIComponent(plate)}`, { status: "Maintenance", maintenanceStartDate: todayStr }).catch(onWriteError)
+    );
+    newlyCompleted.forEach(b =>
+      api.put(`/bookings/${b.id}`, { maintenanceTriggered: true }).catch(onWriteError)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, loaded]);
+
+  // A car should never sit in "Maintenance" for more than MAINTENANCE_MAX_DAYS —
+  // if nobody completes it manually by then, release it back to "Available"
+  // automatically (and persist) so the fleet doesn't get silently stuck.
+  useEffect(() => {
+    if (!loaded) return;
+    const overdue = fleet.filter(c => {
+      if (c.status !== "Maintenance" || !c.maintenanceStartDate) return false;
+      const daysIn = Math.floor((new Date(todayStr) - new Date(c.maintenanceStartDate)) / 86400000);
+      return daysIn >= MAINTENANCE_MAX_DAYS;
+    });
+    if (overdue.length === 0) return;
+
+    const released = { status: "Available", maintenanceStartDate: null, maintenanceCompletedAt: todayStr, maintenanceAutoReleased: true };
+    const platesToRelease = new Set(overdue.map(c => c.plate));
+    setFleet(prev => prev.map(c => platesToRelease.has(c.plate) ? { ...c, ...released } : c));
+    overdue.forEach(c => api.put(`/fleet/${encodeURIComponent(c.plate)}`, released).catch(onWriteError));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fleet, loaded, todayStr]);
+
+  // ── FLEET OPERATIONS ──────────────────────────────────────────────────────
+  // Every mutation follows the same pattern: update local state immediately
+  // (optimistic — the UI feels instant), then persist to the backend; if the
+  // write fails, onWriteError reloads authoritative state from the server.
+  const addFleet = (car) => {
+    const newCar = {
+      ...car,
+      purchase: parseFloat(car.purchase),
+      insurance: parseFloat(car.insurance),
+      reg: parseFloat(car.reg),
+      otherCharges: parseFloat(car.otherCharges || 0),
+      maint: parseFloat(car.maint),
+    };
+    setFleet(prev => [...prev, newCar]);
+    api.post("/fleet", newCar).catch(onWriteError);
+  };
+
+  const updateFleet = (plate, updates) => {
+    setFleet(prev => prev.map(c => c.plate === plate ? { ...c, ...updates } : c));
+    api.put(`/fleet/${encodeURIComponent(plate)}`, updates).catch(onWriteError);
+  };
+
+  const deleteFleet = (plate) => {
+    setFleet(prev => prev.filter(c => c.plate !== plate));
+    api.del(`/fleet/${encodeURIComponent(plate)}`).catch(onWriteError);
+  };
+
+  // Manual early-completion of maintenance — the one manual status change the
+  // workflow allows. If maintenance runs its full window untouched, the
+  // auto-release effect above handles it instead.
+  const completeMaintenance = (plate) => {
+    const released = { status: "Available", maintenanceStartDate: null, maintenanceCompletedAt: todayStr, maintenanceAutoReleased: false };
+    setFleet(prev => prev.map(c =>
+      c.plate === plate && c.status === "Maintenance" ? { ...c, ...released } : c
+    ));
+    api.put(`/fleet/${encodeURIComponent(plate)}`, released).catch(onWriteError);
+  };
+
+  // Exposed to the booking form so it can block double-bookings before
+  // calling addBooking. Returns the clashing booking, or null if the dates
+  // are free for that car. Pass excludeBookingId when validating an edit.
+  const checkBookingConflict = (plate, start, end, excludeBookingId) =>
+    findOverlappingBooking(bookings, plate, start, end, excludeBookingId);
+
+  // ── BOOKING OPERATIONS ────────────────────────────────────────────────────
+  const addBooking = (booking) => {
+    // Built synchronously (not inside a setState updater) so it's ready to
+    // return immediately — FleetOpzApp.jsx passes the returned booking straight
+    // into generateRentalAgreementPdf. The server POST happens in the background.
+    const nextId = `BK-${String(Math.max(...bookings.map(b => parseInt(b.id.slice(3))), 0) + 1).padStart(3, "0")}`;
+    const newBooking = {
+      ...booking,
+      id: nextId,
+      rate: parseFloat(booking.rate),
+      status: booking.status || "Active",
+    };
+    setBookings(prev => [...prev, newBooking]);
+    api.post("/bookings", newBooking).catch(onWriteError);
+    return newBooking;
+  };
+
+  const updateBooking = (bookingId, updates) => {
+    setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, ...updates } : b));
+    api.put(`/bookings/${bookingId}`, updates).catch(onWriteError);
+  };
+
+  const deleteBooking = (bookingId) => {
+    setBookings(prev => prev.filter(b => b.id !== bookingId));
+    api.del(`/bookings/${bookingId}`).catch(onWriteError);
+  };
+
+  // ── EARNINGS OPERATIONS ───────────────────────────────────────────────────
+  const addEarning = (earning) => {
+    const nextId = `ER-${String(Math.max(...earnings.map(e => parseInt(e.id.slice(3))), 0) + 1).padStart(3, "0")}`;
+    const newEarning = { ...earning, id: nextId, total: parseFloat(earning.total) };
+    setEarnings(prev => [...prev, newEarning]);
+    api.post("/earnings", newEarning).catch(onWriteError);
+  };
+
+  const updateEarning = (earningId, updates) => {
+    setEarnings(prev => prev.map(e => e.id === earningId ? { ...e, ...updates } : e));
+    api.put(`/earnings/${earningId}`, updates).catch(onWriteError);
+  };
+
+  const deleteEarning = (earningId) => {
+    setEarnings(prev => prev.filter(e => e.id !== earningId));
+    api.del(`/earnings/${earningId}`).catch(onWriteError);
+  };
+
+  // Auto-lock earnings when booking is completed
+  const lockEarning = (bookingId) => {
+    const earning = earnings.find(e => e.bookingId === bookingId);
+    if (earning) {
+      updateEarning(earning.id, { locked: true });
+    }
+  };
+
+  // ── EXPENSE OPERATIONS ────────────────────────────────────────────────────
+  const addExpense = (expense) => {
+    const nextId = `EX-${String(Math.max(...expenses.map(e => parseInt(e.id.slice(3))), 0) + 1).padStart(3, "0")}`;
+    const newExpense = { ...expense, id: nextId, amount: parseFloat(expense.amount) };
+    setExpenses(prev => [...prev, newExpense]);
+    api.post("/expenses", newExpense).catch(onWriteError);
+  };
+
+  const updateExpense = (expenseId, updates) => {
+    setExpenses(prev => prev.map(e => e.id === expenseId ? { ...e, ...updates } : e));
+    api.put(`/expenses/${expenseId}`, updates).catch(onWriteError);
+  };
+
+  const deleteExpense = (expenseId) => {
+    setExpenses(prev => prev.filter(e => e.id !== expenseId));
+    api.del(`/expenses/${expenseId}`).catch(onWriteError);
+  };
+
+  // ── CALCULATIONS ──────────────────────────────────────────────────────────
+  const calculateMetrics = () => {
+    const totalFleet = fleetWithStatus.length;
+    const activeFleet = fleetWithStatus.filter(c => c.status === "On Rental").length;
+    const availableFleet = fleetWithStatus.filter(c => c.status === "Available").length;
+    const bookedCars = new Set(bookingsWithStatus.filter(b => b.status === "Active" || b.status === "Upcoming").map(b => b.plate)).size;
+
+    const totalBookings = bookings.length;
+    const uniqueCustomers = new Set(bookings.map(b => b.customer)).size;
+
+    const totalEarnings = earnings.reduce((sum, e) => sum + (e.total || 0), 0);
+    const lockedEarnings = earnings.filter(e => e.locked).reduce((sum, e) => sum + (e.total || 0), 0);
+    const pendingEarnings = earnings.filter(e => !e.locked).reduce((sum, e) => sum + (e.total || 0), 0);
+
+    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+    const netProfit = totalEarnings - totalExpenses;
+
+    // The 6 automatic fleet/booking buckets for the dashboard — every one of
+    // these is re-derived from fleetWithStatus / bookingsWithStatus above, so
+    // they always reflect today's date with no manual bookkeeping.
+    const fleetStatusCounts = {
+      Available: fleetWithStatus.filter(c => c.status === "Available").length,
+      Upcoming: fleetWithStatus.filter(c => c.status === "Upcoming").length,
+      "On Rental": fleetWithStatus.filter(c => c.status === "On Rental").length,
+      "Ending Today": fleetWithStatus.filter(c => c.status === "Ending Today").length,
+      Maintenance: fleetWithStatus.filter(c => c.status === "Maintenance").length,
+    };
+    const bookingStatusCounts = {
+      Upcoming: bookingsWithStatus.filter(b => b.status === "Upcoming").length,
+      Active: bookingsWithStatus.filter(b => b.status === "Active").length,
+      "Ending Today": bookingsWithStatus.filter(b => b.status === "Ending Today").length,
+      Completed: bookingsWithStatus.filter(b => b.status === "Completed").length,
+      Cancelled: bookingsWithStatus.filter(b => b.status === "Cancelled").length,
+    };
+
+    return {
+      totalFleet,
+      activeFleet,
+      availableFleet,
+      bookedCars,
+      totalBookings,
+      uniqueCustomers,
+      totalEarnings,
+      lockedEarnings,
+      pendingEarnings,
+      totalExpenses,
+      netProfit,
+      // Dashboard's 6 required buckets:
+      availableCount: fleetStatusCounts.Available,
+      upcomingCount: fleetStatusCounts.Upcoming,
+      onRentalCount: fleetStatusCounts["On Rental"],
+      endingTodayCount: fleetStatusCounts["Ending Today"],
+      completedCount: bookingStatusCounts.Completed,
+      maintenanceCount: fleetStatusCounts.Maintenance,
+      fleetStatusCounts,
+      bookingStatusCounts,
+    };
+  };
+
+  const calculateMonthlyMetrics = (month) => {
+    const monthEarnings = earnings.filter(e => e.start?.startsWith(month)).reduce((sum, e) => sum + (e.total || 0), 0);
+    const monthExpenses = expenses.filter(e => e.date?.startsWith(month)).reduce((sum, e) => sum + (e.amount || 0), 0);
+    const monthBookings = bookings.filter(b => b.start?.startsWith(month)).length;
+    const monthCustomers = new Set(bookings.filter(b => b.start?.startsWith(month)).map(b => b.customer)).size;
+
+    return {
+      monthlyEarnings: monthEarnings,
+      monthlyExpenses: monthExpenses,
+      monthlyProfit: monthEarnings - monthExpenses,
+      monthlyBookings: monthBookings,
+      monthlyCustomers: monthCustomers,
+    };
+  };
+
+  const calculateCarMetrics = (plate) => {
+    const carEarnings = earnings.filter(e => e.plate === plate).reduce((sum, e) => sum + (e.total || 0), 0);
+    const carExpenses = expenses.filter(e => e.plate === plate).reduce((sum, e) => sum + (e.amount || 0), 0);
+    const carBookings = bookings.filter(b => b.plate === plate).length;
+    const car = fleet.find(c => c.plate === plate);
+    const totalInv = car ? (car.purchase + car.insurance + car.reg) : 0;
+    const recoveryPct = totalInv > 0 ? Math.round((carEarnings / totalInv) * 100) : 0;
+
+    return {
+      earnings: carEarnings,
+      expenses: carExpenses,
+      profit: carEarnings - carExpenses,
+      bookings: carBookings,
+      investment: totalInv,
+      recoveryPct: recoveryPct,
+    };
+  };
+
+  // Per-car monthly revenue TARGET for a given month — derived from:
+  //  1) how much of its purchase+insurance+reg cost was still unrecovered as of that month,
+  //     spread over the months it had left before its COE expiry at that point in time
+  //  2) its own maintenance-budget-per-month (annual maint % of investment, ÷ 12)
+  //  3) a profit margin on top, so "target" means "profitable", not just "breakeven"
+  const carMonthlyTarget = (car, month) => {
+    const refDate = `${month}-28`; // a stable "as-of" day within the given month
+    const inv = totalInv(car);
+    const carEarningsToDate = earnings
+      .filter(e => e.plate === car.plate && e.start && e.start.slice(0, 7) <= month)
+      .reduce((s, e) => s + (e.total || 0), 0);
+    const remainingInv = Math.max(inv - carEarningsToDate, 0);
+    const daysLeft = Math.ceil((new Date(car.coe) - new Date(refDate)) / 86400000);
+    const monthsLeft = Math.max(daysLeft / 30, 1); // never divide by 0 or a negative
+    const monthlyDepreciation = remainingInv / monthsLeft;
+    const monthlyMaint = (inv * (car.maint || 0) / 100) / 12;
+    const breakeven = monthlyDepreciation + monthlyMaint;
+    return breakeven * (1 + TARGET_MARGIN_PCT / 100);
+  };
+
+  // Fleet-wide monthly target for a given month (e.g. "2026-06") — sum of every car's own target.
+  const calculateMonthlyTarget = (month) => {
+    const total = fleet.reduce((sum, car) => sum + carMonthlyTarget(car, month), 0);
+    return Math.round(total);
+  };
+
+  // A single car's monthly target, rounded — used by the Target vs Actual card.
+  const calculateCarMonthlyTarget = (plate, month) => {
+    const car = fleet.find(c => c.plate === plate);
+    if (!car) return 0;
+    return Math.round(carMonthlyTarget(car, month));
+  };
+
+  // Monthly operating BUDGET for a given month — the expected running cost baseline for the
+  // whole fleet, built from each car's own annual maintenance % of its investment, ÷ 12.
+  // Maintenance % doesn't change month to month, but the parameter is kept so this has the
+  // same shape as calculateMonthlyTarget and can be extended later (e.g. once fleet records
+  // track when a car joined, to exclude cars not yet owned in a given month).
+  const calculateMonthlyBudget = (month) => {
+    const total = fleet.reduce((sum, car) => sum + (totalInv(car) * (car.maint || 0) / 100) / 12, 0);
+    return Math.round(total);
+  };
+
+  const getExpensesByCategory = (month) => {
+    const monthExpenses = expenses.filter(e => e.date?.startsWith(month));
+    const byCategory = {};
+
+    monthExpenses.forEach(e => {
+      byCategory[e.category] = (byCategory[e.category] || 0) + (e.amount || 0);
+    });
+
+    return byCategory;
+  };
+
+  const generateAlerts = () => {
+    const alerts = [];
+    const today = new Date().toISOString().split("T")[0];
+    let alertId = 1;
+
+    // Vehicle registration renewal alerts (car.coe holds the renewal/expiry
+    // date field name — kept for data compatibility, relabeled everywhere in the UI)
+    fleet.forEach(car => {
+      const coeDate = new Date(car.coe);
+      const today_date = new Date(today);
+      const daysUntil = Math.ceil((coeDate - today_date) / (1000 * 60 * 60 * 24));
+
+      if (daysUntil <= 90) {
+        alerts.push({
+          id: alertId++,
+          type: "coe",
+          plate: car.plate,
+          car: `${car.make} ${car.model}`,
+          msg: `Vehicle registration renewal due ${car.coe}`,
+          days: Math.max(0, daysUntil),
+          urgent: daysUntil <= 30,
+        });
+      }
+    });
+
+    // Maintenance pending alerts — a car that's been sitting in "Maintenance"
+    // for 2+ days without being completed. It will auto-release at day 3
+    // regardless (see the effect above), but this flags it before that happens.
+    fleet.forEach(car => {
+      if (car.status !== "Maintenance" || !car.maintenanceStartDate) return;
+      const daysIn = Math.floor((new Date(today) - new Date(car.maintenanceStartDate)) / (1000 * 60 * 60 * 24));
+      if (daysIn >= 2) {
+        alerts.push({
+          id: alertId++,
+          type: "maintenance",
+          plate: car.plate,
+          car: `${car.make} ${car.model}`,
+          msg: `In maintenance for ${daysIn} day${daysIn === 1 ? "" : "s"} — update or complete maintenance`,
+          days: daysIn,
+          urgent: daysIn >= 3,
+        });
+      }
+    });
+
+    // Booking return today alerts
+    bookingsWithStatus.forEach(b => {
+      const endDate = new Date(b.end).toISOString().split("T")[0];
+      if (endDate === today && (b.status === "Active" || b.status === "Ending Today")) {
+        alerts.push({
+          id: alertId++,
+          type: "return",
+          plate: b.plate,
+          car: fleet.find(c => c.plate === b.plate)?.make + " " + fleet.find(c => c.plate === b.plate)?.model,
+          msg: `${b.customer} — Return by 6 PM`,
+          days: 0,
+          urgent: true,
+        });
+      }
+    });
+
+    // Upcoming booking alerts
+    const tomorrow = new Date(new Date().getTime() + 86400000).toISOString().split("T")[0];
+    bookings.forEach(b => {
+      const startDate = new Date(b.start).toISOString().split("T")[0];
+      if (startDate === tomorrow && (b.status === "Upcoming" || b.status === "Active")) {
+        alerts.push({
+          id: alertId++,
+          type: "booking",
+          plate: b.plate,
+          car: fleet.find(c => c.plate === b.plate)?.make + " " + fleet.find(c => c.plate === b.plate)?.model,
+          msg: `${b.customer} booking starts tomorrow`,
+          days: 1,
+          urgent: false,
+        });
+      }
+    });
+
+    return alerts;
+  };
+
+  // Reloads all data fresh from the server — used to discard local optimistic
+  // state and resync. The database is the source of truth now, so there's no
+  // "restore sample data" anymore; that lives in the DB seed (schema.sql).
+  const resetData = () => {
+    reload();
+  };
+
+  return {
+    // Data
+    fleet: fleetWithStatus,
+    bookings: bookingsWithStatus,
+    earnings,
+    expenses,
+    alerts: generateAlerts(),
+    resetData,
+
+    // Fleet operations
+    addFleet,
+    updateFleet,
+    deleteFleet,
+    completeMaintenance,
+
+    // Booking operations
+    addBooking,
+    updateBooking,
+    deleteBooking,
+    checkBookingConflict,
+
+    // Earnings operations
+    addEarning,
+    updateEarning,
+    deleteEarning,
+    lockEarning,
+
+    // Expense operations
+    addExpense,
+    updateExpense,
+    deleteExpense,
+
+    // Calculations
+    calculateMetrics,
+    calculateMonthlyMetrics,
+    calculateCarMetrics,
+    calculateMonthlyTarget,
+    calculateCarMonthlyTarget,
+    calculateMonthlyBudget,
+    getExpensesByCategory,
+  };
+};
