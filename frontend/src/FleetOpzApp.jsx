@@ -3,6 +3,7 @@ import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
 import { useAuth } from "./context/AuthContext";
+import api from "./services/api";
 
 import AddCarWizard from "./AddCarWizard";
 import { generateRentalAgreementPdf } from "./rentalagreement";
@@ -424,7 +425,8 @@ export default function FleetOpzApp() {
 
   const [newUserData, setNewUserData] = useState({
     name: "",
-    email: "",
+    username: "",
+    password: "",
     role: "Staff"
   });
 
@@ -678,11 +680,28 @@ export default function FleetOpzApp() {
     }
   };
 
-  const handleNewUserSubmit = (e) => {
+  // Creates a real account via the admin-only register endpoint. The admin's
+  // own token is attached automatically by api.js; the token returned for the
+  // new user is ignored, so the admin stays logged in as themselves.
+  const handleNewUserSubmit = async (e) => {
     e.preventDefault();
-    alert(`User added: ${newUserData.name} (${newUserData.role}) — ${newUserData.email}`);
-    setNewUserData({ name: "", email: "", role: "Staff" });
-    setShowNewUser(false);
+    if (!newUserData.name || !newUserData.username || !newUserData.password) {
+      alert("Name, username and password are required.");
+      return;
+    }
+    try {
+      await api.post("/auth/register", {
+        name: newUserData.name,
+        username: newUserData.username,
+        password: newUserData.password,
+        role: newUserData.role.toLowerCase(), // backend stores "admin" | "staff"
+      });
+      alert(`User created: ${newUserData.name} (${newUserData.role})`);
+      setNewUserData({ name: "", username: "", password: "", role: "Staff" });
+      setShowNewUser(false);
+    } catch (err) {
+      alert(err.message || "Failed to create user");
+    }
   };
 
   // Derived pricing for Step 3 (Pricing & Charges) — recomputed from
@@ -1539,11 +1558,17 @@ export default function FleetOpzApp() {
           placeholder="e.g., Nur Aisyah"
         />
         <Input
-          label="Email"
-          type="email"
-          value={newUserData.email}
-          onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
-          placeholder="e.g., aisyah@dubaidrive.ae"
+          label="Username"
+          value={newUserData.username}
+          onChange={(e) => setNewUserData({ ...newUserData, username: e.target.value })}
+          placeholder="e.g., aisyah"
+        />
+        <Input
+          label="Password"
+          type="password"
+          value={newUserData.password}
+          onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+          placeholder="Set a password for this user"
         />
         <Select
           label="Role"

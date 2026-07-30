@@ -180,7 +180,7 @@ const Settings = ({
         </Card>
 
         <Card>
-          <CardHeader title="User Management" right={<Btn small primary onClick={onAddUser}>＋ Add User</Btn>} />
+          <CardHeader title="User Management" right={isAdmin ? <Btn small primary onClick={onAddUser}>＋ Add User</Btn> : null} />
           <div style={{ padding: 16 }}>
             {[
               { name: "Selvakumar", role: "Admin", email: "selva@sgwheels.com" },
