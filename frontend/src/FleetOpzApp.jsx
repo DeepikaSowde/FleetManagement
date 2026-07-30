@@ -13,6 +13,7 @@ import Fleet from "./Fleet";
 import Booking from "./Booking";
 import Earning from "./Earning";
 import Expenses from "./Expenses";
+import Ledger from "./Ledger";
 import PlReport from "./pl report";
 import Alert from "./Alert";
 import Settings from "./Settings";
@@ -436,6 +437,7 @@ export default function FleetOpzApp() {
     { id: "bookings", label: "Bookings", icon: "📅" },
     { id: "earnings", label: "Earnings", icon: "💰" },
     { id: "expenses", label: "Expenses", icon: "📝" },
+    { id: "ledger", label: "Ledger", icon: "📒" },
     { id: "pl", label: "P&L", icon: "📈" },
     { id: "alerts", label: "Alerts", icon: "🔔", badge: fleetData.alerts.length },
     { id: "settings", label: "Settings", icon: "⚙️" },
@@ -504,6 +506,13 @@ export default function FleetOpzApp() {
         onDeleteExpense={fleetData.deleteExpense}
       />
     ),
+    ledger: (
+      <Ledger
+        earnings={fleetData.earnings}
+        expenses={fleetData.expenses}
+        fleet={fleetData.fleet}
+      />
+    ),
     pl: (
       <PlReport
         fleet={fleetData.fleet}
@@ -539,6 +548,7 @@ export default function FleetOpzApp() {
     bookings: { title: "Bookings", sub: `${fleetData.bookings.length} total bookings` },
     earnings: { title: "Actual Earnings", sub: "Locked rental income records" },
     expenses: { title: "Expense Management", sub: "Log and track running costs" },
+    ledger: { title: "Financial Ledger", sub: "Rental income & expenses with running balance" },
     pl: { title: "P&L Reports", sub: "Profitability by car and fleet" },
     alerts: { title: "Alerts", sub: `${fleetData.alerts.length} active alerts` },
     settings: { title: "Settings", sub: "Company profile and users" },
