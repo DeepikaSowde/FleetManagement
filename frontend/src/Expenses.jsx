@@ -69,18 +69,21 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Category</div>
                 <select value={newExpense.category} onChange={e => setNewExpense({ ...newExpense, category: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none" }}>
                   <option value="">-- Select --</option>
-                  <option value="Routine Service">Routine Service</option>
-                  <option value="Body Repair">Body Repair</option>
+                  {/* Categories derived from RDK Trading's real ledger (RDK_Car Rental_Database.xlsx) */}
+                  <option value="Vehicle Purchase">Vehicle Purchase</option>
+                  <option value="New Vehicle Advance Paid">New Vehicle Advance Paid</option>
+                  <option value="Insurance">Insurance</option>
+                  <option value="Road Tax & Transfer Fee">Road Tax & Transfer Fee</option>
+                  <option value="LTA Fee">LTA Fee</option>
+                  <option value="LTA Transfer">LTA Transfer</option>
+                  <option value="Registration">Registration</option>
+                  <option value="Inspection">Inspection</option>
+                  <option value="Internal Sticker">Internal Sticker</option>
                   <option value="Fuel">Fuel</option>
-                  <option value="Tyre Replacement">Tyre Replacement</option>
-                  <option value="Electrical Repair">Electrical Repair</option>
-                  <option value="Engine Repair">Engine Repair</option>
-                  <option value="Air-Con Service">Air-Con Service</option>
-                  <option value="Insurance Renewal">Insurance Renewal</option>
-                  <option value="Road Tax / Registration">Road Tax / Registration</option>
-                  <option value="COE Renewal">COE Renewal</option>
-                  <option value="Cleaning & Detailing">Cleaning & Detailing</option>
-                  <option value="Parking / Fines">Parking / Fines</option>
+                  <option value="Parking Fee">Parking Fee</option>
+                  <option value="Repairs & Maintenance">Repairs & Maintenance</option>
+                  <option value="PR Payment">PR Payment</option>
+                  <option value="Advertisement">Advertisement</option>
                   <option value="Other / Miscellaneous">Other / Miscellaneous</option>
                 </select>
               </div>
