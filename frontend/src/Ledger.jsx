@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Badge, PlateBadge } from "./components";
+import { INVESTMENTS } from "./data"; // TEMP: seeded investor capital from the RDK Excel
 
 // Read-only financial ledger. It is NOT a separate data source — it is a
 // unified, chronological view built from data the app already tracks:
@@ -9,6 +10,8 @@ import { Card, CardHeader, Badge, PlateBadge } from "./components";
 //   • Booking deposits  -> "Deposit IN" credit at pickup, "Deposit OUT" debit
 //                          when refunded (deposits move cash but are NOT profit,
 //                          so they never touch the P&L — only this cash ledger)
+//   • Investments       -> "Investment" credits (investor capital in; cash only,
+//                          not profit). TEMP: seeded from the RDK Excel (data.js).
 // with a running balance and Opening/Credit/Debit/Closing summary, filtered by
 // period / vehicle / type / search. Same idea as the P&L page: derived, live.
 
@@ -102,6 +105,20 @@ const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => 
       }
     });
 
+    // Investor capital in (temporary seed from the Excel).
+    INVESTMENTS.forEach((iv) => {
+      rows.push({
+        key: `IV-${iv.id}`,
+        date: (iv.date || "").slice(0, 10),
+        plate: "",
+        type: "Investment",
+        description: `Investment (${iv.investor})`,
+        remarks: iv.investor,
+        credit: iv.amount || 0,
+        debit: 0,
+      });
+    });
+
     // Chronological (oldest first) so the running balance accumulates correctly.
     rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.key < b.key ? -1 : 1));
 
@@ -163,6 +180,7 @@ const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => 
 
   // Badge colours per transaction type.
   const typeStyle = {
+    "Investment": { color: C.navy, bg: C.linen },
     "Rental Income": { color: C.green, bg: C.greenFaint },
     "Deposit IN": { color: C.teal, bg: C.tealFaint },
     "Expense": { color: C.red, bg: C.redFaint },
@@ -197,6 +215,7 @@ const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => 
             <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Transaction Type</div>
             <select style={selectStyle} value={type} onChange={(e) => setType(e.target.value)}>
               <option value="all">All Types</option>
+              <option value="Investment">Investment</option>
               <option value="Rental Income">Rental Income</option>
               <option value="Expense">Expense</option>
               <option value="Deposit IN">Deposit IN</option>

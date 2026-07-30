@@ -17,6 +17,17 @@ export const FLEET = [
   { plate:"SBI 5566 E", make:"Kia",    model:"Cerato",  year:2022, color:"Silver", purchase:23000, insurance:1100, reg:1050, otherCharges:0, purchaseDate:"2022-10-18", maint:7.5, coe:"2027-10-18", status:"Available", minRate:null, maxRate:null, targetRate:null, runningDaysTarget:null, profitPctTarget:null },
 ];
 
+// TEMPORARY: investor capital taken as-is from RDK_Car Rental_Database.xlsx so
+// it shows in the Ledger. Not yet a managed feature — to be replaced by a real
+// Investments table / UI later. Amounts are capital in (credits); they affect
+// the cash balance only, never the P&L.
+export const INVESTMENTS = [
+  { id: "INV-001", investor: "VASANTH",  amount: 30000, date: "2026-06-25" },
+  { id: "INV-002", investor: "JAMES",    amount: 5000,  date: "2026-07-18" },
+  { id: "INV-003", investor: "JAMES",    amount: 5000,  date: "2026-07-19" }, // 2nd time
+  { id: "INV-004", investor: "Thamarai", amount: 9000,  date: "2026-07-24" },
+];
+
 export const BOOKINGS = [];
 
 export const EARNINGS = [];
