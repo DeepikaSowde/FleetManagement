@@ -18,8 +18,8 @@
 CREATE TABLE IF NOT EXISTS users (
   id          SERIAL PRIMARY KEY,
   name        VARCHAR(120) NOT NULL,
-  email       VARCHAR(160) UNIQUE NOT NULL,
-  password    VARCHAR(255) NOT NULL,          -- bcrypt hash, never plain text
+  username    VARCHAR(80) UNIQUE NOT NULL,     -- login handle
+  password    VARCHAR(255) NOT NULL,           -- bcrypt hash, never plain text
   role        VARCHAR(20)  NOT NULL DEFAULT 'admin',  -- admin | staff
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );

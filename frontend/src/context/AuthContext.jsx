@@ -32,14 +32,14 @@ export function AuthProvider({ children }) {
     restore();
   }, []);
 
-  async function login(email, password) {
-    const { token, user } = await api.post("/auth/login", { email, password });
+  async function login(username, password) {
+    const { token, user } = await api.post("/auth/login", { username, password });
     setToken(token);
     setUser(user);
   }
 
-  async function register(name, email, password) {
-    const { token, user } = await api.post("/auth/register", { name, email, password });
+  async function register(name, username, password) {
+    const { token, user } = await api.post("/auth/register", { name, username, password });
     setToken(token);
     setUser(user);
   }

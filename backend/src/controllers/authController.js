@@ -6,7 +6,7 @@ const User = require("../models/userModel");
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, username: user.username, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
@@ -14,16 +14,16 @@ function signToken(user) {
 
 async function register(req, res, next) {
   try {
-    const { name, email, password, role } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "name, email and password are required" });
+    const { name, username, password, role } = req.body;
+    if (!name || !username || !password) {
+      return res.status(400).json({ message: "name, username and password are required" });
     }
-    const existing = await User.findByEmail(email);
+    const existing = await User.findByUsername(username);
     if (existing) {
-      return res.status(409).json({ message: "Email already registered" });
+      return res.status(409).json({ message: "Username already taken" });
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.createUser({ name, email, passwordHash, role });
+    const user = await User.createUser({ name, username, passwordHash, role });
     const token = signToken(user);
     res.status(201).json({ token, user });
   } catch (err) {
@@ -33,17 +33,17 @@ async function register(req, res, next) {
 
 async function login(req, res, next) {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ message: "email and password are required" });
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ message: "username and password are required" });
     }
-    const user = await User.findByEmail(email);
+    const user = await User.findByUsername(username);
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
-    const safeUser = { id: user.id, name: user.name, email: user.email, role: user.role };
+    const safeUser = { id: user.id, name: user.name, username: user.username, role: user.role };
     const token = signToken(safeUser);
     res.json({ token, user: safeUser });
   } catch (err) {

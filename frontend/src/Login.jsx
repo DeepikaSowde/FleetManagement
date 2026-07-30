@@ -9,7 +9,7 @@ export default function Login() {
   const { login, register } = useAuth();
   const [mode, setMode] = useState("login"); // "login" | "register"
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,9 +22,9 @@ export default function Login() {
     setBusy(true);
     try {
       if (isRegister) {
-        await register(name, email, password);
+        await register(name, username, password);
       } else {
-        await login(email, password);
+        await login(username, password);
       }
     } catch (err) {
       setError(err.message || "Something went wrong");
@@ -67,8 +67,8 @@ export default function Login() {
             </label>
           )}
           <label style={{ display: "block", marginBottom: 14 }}>
-            <span style={labelStyle}>Email</span>
-            <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
+            <span style={labelStyle}>Username</span>
+            <input style={inputStyle} type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. admin" required autoCapitalize="none" autoCorrect="off" />
           </label>
           <label style={{ display: "block", marginBottom: 18 }}>
             <span style={labelStyle}>Password</span>
