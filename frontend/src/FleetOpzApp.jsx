@@ -228,28 +228,13 @@ export default function FleetOpzApp() {
   const { user, logout } = useAuth();
   const currentUserRole = user?.role === "admin" ? "Admin" : "Staff";
 
-  // Driving licenses blocked from being used on a new booking (active
-  // criminal case, court restriction, etc). Lifted up here — rather than
-  // owned by Settings — because Booking creation needs to read it too.
-  const [restrictedLicenses, setRestrictedLicenses] = useState([
-    { id: "RL-1001", licenseNumber: "DL-2024-88213", reason: "Criminal Case", addedDate: "2026-05-10" },
-  ]);
-
-  const addRestrictedLicense = (entry) => {
-    setRestrictedLicenses(prev => [
-      ...prev,
-      { id: `RL-${Date.now()}`, addedDate: new Date().toISOString().slice(0, 10), ...entry },
-    ]);
-  };
-  const updateRestrictedLicense = (id, updates) => {
-    setRestrictedLicenses(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
-  };
-  const deleteRestrictedLicense = (id) => {
-    setRestrictedLicenses(prev => prev.filter(r => r.id !== id));
-  };
-
   // Initialize fleet data management hook
   const fleetData = useFleetData();
+
+  // Driving-license blocklist now lives in the backend (persisted), served
+  // through useFleetData like every other entity. Booking creation reads it to
+  // block restricted licenses; Settings (admin) manages it.
+  const { restrictedLicenses, addRestrictedLicense, updateRestrictedLicense, deleteRestrictedLicense } = fleetData;
 
   const [newBookingData, setNewBookingData] = useState({
     plate: "",

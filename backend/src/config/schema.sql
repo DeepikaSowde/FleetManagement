@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_plate ON expenses (plate);
 
+-- ── RESTRICTED LICENSES — driving-license blocklist (admin managed) ──────────
+-- Booking creation is blocked if the driver's license number is on this list
+-- (e.g. active criminal case, court restriction). Keyed by app-generated id.
+CREATE TABLE IF NOT EXISTS restricted_licenses (
+  id             VARCHAR(40) PRIMARY KEY,
+  license_number VARCHAR(120) NOT NULL,
+  reason         VARCHAR(200),
+  added_date     TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ── SEED: sample fleet ──────────────────────────────────────────────────────
 -- The original frontend shipped with these 8 demo cars (bookings/earnings/
 -- expenses started empty). Seeded here so a fresh install isn't blank. Status

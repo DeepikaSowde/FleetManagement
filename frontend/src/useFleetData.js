@@ -213,6 +213,7 @@ export const useFleetData = () => {
   const [bookings, setBookings] = useState([]);
   const [earnings, setEarnings] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [restrictedLicenses, setRestrictedLicenses] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -221,16 +222,18 @@ export const useFleetData = () => {
   // as it did when the data came from localStorage — only the source changed.
   const reload = async () => {
     try {
-      const [f, b, e, x] = await Promise.all([
+      const [f, b, e, x, rl] = await Promise.all([
         api.get("/fleet"),
         api.get("/bookings"),
         api.get("/earnings"),
         api.get("/expenses"),
+        api.get("/restricted-licenses"),
       ]);
       setFleet(f);
       setBookings(b);
       setEarnings(e);
       setExpenses(x);
+      setRestrictedLicenses(rl);
     } catch (err) {
       console.error("FleetOpz: failed to load data from server", err);
     } finally {
@@ -450,6 +453,30 @@ export const useFleetData = () => {
   const deleteExpense = (expenseId) => {
     setExpenses(prev => prev.filter(e => e.id !== expenseId));
     api.del(`/expenses/${expenseId}`).catch(onWriteError);
+  };
+
+  // ── RESTRICTED LICENSE (blocklist) OPERATIONS ─────────────────────────────
+  // Same optimistic pattern. Writes are admin-only on the server; a non-admin's
+  // write would 403 and onWriteError resyncs. The frontend generates the id so
+  // the new row is usable immediately.
+  const addRestrictedLicense = (entry) => {
+    const newEntry = {
+      id: `RL-${Date.now()}`,
+      addedDate: new Date().toISOString().slice(0, 10),
+      ...entry,
+    };
+    setRestrictedLicenses(prev => [...prev, newEntry]);
+    api.post("/restricted-licenses", newEntry).catch(onWriteError);
+  };
+
+  const updateRestrictedLicense = (id, updates) => {
+    setRestrictedLicenses(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+    api.put(`/restricted-licenses/${id}`, updates).catch(onWriteError);
+  };
+
+  const deleteRestrictedLicense = (id) => {
+    setRestrictedLicenses(prev => prev.filter(r => r.id !== id));
+    api.del(`/restricted-licenses/${id}`).catch(onWriteError);
   };
 
   // ── CALCULATIONS ──────────────────────────────────────────────────────────
@@ -717,6 +744,12 @@ export const useFleetData = () => {
     addExpense,
     updateExpense,
     deleteExpense,
+
+    // Restricted-license (blocklist) operations
+    restrictedLicenses,
+    addRestrictedLicense,
+    updateRestrictedLicense,
+    deleteRestrictedLicense,
 
     // Calculations
     calculateMetrics,

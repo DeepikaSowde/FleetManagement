@@ -9,6 +9,7 @@ const fleetRoutes = require("./routes/fleetRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
 const earningRoutes = require("./routes/earningRoutes");
 const expenseRoutes = require("./routes/expenseRoutes");
+const restrictedLicenseRoutes = require("./routes/restrictedLicenseRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
 const app = express();
@@ -24,6 +25,7 @@ app.use("/api/fleet", fleetRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/earnings", earningRoutes);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/restricted-licenses", restrictedLicenseRoutes);
 
 // ── Fallbacks (must be last) ────────────────────────────────────────────────
 app.use(notFound);
