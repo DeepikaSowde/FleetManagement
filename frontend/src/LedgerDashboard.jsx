@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell,
@@ -101,6 +101,12 @@ const LedgerDashboard = ({
     return map;
   }, [bookings]);
   const topVehicles = [...vehicleRows].sort((a, b) => b.profit - a.profit).slice(0, 5);
+
+  // Vehicle Profitability shows the 5 most profitable by default; "View All"
+  // reveals the rest.
+  const [showAllVehicles, setShowAllVehicles] = useState(false);
+  const rankedVehicles = useMemo(() => [...vehicleRows].sort((a, b) => b.profit - a.profit), [vehicleRows]);
+  const visibleVehicles = showAllVehicles ? rankedVehicles : rankedVehicles.slice(0, 5);
 
   const metrics = calculateMetrics();
   const totalV = metrics.totalFleet || 1;
@@ -217,12 +223,18 @@ const LedgerDashboard = ({
       {/* Vehicle Profitability + Top Performing */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <Card style={cardStyle}>
-          <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car" />
+          <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car"
+            right={rankedVehicles.length > 5 && (
+              <button onClick={() => setShowAllVehicles((s) => !s)}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: VIZ.blue }}>
+                {showAllVehicles ? "Show less" : `View all (${rankedVehicles.length})`}
+              </button>
+            )} />
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr>{["Vehicle", "Revenue", "Expense", "Profit", "Profit %"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
-                {vehicleRows.map((v) => (
+                {visibleVehicles.map((v) => (
                   <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
                     <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
                     <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.green, textAlign: "right" }}>{fmt(Math.round(v.revenue))}</td>
