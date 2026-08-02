@@ -719,12 +719,9 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
         />
       </div>
 
-      {/* Header with Add New Car Button */}
+      {/* Add New Car button (page title is shown by the app top bar) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Fleet Management</div>
-          <div style={{ fontSize: 11, color: C.textMuted }}>{fleet.length} cars registered · Click a row to view details</div>
-        </div>
+        <div style={{ fontSize: 11, color: C.textMuted }}>Click a row to view details</div>
         <Btn primary onClick={() => setWizardOpen(true)}>+ Add New Car</Btn>
       </div>
 
