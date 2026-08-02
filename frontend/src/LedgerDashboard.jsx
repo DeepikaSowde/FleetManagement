@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell,
 } from "recharts";
 import { C, mono, fmt } from "./theme";
@@ -9,10 +9,8 @@ import { buildLedgerRows } from "./ledgerUtils";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
 // from data the app already has (no backend). Colours use a validated
-// colour-blind-safe categorical palette (see dataviz skill) rather than the
-// app's muted theme, to match the bright reference design.
+// colour-blind-safe categorical palette (see dataviz skill).
 
-// Validated categorical palette (light surface). Order is the CVD-safe order.
 const VIZ = {
   blue: "#2a78d6", orange: "#eb6834", aqua: "#1baf7a", yellow: "#eda100",
   magenta: "#e87ba4", green: "#008300", violet: "#4a3aa7", red: "#e34948",
@@ -21,11 +19,15 @@ const DONUT = [VIZ.blue, VIZ.orange, VIZ.aqua, VIZ.yellow, VIZ.magenta, VIZ.viol
 const UP = "#006300", DOWN = VIZ.red;
 
 const cardStyle = { background: "#ffffff", borderRadius: 14, border: "1px solid #ECECEC", boxShadow: "0 1px 2px rgba(16,24,40,0.06)" };
-const tint = (hex) => `${hex}1A`; // ~10% alpha wash for icon chips
+const tint = (hex) => `${hex}1A`;
 
 const monthLabelOf = (ym) => {
   const [y, m] = ym.split("-");
   return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+};
+const monthShort = (ym) => {
+  const [y, m] = ym.split("-");
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short" });
 };
 const prevMonthOf = (ym) => {
   const [y, m] = ym.split("-").map(Number);
@@ -36,58 +38,87 @@ const pct = (cur, prev) => (!prev ? (cur > 0 ? 100 : 0) : ((cur - prev) / Math.a
 
 const LedgerDashboard = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [],
-  calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
+  calculateMetrics, calculateCarMetrics,
 }) => {
-  const activeMonth = useMemo(() => {
-    const dates = [
-      ...earnings.map((e) => (e.end || e.start || "").slice(0, 7)),
-      ...expenses.map((x) => (x.date || "").slice(0, 7)),
-    ].filter(Boolean).sort();
-    return dates.length ? dates[dates.length - 1] : new Date().toISOString().slice(0, 7);
+  // Months that actually have data (income and/or expenses).
+  const monthsPresent = useMemo(() => {
+    const s = new Set();
+    earnings.forEach((e) => { const m = (e.end || e.start || "").slice(0, 7); if (m) s.add(m); });
+    expenses.forEach((x) => { const m = (x.date || "").slice(0, 7); if (m) s.add(m); });
+    return [...s].sort();
   }, [earnings, expenses]);
-  const lastMonth = prevMonthOf(activeMonth);
 
+  // Default to "all" so the dashboard shows everything even when income and
+  // expenses fall in different months.
+  const [period, setPeriod] = useState("all");
+  const isAll = period === "all";
+
+  // ── Money helpers ─────────────────────────────────────────────────────────
+  const earnMonth = (m) => earnings.filter((e) => (e.end || e.start || "").startsWith(m)).reduce((s, e) => s + (e.total || 0), 0);
+  const expMonth = (m) => expenses.filter((x) => (x.date || "").startsWith(m)).reduce((s, x) => s + (x.amount || 0), 0);
+  const totalEarn = earnings.reduce((s, e) => s + (e.total || 0), 0);
+  const totalExp = expenses.reduce((s, x) => s + (x.amount || 0), 0);
+
+  const income = isAll ? totalEarn : earnMonth(period);
+  const expenseTotal = isAll ? totalExp : expMonth(period);
+  const profit = income - expenseTotal;
+  const prevP = isAll ? null : prevMonthOf(period);
+
+  // ── Balances (shared ledger helper) ───────────────────────────────────────
   const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings), [earnings, expenses, bookings]);
-  const monthStart = `${activeMonth}-01`;
-  const openingBalance = rows.filter((r) => r.date < monthStart).reduce((s, r) => s + r.credit - r.debit, 0);
   const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
-
-  const cur = calculateMonthlyMetrics(activeMonth);
-  const prev = calculateMonthlyMetrics(lastMonth);
+  const openingBalance = isAll ? 0 : rows.filter((r) => r.date < `${period}-01`).reduce((s, r) => s + r.credit - r.debit, 0);
 
   const kpis = [
-    { label: "Opening Balance", value: openingBalance, sub: `Balance at the beginning of this month`, color: VIZ.green, icon: "📗", delta: null },
+    { label: "Opening Balance", value: openingBalance, sub: isAll ? "Start of records" : `As of 01 ${monthLabelOf(period)}`, color: VIZ.green, icon: "📗", delta: null },
     { label: "Current Balance", value: currentBalance, sub: "Live cash position", color: VIZ.aqua, icon: "💵", delta: null },
-    { label: "Total Income", value: cur.monthlyEarnings, sub: "This month", color: VIZ.blue, icon: "💲", delta: pct(cur.monthlyEarnings, prev.monthlyEarnings) },
-    { label: "Total Expense", value: cur.monthlyExpenses, sub: "This month", color: VIZ.red, icon: "📉", delta: pct(cur.monthlyExpenses, prev.monthlyExpenses) },
-    { label: "Net Profit", value: cur.monthlyProfit, sub: "This month", color: VIZ.violet, icon: "📊", delta: pct(cur.monthlyProfit, prev.monthlyProfit) },
+    { label: "Total Income", value: income, sub: isAll ? "All time" : "Selected month", color: VIZ.blue, icon: "💲", delta: prevP ? pct(income, earnMonth(prevP)) : null },
+    { label: "Total Expense", value: expenseTotal, sub: isAll ? "All time" : "Selected month", color: VIZ.red, icon: "📉", delta: prevP ? pct(expenseTotal, expMonth(prevP)) : null },
+    { label: "Net Profit", value: profit, sub: isAll ? "All time" : "Selected month", color: VIZ.violet, icon: "📊", delta: prevP ? pct(profit, earnMonth(prevP) - expMonth(prevP)) : null },
   ];
 
-  // Revenue Overview — daily income this vs last month.
-  const dailyIncome = (ym) => {
-    const map = {};
-    earnings.forEach((e) => {
-      const dt = (e.end || e.start || "").slice(0, 10);
-      if (dt.slice(0, 7) === ym) map[Number(dt.slice(8, 10))] = (map[Number(dt.slice(8, 10))] || 0) + (e.total || 0);
-    });
-    return map;
-  };
-  const revenueSeries = useMemo(() => {
-    const [y, m] = activeMonth.split("-").map(Number);
+  // ── Revenue chart ─────────────────────────────────────────────────────────
+  // All-time  → Income vs Expense by month (shows disjoint months clearly).
+  // A month   → daily income, this month vs last.
+  const revenue = useMemo(() => {
+    if (isAll) {
+      return {
+        mode: "monthly",
+        xKey: "label",
+        series: [{ key: "Income", color: VIZ.blue }, { key: "Expense", color: VIZ.red }],
+        data: monthsPresent.map((m) => ({ label: monthShort(m), Income: earnMonth(m), Expense: expMonth(m) })),
+      };
+    }
+    const [y, m] = period.split("-").map(Number);
     const daysIn = new Date(y, m, 0).getDate();
-    const thisM = dailyIncome(activeMonth), lastM = dailyIncome(lastMonth);
-    return Array.from({ length: daysIn }, (_, i) => ({ day: i + 1, "This Month": thisM[i + 1] || 0, "Last Month": lastM[i + 1] || 0 }));
+    const dayMap = (ym) => {
+      const map = {};
+      earnings.forEach((e) => {
+        const dt = (e.end || e.start || "").slice(0, 10);
+        if (dt.slice(0, 7) === ym) map[Number(dt.slice(8, 10))] = (map[Number(dt.slice(8, 10))] || 0) + (e.total || 0);
+      });
+      return map;
+    };
+    const thisM = dayMap(period), lastM = dayMap(prevMonthOf(period));
+    return {
+      mode: "daily",
+      xKey: "day",
+      series: [{ key: "This Month", color: VIZ.blue }, { key: "Last Month", color: "#B7B7B7" }],
+      data: Array.from({ length: daysIn }, (_, i) => ({ day: i + 1, "This Month": thisM[i + 1] || 0, "Last Month": lastM[i + 1] || 0 })),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [earnings, activeMonth]);
+  }, [earnings, expenses, period, monthsPresent]);
 
-  // Expense breakdown donut.
+  // ── Expense breakdown donut (computed straight from expenses) ──────────────
   const donut = useMemo(() => {
-    const byCat = getExpensesByCategory(activeMonth) || {};
+    const src = isAll ? expenses : expenses.filter((x) => (x.date || "").startsWith(period));
+    const byCat = {};
+    src.forEach((x) => { const k = x.category || "Other"; byCat[k] = (byCat[k] || 0) + (x.amount || 0); });
     return Object.entries(byCat).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [getExpensesByCategory, activeMonth]);
-  const totalExpenseMonth = donut.reduce((s, d) => s + d.value, 0);
+  }, [expenses, period, isAll]);
+  const donutTotal = donut.reduce((s, d) => s + d.value, 0);
 
-  // Vehicle profitability + top performers.
+  // ── Vehicle profitability + top performers ────────────────────────────────
   const vehicleRows = useMemo(() => fleet.map((c) => {
     const m = calculateCarMetrics(c.plate);
     return { plate: c.plate, model: `${c.make} ${c.model}`, revenue: m.earnings, expense: m.expenses, profit: m.profit, profitPct: m.earnings > 0 ? (m.profit / m.earnings) * 100 : 0 };
@@ -100,12 +131,9 @@ const LedgerDashboard = ({
     });
     return map;
   }, [bookings]);
-  const topVehicles = [...vehicleRows].sort((a, b) => b.profit - a.profit).slice(0, 5);
-
-  // Vehicle Profitability shows the 5 most profitable by default; "View All"
-  // reveals the rest.
-  const [showAllVehicles, setShowAllVehicles] = useState(false);
   const rankedVehicles = useMemo(() => [...vehicleRows].sort((a, b) => b.profit - a.profit), [vehicleRows]);
+  const topVehicles = rankedVehicles.slice(0, 5);
+  const [showAllVehicles, setShowAllVehicles] = useState(false);
   const visibleVehicles = showAllVehicles ? rankedVehicles : rankedVehicles.slice(0, 5);
 
   const metrics = calculateMetrics();
@@ -116,12 +144,13 @@ const LedgerDashboard = ({
     { label: "Available", value: metrics.availableCount, icon: "🚙", color: VIZ.violet, sub: `${Math.round((metrics.availableCount / totalV) * 100)}%` },
     { label: "Under Maintenance", value: metrics.maintenanceCount, icon: "🔧", color: VIZ.yellow, sub: `${Math.round((metrics.maintenanceCount / totalV) * 100)}%` },
     { label: "Total Customers", value: customers.length, icon: "👥", color: VIZ.red, sub: "All customers" },
-    { label: "Total Bookings", value: bookings.length, icon: "📅", color: VIZ.aqua, sub: "This month" },
+    { label: "Total Bookings", value: bookings.length, icon: "📅", color: VIZ.aqua, sub: "All time" },
   ];
 
   const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid #EFEFEF`, whiteSpace: "nowrap" };
-  const rank = ["#EAB308", "#94A3B8", "#B45309"]; // gold / silver / bronze
-  const Delta = ({ v }) => v == null ? <span style={{ fontSize: 10, color: C.textMuted }} /> : (
+  const rank = ["#EAB308", "#94A3B8", "#B45309"];
+  const selectStyle = { padding: "6px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 12, fontFamily: "inherit", color: C.textPri, outline: "none", cursor: "pointer" };
+  const Delta = ({ v }) => v == null ? null : (
     <span style={{ fontSize: 10.5, fontWeight: 700, color: v >= 0 ? UP : DOWN }}>
       {v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}% <span style={{ color: C.textMuted, fontWeight: 500 }}>vs last month</span>
     </span>
@@ -129,6 +158,14 @@ const LedgerDashboard = ({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Period selector */}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <select style={selectStyle} value={period} onChange={(e) => setPeriod(e.target.value)}>
+          <option value="all">All time</option>
+          {[...monthsPresent].reverse().map((m) => <option key={m} value={m}>{monthLabelOf(m)}</option>)}
+        </select>
+      </div>
+
       {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
         {kpis.map((k) => (
@@ -149,7 +186,9 @@ const LedgerDashboard = ({
       <Card style={cardStyle}>
         <div style={{ padding: "16px 16px 0" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Revenue &amp; Expense Analysis</div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Compare income and expense performance · {monthLabelOf(activeMonth)}</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>
+            {isAll ? "Income vs expense by month" : `Daily income · ${monthLabelOf(period)} vs ${monthLabelOf(prevMonthOf(period))}`}
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 8, padding: "4px 12px 16px" }}>
           {/* Revenue Overview */}
@@ -157,13 +196,14 @@ const LedgerDashboard = ({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px 2px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri }}>Revenue Overview</div>
               <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: C.textMuted }}>
-                <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: VIZ.blue, marginRight: 4 }} />This Month</span>
-                <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#B7B7B7", marginRight: 4 }} />Last Month</span>
+                {revenue.series.map((s) => (
+                  <span key={s.key}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: s.color, marginRight: 4 }} />{s.key}</span>
+                ))}
               </div>
             </div>
             <div style={{ height: 250 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={revenueSeries} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart data={revenue.data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={VIZ.blue} stopOpacity={0.22} />
@@ -171,11 +211,15 @@ const LedgerDashboard = ({
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#EFEFEF" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} interval={4} />
+                  <XAxis dataKey={revenue.xKey} tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} interval={revenue.mode === "daily" ? 4 : 0} />
                   <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
-                  <Tooltip formatter={(v) => fmt(Math.round(v))} labelFormatter={(d) => `Day ${d}`} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
-                  <Area type="monotone" dataKey="Last Month" stroke="#B7B7B7" strokeWidth={1.5} strokeDasharray="5 4" fill="none" dot={false} />
-                  <Area type="monotone" dataKey="This Month" stroke={VIZ.blue} strokeWidth={2.5} fill="url(#revFill)" dot={false} />
+                  <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                  {revenue.series.slice().reverse().map((s) => (
+                    <Area key={s.key} type="monotone" dataKey={s.key} stroke={s.color}
+                      strokeWidth={s.key === "Last Month" ? 1.5 : 2.5}
+                      strokeDasharray={s.key === "Last Month" ? "5 4" : undefined}
+                      fill={s.key === "Income" || s.key === "This Month" ? "url(#revFill)" : "none"} dot={false} />
+                  ))}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -187,7 +231,7 @@ const LedgerDashboard = ({
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ width: 150, height: 180, position: "relative" }}>
                 {donut.length === 0 ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 12, color: C.textMuted }}>No expenses</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 12, color: C.textMuted, textAlign: "center" }}>No expenses<br />in this period</div>
                 ) : (
                   <>
                     <ResponsiveContainer width="100%" height="100%">
@@ -199,7 +243,7 @@ const LedgerDashboard = ({
                       </PieChart>
                     </ResponsiveContainer>
                     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                      <div style={{ ...mono, fontSize: 13, fontWeight: 800, color: C.textPri }}>{fmt(Math.round(totalExpenseMonth))}</div>
+                      <div style={{ ...mono, fontSize: 13, fontWeight: 800, color: C.textPri }}>{fmt(Math.round(donutTotal))}</div>
                       <div style={{ fontSize: 8.5, color: C.textMuted }}>Total Expense</div>
                     </div>
                   </>
@@ -211,7 +255,7 @@ const LedgerDashboard = ({
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: DONUT[i % DONUT.length], flexShrink: 0 }} />
                     <span style={{ flex: 1, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
                     <span style={{ ...mono, fontWeight: 700, color: C.textPri }}>{fmt(Math.round(d.value))}</span>
-                    <span style={{ color: C.textMuted, width: 38, textAlign: "right" }}>{totalExpenseMonth ? ((d.value / totalExpenseMonth) * 100).toFixed(1) : 0}%</span>
+                    <span style={{ color: C.textMuted, width: 38, textAlign: "right" }}>{donutTotal ? ((d.value / donutTotal) * 100).toFixed(1) : 0}%</span>
                   </div>
                 ))}
               </div>
@@ -225,8 +269,7 @@ const LedgerDashboard = ({
         <Card style={cardStyle}>
           <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car"
             right={rankedVehicles.length > 5 && (
-              <button onClick={() => setShowAllVehicles((s) => !s)}
-                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: VIZ.blue }}>
+              <button onClick={() => setShowAllVehicles((s) => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: VIZ.blue }}>
                 {showAllVehicles ? "Show less" : `View all (${rankedVehicles.length})`}
               </button>
             )} />
