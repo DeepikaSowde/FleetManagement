@@ -11,6 +11,7 @@ import { generateRentalAgreementPdf } from "./rentalAgreement";
 import Dashboard from "./Dashboard";
 import Fleet from "./Fleet";
 import Booking, { CHARGE_TYPES } from "./Booking";
+import Customers from "./Customers";
 import Earning from "./Earning";
 import Expenses from "./Expenses";
 import Ledger from "./Ledger";
@@ -636,6 +637,7 @@ export default function FleetOpzApp() {
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "fleet", label: "Fleet", icon: "🚗" },
     { id: "bookings", label: "Bookings", icon: "📅" },
+    { id: "customers", label: "Customers", icon: "👥" },
     { id: "earnings", label: "Earnings", icon: "💰" },
     { id: "expenses", label: "Expenses", icon: "📝" },
     { id: "ledger", label: "Ledger", icon: "📒" },
@@ -688,6 +690,9 @@ export default function FleetOpzApp() {
         selectedCar={selectedCar}
         selectedRange={selectedRange}
       />
+    ),
+    customers: (
+      <Customers bookings={fleetData.bookings} />
     ),
     earnings: (
       <Earning
@@ -750,6 +755,7 @@ export default function FleetOpzApp() {
     dashboard: { title: "Fleet Dashboard", sub: `${fleetData.fleet.length} cars · ${fleetData.bookings.filter(b => b.status === "Active").length} active` },
     fleet: { title: "Fleet Management", sub: `${fleetData.fleet.length} cars registered` },
     bookings: { title: "Bookings", sub: `${fleetData.bookings.length} total bookings` },
+    customers: { title: "Customers", sub: "Customer directory from booking history" },
     earnings: { title: "Actual Earnings", sub: "Locked rental income records" },
     expenses: { title: "Expense Management", sub: "Log and track running costs" },
     ledger: { title: "Financial Ledger", sub: "Rental income & expenses with running balance" },
