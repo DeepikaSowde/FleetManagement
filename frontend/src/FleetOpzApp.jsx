@@ -731,6 +731,11 @@ export default function FleetOpzApp() {
         expenses={fleetData.expenses}
         bookings={fleetData.bookings}
         fleet={fleetData.fleet}
+        customers={fleetData.customers}
+        calculateMetrics={fleetData.calculateMetrics}
+        calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
+        calculateCarMetrics={fleetData.calculateCarMetrics}
+        getExpensesByCategory={fleetData.getExpensesByCategory}
       />
     ),
     pl: (

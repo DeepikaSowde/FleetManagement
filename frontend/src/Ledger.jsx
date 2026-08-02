@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Badge, PlateBadge } from "./components";
-import { INVESTMENTS } from "./data"; // TEMP: seeded investor capital from the RDK Excel
+import { buildLedgerRows } from "./ledgerUtils";
+import LedgerDashboard from "./LedgerDashboard";
 
 // Read-only financial ledger. It is NOT a separate data source — it is a
 // unified, chronological view built from data the app already tracks:
@@ -32,7 +33,11 @@ const selectStyle = {
   fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none",
 };
 
-const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => {
+const Ledger = ({
+  earnings = [], expenses = [], bookings = [], fleet = [], customers = [],
+  calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
+}) => {
+  const [view, setView] = useState("dashboard"); // "dashboard" | "ledger"
   const [period, setPeriod] = useState("all");   // "all" | "YYYY-MM"
   const [vehicle, setVehicle] = useState("all");  // "all" | plate
   const [type, setType] = useState("all");        // "all" | "Rental Income" | "Expense"
@@ -43,92 +48,8 @@ const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => 
     return car ? `${car.make} ${car.model}` : "—";
   };
 
-  // Build the unified, date-sorted transaction list with a global running balance.
-  const allTx = useMemo(() => {
-    const rows = [];
-
-    earnings.forEach((e) => {
-      rows.push({
-        key: `E-${e.id}`,
-        date: (e.end || e.start || "").slice(0, 10),
-        plate: e.plate || "",
-        type: "Rental Income",
-        description: `Rental Income${e.days ? ` - ${e.days} Day${e.days > 1 ? "s" : ""}` : ""}`,
-        remarks: e.customer || "—",
-        credit: e.total || 0,
-        debit: 0,
-      });
-    });
-
-    expenses.forEach((x) => {
-      rows.push({
-        key: `X-${x.id}`,
-        date: (x.date || "").slice(0, 10),
-        plate: x.plate || "",
-        type: "Expense",
-        description: x.desc || x.category || "Expense",
-        remarks: x.category || "—",
-        credit: 0,
-        debit: x.amount || 0,
-      });
-    });
-
-    // Deposits come from bookings (money in at pickup, out when refunded).
-    bookings.forEach((b) => {
-      const deposit = Number(b.deductible) || 0;
-      if (deposit > 0) {
-        rows.push({
-          key: `DI-${b.id}`,
-          date: (b.start || "").slice(0, 10),
-          plate: b.plate || "",
-          type: "Deposit IN",
-          description: "Security Deposit",
-          remarks: b.customer || "—",
-          credit: deposit,
-          debit: 0,
-        });
-      }
-      if (b.depositRefunded) {
-        const back = b.depositRefundedAmount ?? deposit;
-        if (back > 0) {
-          rows.push({
-            key: `DO-${b.id}`,
-            date: (b.depositRefundedAt || b.end || b.start || "").slice(0, 10),
-            plate: b.plate || "",
-            type: "Deposit OUT",
-            description: `Deposit Returned${back < deposit ? " (partial)" : ""}`,
-            remarks: b.customer || "—",
-            credit: 0,
-            debit: back,
-          });
-        }
-      }
-    });
-
-    // Investor capital in (temporary seed from the Excel).
-    INVESTMENTS.forEach((iv) => {
-      rows.push({
-        key: `IV-${iv.id}`,
-        date: (iv.date || "").slice(0, 10),
-        plate: "",
-        type: "Investment",
-        description: `Investment (${iv.investor})`,
-        remarks: iv.investor,
-        credit: iv.amount || 0,
-        debit: 0,
-      });
-    });
-
-    // Chronological (oldest first) so the running balance accumulates correctly.
-    rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.key < b.key ? -1 : 1));
-
-    let bal = 0;
-    rows.forEach((r) => {
-      bal += r.credit - r.debit;
-      r.balance = bal;
-    });
-    return rows;
-  }, [earnings, expenses, bookings]);
+  // Unified, date-sorted transaction list with a running balance (shared helper).
+  const allTx = useMemo(() => buildLedgerRows(earnings, expenses, bookings), [earnings, expenses, bookings]);
 
   // Month options derived from the data present.
   const months = useMemo(
@@ -187,13 +108,45 @@ const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => 
     "Deposit OUT": { color: C.amber, bg: C.amberFaint },
   };
 
+  const toggleBtn = (activeState) => ({
+    padding: "7px 16px", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "none", cursor: "pointer",
+    background: activeState ? C.teal : "transparent", color: activeState ? "#fff" : C.textSec,
+  });
+
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Financial Ledger</div>
-        <div style={{ fontSize: 11, color: C.textMuted }}>All money movements — rental income and expenses — with a running balance</div>
+      {/* Header: title + Dashboard / Ledger toggle */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>
+            {view === "dashboard" ? "Financial Dashboard" : "Financial Ledger"}
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted }}>
+            {view === "dashboard"
+              ? "Balances, income & expense analysis, and vehicle profitability"
+              : "All money movements — rental income and expenses — with a running balance"}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10 }}>
+          <button style={toggleBtn(view === "dashboard")} onClick={() => setView("dashboard")}>📊 Dashboard</button>
+          <button style={toggleBtn(view === "ledger")} onClick={() => setView("ledger")}>📒 Ledger</button>
+        </div>
       </div>
 
+      {view === "dashboard" ? (
+        <LedgerDashboard
+          earnings={earnings}
+          expenses={expenses}
+          bookings={bookings}
+          fleet={fleet}
+          customers={customers}
+          calculateMetrics={calculateMetrics}
+          calculateMonthlyMetrics={calculateMonthlyMetrics}
+          calculateCarMetrics={calculateCarMetrics}
+          getExpensesByCategory={getExpensesByCategory}
+        />
+      ) : (
+      <>
       {/* Filters */}
       <Card style={{ marginBottom: 16 }}>
         <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 12 }}>
@@ -282,6 +235,8 @@ const Ledger = ({ earnings = [], expenses = [], bookings = [], fleet = [] }) => 
           </div>
         )}
       </Card>
+      </>
+      )}
     </div>
   );
 };
