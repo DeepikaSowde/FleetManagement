@@ -31,11 +31,17 @@ CREATE TABLE IF NOT EXISTS cars (
   model                      VARCHAR(80),
   year                       INTEGER,
   color                      VARCHAR(40),
+  fuel_type                  VARCHAR(40),
+  transmission               VARCHAR(40),
   purchase                   NUMERIC(12,2) DEFAULT 0,
   insurance                  NUMERIC(12,2) DEFAULT 0,
   reg                        NUMERIC(12,2) DEFAULT 0,
   other_charges              NUMERIC(12,2) DEFAULT 0,
   purchase_date              TEXT,
+  insurance_expiry           TEXT,
+  lta_transfer_date          TEXT,
+  road_tax_expiry            TEXT,
+  inspection_expiry          TEXT,
   maint                      NUMERIC(6,2)  DEFAULT 0,   -- annual maintenance % of investment
   coe                        TEXT,                       -- registration renewal / COE expiry date
   status                     VARCHAR(30)   DEFAULT 'Available',

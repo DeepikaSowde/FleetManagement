@@ -12,11 +12,17 @@ function toCar(r) {
     model: r.model,
     year: r.year,
     color: r.color,
+    fuelType: r.fuel_type,
+    transmission: r.transmission,
     purchase: r.purchase === null ? null : Number(r.purchase),
     insurance: r.insurance === null ? null : Number(r.insurance),
     reg: r.reg === null ? null : Number(r.reg),
     otherCharges: r.other_charges === null ? null : Number(r.other_charges),
     purchaseDate: r.purchase_date,
+    insuranceExpiry: r.insurance_expiry,
+    ltaTransferDate: r.lta_transfer_date,
+    roadTaxExpiry: r.road_tax_expiry,
+    inspectionExpiry: r.inspection_expiry,
     maint: r.maint === null ? null : Number(r.maint),
     coe: r.coe,
     status: r.status,
@@ -44,18 +50,21 @@ async function getByPlate(plate) {
 async function create(car) {
   const { rows } = await db.query(
     `INSERT INTO cars (
-       plate, make, model, year, color, purchase, insurance, reg, other_charges,
-       purchase_date, maint, coe, status, min_rate, max_rate, target_rate,
-       running_days_target, profit_pct_target, maintenance_start_date,
+       plate, make, model, year, color, fuel_type, transmission, purchase, insurance,
+       reg, other_charges, purchase_date, insurance_expiry, lta_transfer_date,
+       road_tax_expiry, inspection_expiry, maint, coe, status, min_rate, max_rate,
+       target_rate, running_days_target, profit_pct_target, maintenance_start_date,
        maintenance_completed_at, maintenance_auto_released
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
      )
      RETURNING *`,
     [
-      car.plate, car.make, car.model, car.year, car.color, car.purchase,
-      car.insurance, car.reg, car.otherCharges ?? 0, car.purchaseDate, car.maint,
-      car.coe, car.status || "Available", car.minRate ?? null, car.maxRate ?? null,
+      car.plate, car.make, car.model, car.year, car.color, car.fuelType ?? null,
+      car.transmission ?? null, car.purchase, car.insurance, car.reg,
+      car.otherCharges ?? 0, car.purchaseDate, car.insuranceExpiry ?? null,
+      car.ltaTransferDate ?? null, car.roadTaxExpiry ?? null, car.inspectionExpiry ?? null,
+      car.maint, car.coe, car.status || "Available", car.minRate ?? null, car.maxRate ?? null,
       car.targetRate ?? null, car.runningDaysTarget ?? null, car.profitPctTarget ?? null,
       car.maintenanceStartDate ?? null, car.maintenanceCompletedAt ?? null,
       car.maintenanceAutoReleased ?? false,
@@ -75,16 +84,19 @@ async function update(plate, updates) {
   const c = { ...current, ...updates };
   const { rows } = await db.query(
     `UPDATE cars SET
-       make = $2, model = $3, year = $4, color = $5, purchase = $6, insurance = $7,
-       reg = $8, other_charges = $9, purchase_date = $10, maint = $11, coe = $12,
-       status = $13, min_rate = $14, max_rate = $15, target_rate = $16,
-       running_days_target = $17, profit_pct_target = $18, maintenance_start_date = $19,
-       maintenance_completed_at = $20, maintenance_auto_released = $21
+       make = $2, model = $3, year = $4, color = $5, fuel_type = $6, transmission = $7,
+       purchase = $8, insurance = $9, reg = $10, other_charges = $11, purchase_date = $12,
+       insurance_expiry = $13, lta_transfer_date = $14, road_tax_expiry = $15,
+       inspection_expiry = $16, maint = $17, coe = $18, status = $19, min_rate = $20,
+       max_rate = $21, target_rate = $22, running_days_target = $23, profit_pct_target = $24,
+       maintenance_start_date = $25, maintenance_completed_at = $26, maintenance_auto_released = $27
      WHERE plate = $1
      RETURNING *`,
     [
-      plate, c.make, c.model, c.year, c.color, c.purchase, c.insurance, c.reg,
-      c.otherCharges ?? 0, c.purchaseDate, c.maint, c.coe, c.status ?? "Available",
+      plate, c.make, c.model, c.year, c.color, c.fuelType ?? null, c.transmission ?? null,
+      c.purchase, c.insurance, c.reg, c.otherCharges ?? 0, c.purchaseDate,
+      c.insuranceExpiry ?? null, c.ltaTransferDate ?? null, c.roadTaxExpiry ?? null,
+      c.inspectionExpiry ?? null, c.maint, c.coe, c.status ?? "Available",
       c.minRate ?? null, c.maxRate ?? null, c.targetRate ?? null,
       c.runningDaysTarget ?? null, c.profitPctTarget ?? null,
       c.maintenanceStartDate ?? null, c.maintenanceCompletedAt ?? null,
