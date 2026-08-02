@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions } from "./theme";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
+import StatTiles from "./StatTiles";
 
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -603,7 +604,7 @@ const toFleetPageStatus = (status) => FLEET_PAGE_STATUS_MAP[status] || status;
 // ─────────────────────────────────────────────────────────────────────────
 // Fleet — table/filter list + modal details overlay
 // ─────────────────────────────────────────────────────────────────────────
-const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense }) => {
+const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense, customers = [] }) => {
   const [selected, setSelected] = useState(null);
   // True when the details modal should open straight into edit mode — set by
   // the table's "Edit" link, as opposed to "Details →" which opens read-only.
@@ -706,6 +707,18 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
 
   return (
     <div>
+      {/* Fleet / customer / booking stat tiles */}
+      <div style={{ marginBottom: 16 }}>
+        <StatTiles
+          totalVehicles={fleet.length}
+          onRent={fleet.filter((c) => c.status === "On Rental").length}
+          available={fleet.filter((c) => c.status === "Available").length}
+          maintenance={fleet.filter((c) => c.status === "Maintenance").length}
+          totalCustomers={customers.length}
+          totalBookings={bookings.length}
+        />
+      </div>
+
       {/* Header with Add New Car Button */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>

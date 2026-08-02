@@ -679,6 +679,7 @@ export default function FleetOpzApp() {
         bookings={fleetData.bookings}
         expenses={fleetData.expenses}
         onAddExpense={fleetData.addExpense}
+        customers={fleetData.customers}
       />
     ),
     bookings: (

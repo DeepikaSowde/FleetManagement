@@ -6,6 +6,7 @@ import {
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows } from "./ledgerUtils";
+import StatTiles from "./StatTiles";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
 // from data the app already has (no backend). Colours use a validated
@@ -137,15 +138,6 @@ const LedgerDashboard = ({
   const visibleVehicles = showAllVehicles ? rankedVehicles : rankedVehicles.slice(0, 5);
 
   const metrics = calculateMetrics();
-  const totalV = metrics.totalFleet || 1;
-  const tiles = [
-    { label: "Total Vehicles", value: metrics.totalFleet, icon: "🚗", color: VIZ.blue, sub: "All vehicles" },
-    { label: "On Rent", value: metrics.onRentalCount, icon: "🔑", color: VIZ.green, sub: `${Math.round((metrics.onRentalCount / totalV) * 100)}%` },
-    { label: "Available", value: metrics.availableCount, icon: "🚙", color: VIZ.violet, sub: `${Math.round((metrics.availableCount / totalV) * 100)}%` },
-    { label: "Under Maintenance", value: metrics.maintenanceCount, icon: "🔧", color: VIZ.yellow, sub: `${Math.round((metrics.maintenanceCount / totalV) * 100)}%` },
-    { label: "Total Customers", value: customers.length, icon: "👥", color: VIZ.red, sub: "All customers" },
-    { label: "Total Bookings", value: bookings.length, icon: "📅", color: VIZ.aqua, sub: "All time" },
-  ];
 
   const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid #EFEFEF`, whiteSpace: "nowrap" };
   const rank = ["#EAB308", "#94A3B8", "#B45309"];
@@ -320,20 +312,14 @@ const LedgerDashboard = ({
       </div>
 
       {/* Stat tiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
-        {tiles.map((t) => (
-          <Card key={t.label} style={cardStyle}>
-            <div style={{ padding: 14, display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 40, height: 40, borderRadius: "50%", background: tint(t.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{t.icon}</div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ ...mono, fontSize: 18, fontWeight: 800, color: t.color, lineHeight: 1.1 }}>{t.value}</div>
-                <div style={{ fontSize: 10, color: C.textPri, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</div>
-                <div style={{ fontSize: 9, color: C.textMuted }}>{t.sub}</div>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+      <StatTiles
+        totalVehicles={metrics.totalFleet}
+        onRent={metrics.onRentalCount}
+        available={metrics.availableCount}
+        maintenance={metrics.maintenanceCount}
+        totalCustomers={customers.length}
+        totalBookings={bookings.length}
+      />
     </div>
   );
 };
