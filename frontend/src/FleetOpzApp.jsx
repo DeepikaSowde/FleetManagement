@@ -633,15 +633,20 @@ export default function FleetOpzApp() {
     role: "Staff"
   });
 
+  // Order matters: the sidebar groups by index — Operations = slice(0,4),
+  // Finance = slice(4,8), System = slice(8).
   const NAV = [
+    // Operations
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "fleet", label: "Fleet", icon: "🚗" },
     { id: "bookings", label: "Bookings", icon: "📅" },
     { id: "customers", label: "Customers", icon: "👥" },
+    // Finance
+    { id: "ledger", label: "Ledger", icon: "📒" },
     { id: "earnings", label: "Earnings", icon: "💰" },
     { id: "expenses", label: "Expenses", icon: "📝" },
-    { id: "ledger", label: "Ledger", icon: "📒" },
     { id: "pl", label: "P&L", icon: "📈" },
+    // System
     { id: "alerts", label: "Alerts", icon: "🔔", badge: fleetData.alerts.length },
     { id: "settings", label: "Settings", icon: "⚙️" },
   ];
@@ -1078,7 +1083,7 @@ export default function FleetOpzApp() {
         {/* Nav */}
         <nav style={{ flex: 1, overflowY: "auto", paddingBottom: 10, marginTop: 6 }}>
           <div style={{ padding: "10px 20px 4px", fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Operations</div>
-          {NAV.slice(0, 3).map(n => (
+          {NAV.slice(0, 4).map(n => (
             <div key={n.id} onClick={() => setActive(n.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1087,7 +1092,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(3, 6).map(n => (
+          {NAV.slice(4, 8).map(n => (
             <div key={n.id} onClick={() => setActive(n.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1096,7 +1101,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
-          {NAV.slice(6).map(n => (
+          {NAV.slice(8).map(n => (
             <div key={n.id} onClick={() => setActive(n.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
