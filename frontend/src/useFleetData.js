@@ -314,6 +314,7 @@ export const useFleetData = () => {
   const [earnings, setEarnings] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [restrictedLicenses, setRestrictedLicenses] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -322,18 +323,20 @@ export const useFleetData = () => {
   // as it did when the data came from localStorage — only the source changed.
   const reload = async () => {
     try {
-      const [f, b, e, x, rl] = await Promise.all([
+      const [f, b, e, x, rl, cu] = await Promise.all([
         api.get("/fleet"),
         api.get("/bookings"),
         api.get("/earnings"),
         api.get("/expenses"),
         api.get("/restricted-licenses"),
+        api.get("/customers"),
       ]);
       setFleet(f);
       setBookings(b);
       setEarnings(e);
       setExpenses(x);
       setRestrictedLicenses(rl);
+      setCustomers(cu);
     } catch (err) {
       console.error("FleetOpz: failed to load data from server", err);
     } finally {
@@ -470,6 +473,8 @@ export const useFleetData = () => {
     };
     setBookings(prev => [...prev, newBooking]);
     api.post("/bookings", newBooking).catch(onWriteError);
+    // Keep the customer directory in sync — create/update this customer by IC.
+    saveCustomer(newBooking);
     return newBooking;
   };
 
@@ -549,6 +554,49 @@ export const useFleetData = () => {
   const deleteRestrictedLicense = (id) => {
     setRestrictedLicenses(prev => prev.filter(r => r.id !== id));
     api.del(`/restricted-licenses/${id}`).catch(onWriteError);
+  };
+
+  // ── CUSTOMER OPERATIONS ───────────────────────────────────────────────────
+  // saveCustomer upserts by IC — used by "Add New Customer" AND automatically
+  // by addBooking, so the customer directory always stays current. Accepts
+  // either a raw customer object or a booking (customer name may be under
+  // `customer` or `name`). Numeric fields are coerced.
+  const saveCustomer = (data) => {
+    if (!data || !data.ic) return;
+    const payload = {
+      ic: data.ic,
+      name: data.customer ?? data.name ?? "",
+      contact: data.contact ?? null,
+      license: data.license ?? null,
+      customerType: data.customerType ?? null,
+      age: data.age === "" || data.age == null ? null : Number(data.age),
+      drivingExperience: data.drivingExperience === "" || data.drivingExperience == null ? null : Number(data.drivingExperience),
+      address: data.address ?? null,
+    };
+    const sameIc = (a, b) => (a || "").toUpperCase() === (b || "").toUpperCase();
+    // Optimistic: replace by IC if present, else prepend.
+    setCustomers(prev => {
+      const idx = prev.findIndex(c => sameIc(c.ic, payload.ic));
+      if (idx === -1) return [{ ...payload }, ...prev];
+      const next = [...prev]; next[idx] = { ...next[idx], ...payload }; return next;
+    });
+    api.post("/customers", payload)
+      .then(saved => setCustomers(prev => {
+        const idx = prev.findIndex(c => sameIc(c.ic, saved.ic));
+        if (idx === -1) return [saved, ...prev];
+        const next = [...prev]; next[idx] = saved; return next;
+      }))
+      .catch(onWriteError);
+  };
+
+  const updateCustomer = (id, updates) => {
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    api.put(`/customers/${id}`, updates).catch(onWriteError);
+  };
+
+  const deleteCustomer = (id) => {
+    setCustomers(prev => prev.filter(c => c.id !== id));
+    api.del(`/customers/${id}`).catch(onWriteError);
   };
 
   // ── CALCULATIONS ──────────────────────────────────────────────────────────
@@ -821,6 +869,12 @@ export const useFleetData = () => {
     addRestrictedLicense,
     updateRestrictedLicense,
     deleteRestrictedLicense,
+
+    // Customer operations
+    customers,
+    saveCustomer,
+    updateCustomer,
+    deleteCustomer,
 
     // Calculations
     calculateMetrics,

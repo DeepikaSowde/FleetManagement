@@ -104,6 +104,24 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_plate ON expenses (plate);
 
+-- ── CUSTOMERS — master customer records, keyed by IC/ID ─────────────────────
+-- Identity is the IC/ID (unique). A customer is created either directly ("Add
+-- New Customer") or automatically when a booking is made with a new IC (upsert).
+-- Booking-derived stats (count, total spent, last rental) are computed live on
+-- the frontend from bookings joined by IC — not stored here.
+CREATE TABLE IF NOT EXISTS customers (
+  id                  SERIAL PRIMARY KEY,
+  ic                  VARCHAR(80) UNIQUE NOT NULL,
+  name                VARCHAR(160) NOT NULL,
+  contact             VARCHAR(80),
+  license             VARCHAR(120),
+  customer_type       VARCHAR(40),          -- Local | Foreigner | Tourist
+  age                 INTEGER,
+  driving_experience  INTEGER,              -- years
+  address             TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ── RESTRICTED LICENSES — driving-license blocklist (admin managed) ──────────
 -- Booking creation is blocked if the driver's license number is on this list
 -- (e.g. active criminal case, court restriction). Keyed by app-generated id.

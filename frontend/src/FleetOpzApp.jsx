@@ -692,7 +692,13 @@ export default function FleetOpzApp() {
       />
     ),
     customers: (
-      <Customers bookings={fleetData.bookings} />
+      <Customers
+        customers={fleetData.customers}
+        bookings={fleetData.bookings}
+        onSaveCustomer={fleetData.saveCustomer}
+        onUpdateCustomer={fleetData.updateCustomer}
+        onDeleteCustomer={fleetData.deleteCustomer}
+      />
     ),
     earnings: (
       <Earning
