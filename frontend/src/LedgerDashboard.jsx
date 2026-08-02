@@ -1,15 +1,27 @@
 import { useMemo } from "react";
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell,
 } from "recharts";
 import { C, mono, fmt } from "./theme";
-import { Card, CardHeader, Badge, PlateBadge } from "./components";
+import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows } from "./ledgerUtils";
 
-// Analytics view shown on the Ledger page's "Dashboard" tab. Everything here is
-// derived from data the app already has (earnings, expenses, bookings, fleet,
-// customers) via the same helpers the rest of the app uses — no backend calls.
+// Analytics view on the Ledger page's "Dashboard" tab. All values are derived
+// from data the app already has (no backend). Colours use a validated
+// colour-blind-safe categorical palette (see dataviz skill) rather than the
+// app's muted theme, to match the bright reference design.
+
+// Validated categorical palette (light surface). Order is the CVD-safe order.
+const VIZ = {
+  blue: "#2a78d6", orange: "#eb6834", aqua: "#1baf7a", yellow: "#eda100",
+  magenta: "#e87ba4", green: "#008300", violet: "#4a3aa7", red: "#e34948",
+};
+const DONUT = [VIZ.blue, VIZ.orange, VIZ.aqua, VIZ.yellow, VIZ.magenta, VIZ.violet, VIZ.green, VIZ.red];
+const UP = "#006300", DOWN = VIZ.red;
+
+const cardStyle = { background: "#ffffff", borderRadius: 14, border: "1px solid #ECECEC", boxShadow: "0 1px 2px rgba(16,24,40,0.06)" };
+const tint = (hex) => `${hex}1A`; // ~10% alpha wash for icon chips
 
 const monthLabelOf = (ym) => {
   const [y, m] = ym.split("-");
@@ -20,20 +32,12 @@ const prevMonthOf = (ym) => {
   const d = new Date(y, m - 2, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
-const pct = (cur, prev) => {
-  if (!prev) return cur > 0 ? 100 : 0;
-  return ((cur - prev) / Math.abs(prev)) * 100;
-};
-
-// Distinct, on-brand colours for the expense donut.
-const DONUT_COLORS = [C.teal, C.amber, C.green, C.navyMid, C.red, C.tealLight, C.navy, "#B08968", "#7D8CA3"];
+const pct = (cur, prev) => (!prev ? (cur > 0 ? 100 : 0) : ((cur - prev) / Math.abs(prev)) * 100);
 
 const LedgerDashboard = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [],
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
 }) => {
-  // Active month = the most recent month that has any activity (falls back to
-  // the current calendar month) so the dashboard shows real numbers.
   const activeMonth = useMemo(() => {
     const dates = [
       ...earnings.map((e) => (e.end || e.start || "").slice(0, 7)),
@@ -43,178 +47,190 @@ const LedgerDashboard = ({
   }, [earnings, expenses]);
   const lastMonth = prevMonthOf(activeMonth);
 
-  // ── Balances (same helper the Ledger uses, so numbers match exactly) ──────
   const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings), [earnings, expenses, bookings]);
   const monthStart = `${activeMonth}-01`;
   const openingBalance = rows.filter((r) => r.date < monthStart).reduce((s, r) => s + r.credit - r.debit, 0);
   const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
 
-  // ── This-month vs last-month P&L ──────────────────────────────────────────
   const cur = calculateMonthlyMetrics(activeMonth);
   const prev = calculateMonthlyMetrics(lastMonth);
 
   const kpis = [
-    { label: "Opening Balance", value: openingBalance, sub: `As of 01 ${monthLabelOf(activeMonth)}`, color: C.navy, delta: null },
-    { label: "Current Balance", value: currentBalance, sub: "Live cash position", color: C.teal, delta: null },
-    { label: "Total Income", value: cur.monthlyEarnings, sub: "This month", color: C.green, delta: pct(cur.monthlyEarnings, prev.monthlyEarnings) },
-    { label: "Total Expense", value: cur.monthlyExpenses, sub: "This month", color: C.red, delta: pct(cur.monthlyExpenses, prev.monthlyExpenses) },
-    { label: "Net Profit", value: cur.monthlyProfit, sub: "This month", color: C.navyMid, delta: pct(cur.monthlyProfit, prev.monthlyProfit) },
+    { label: "Opening Balance", value: openingBalance, sub: `Balance at the beginning of this month`, color: VIZ.green, icon: "📗", delta: null },
+    { label: "Current Balance", value: currentBalance, sub: "Live cash position", color: VIZ.aqua, icon: "💵", delta: null },
+    { label: "Total Income", value: cur.monthlyEarnings, sub: "This month", color: VIZ.blue, icon: "💲", delta: pct(cur.monthlyEarnings, prev.monthlyEarnings) },
+    { label: "Total Expense", value: cur.monthlyExpenses, sub: "This month", color: VIZ.red, icon: "📉", delta: pct(cur.monthlyExpenses, prev.monthlyExpenses) },
+    { label: "Net Profit", value: cur.monthlyProfit, sub: "This month", color: VIZ.violet, icon: "📊", delta: pct(cur.monthlyProfit, prev.monthlyProfit) },
   ];
 
-  // ── Revenue Overview line chart (daily income: this vs last month) ────────
+  // Revenue Overview — daily income this vs last month.
   const dailyIncome = (ym) => {
     const map = {};
     earnings.forEach((e) => {
       const dt = (e.end || e.start || "").slice(0, 10);
-      if (dt.slice(0, 7) === ym) {
-        const day = Number(dt.slice(8, 10));
-        map[day] = (map[day] || 0) + (e.total || 0);
-      }
+      if (dt.slice(0, 7) === ym) map[Number(dt.slice(8, 10))] = (map[Number(dt.slice(8, 10))] || 0) + (e.total || 0);
     });
     return map;
   };
   const revenueSeries = useMemo(() => {
     const [y, m] = activeMonth.split("-").map(Number);
     const daysIn = new Date(y, m, 0).getDate();
-    const thisM = dailyIncome(activeMonth);
-    const lastM = dailyIncome(lastMonth);
-    const out = [];
-    for (let d = 1; d <= daysIn; d++) {
-      out.push({ day: d, "This Month": thisM[d] || 0, "Last Month": lastM[d] || 0 });
-    }
-    return out;
+    const thisM = dailyIncome(activeMonth), lastM = dailyIncome(lastMonth);
+    return Array.from({ length: daysIn }, (_, i) => ({ day: i + 1, "This Month": thisM[i + 1] || 0, "Last Month": lastM[i + 1] || 0 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [earnings, activeMonth]);
 
-  // ── Expense breakdown donut ───────────────────────────────────────────────
+  // Expense breakdown donut.
   const donut = useMemo(() => {
     const byCat = getExpensesByCategory(activeMonth) || {};
     return Object.entries(byCat).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [getExpensesByCategory, activeMonth]);
   const totalExpenseMonth = donut.reduce((s, d) => s + d.value, 0);
 
-  // ── Vehicle profitability ─────────────────────────────────────────────────
+  // Vehicle profitability + top performers.
   const vehicleRows = useMemo(() => fleet.map((c) => {
     const m = calculateCarMetrics(c.plate);
-    return {
-      plate: c.plate, model: `${c.make} ${c.model}`,
-      revenue: m.earnings, expense: m.expenses, profit: m.profit,
-      profitPct: m.earnings > 0 ? (m.profit / m.earnings) * 100 : 0,
-    };
+    return { plate: c.plate, model: `${c.make} ${c.model}`, revenue: m.earnings, expense: m.expenses, profit: m.profit, profitPct: m.earnings > 0 ? (m.profit / m.earnings) * 100 : 0 };
   }), [fleet, calculateCarMetrics]);
-
   const daysRentedByPlate = useMemo(() => {
     const map = {};
     bookings.forEach((b) => {
       if (b.cancelled || !b.start || !b.end) return;
-      const d = Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000));
-      map[b.plate] = (map[b.plate] || 0) + d;
+      map[b.plate] = (map[b.plate] || 0) + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000));
     });
     return map;
   }, [bookings]);
-
   const topVehicles = [...vehicleRows].sort((a, b) => b.profit - a.profit).slice(0, 5);
 
-  // ── Fleet / customer / booking tiles ──────────────────────────────────────
   const metrics = calculateMetrics();
+  const totalV = metrics.totalFleet || 1;
   const tiles = [
-    { label: "Total Vehicles", value: metrics.totalFleet, icon: "🚗", color: C.navy },
-    { label: "On Rent", value: metrics.onRentalCount, icon: "🔑", color: C.teal },
-    { label: "Available", value: metrics.availableCount, icon: "✅", color: C.green },
-    { label: "Under Maintenance", value: metrics.maintenanceCount, icon: "🔧", color: C.amber },
-    { label: "Total Customers", value: customers.length, icon: "👥", color: C.navyMid },
-    { label: "Total Bookings", value: bookings.length, icon: "📅", color: C.tealLight },
+    { label: "Total Vehicles", value: metrics.totalFleet, icon: "🚗", color: VIZ.blue, sub: "All vehicles" },
+    { label: "On Rent", value: metrics.onRentalCount, icon: "🔑", color: VIZ.green, sub: `${Math.round((metrics.onRentalCount / totalV) * 100)}%` },
+    { label: "Available", value: metrics.availableCount, icon: "🚙", color: VIZ.violet, sub: `${Math.round((metrics.availableCount / totalV) * 100)}%` },
+    { label: "Under Maintenance", value: metrics.maintenanceCount, icon: "🔧", color: VIZ.yellow, sub: `${Math.round((metrics.maintenanceCount / totalV) * 100)}%` },
+    { label: "Total Customers", value: customers.length, icon: "👥", color: VIZ.red, sub: "All customers" },
+    { label: "Total Bookings", value: bookings.length, icon: "📅", color: VIZ.aqua, sub: "This month" },
   ];
 
-  const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
-  const Delta = ({ v }) => v == null ? null : (
-    <span style={{ fontSize: 10.5, fontWeight: 700, color: v >= 0 ? C.green : C.red }}>
+  const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid #EFEFEF`, whiteSpace: "nowrap" };
+  const rank = ["#EAB308", "#94A3B8", "#B45309"]; // gold / silver / bronze
+  const Delta = ({ v }) => v == null ? <span style={{ fontSize: 10, color: C.textMuted }} /> : (
+    <span style={{ fontSize: 10.5, fontWeight: 700, color: v >= 0 ? UP : DOWN }}>
       {v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}% <span style={{ color: C.textMuted, fontWeight: 500 }}>vs last month</span>
     </span>
   );
 
   return (
-    <div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
         {kpis.map((k) => (
-          <Card key={k.label}>
-            <div style={{ padding: 14 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, marginBottom: 6 }}>{k.label}</div>
-              <div style={{ ...mono, fontSize: 17, fontWeight: 700, color: k.color }}>{fmt(Math.round(k.value))}</div>
-              <div style={{ marginTop: 6 }}>{k.delta != null ? <Delta v={k.delta} /> : <span style={{ fontSize: 10, color: C.textMuted }}>{k.sub}</span>}</div>
+          <Card key={k.label} style={cardStyle}>
+            <div style={{ padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{k.label}</div>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: tint(k.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{k.icon}</div>
+              </div>
+              <div style={{ ...mono, fontSize: 19, fontWeight: 800, color: k.color, marginTop: 8 }}>{fmt(Math.round(k.value))}</div>
+              <div style={{ marginTop: 6, minHeight: 14 }}>{k.delta != null ? <Delta v={k.delta} /> : <span style={{ fontSize: 10, color: C.textMuted }}>{k.sub}</span>}</div>
             </div>
           </Card>
         ))}
       </div>
 
-      {/* Revenue Overview + Expense Breakdown */}
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 16, marginBottom: 16 }}>
-        <Card>
-          <CardHeader title="Revenue Overview" subtitle={`Daily rental income · ${monthLabelOf(activeMonth)} vs ${monthLabelOf(lastMonth)}`} />
-          <div style={{ padding: "8px 12px 16px", height: 280 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={revenueSeries} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: C.border }} />
-                <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={48}
-                  tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
-                <Tooltip formatter={(v) => fmt(Math.round(v))} labelFormatter={(d) => `Day ${d}`}
-                  contentStyle={{ fontSize: 11, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="This Month" stroke={C.teal} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="Last Month" stroke={C.tealLight} strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+      {/* Revenue & Expense Analysis */}
+      <Card style={cardStyle}>
+        <div style={{ padding: "16px 16px 0" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Revenue &amp; Expense Analysis</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Compare income and expense performance · {monthLabelOf(activeMonth)}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 8, padding: "4px 12px 16px" }}>
+          {/* Revenue Overview */}
+          <div style={{ borderRight: "1px solid #F0F0F0", paddingRight: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px 2px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri }}>Revenue Overview</div>
+              <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: C.textMuted }}>
+                <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: VIZ.blue, marginRight: 4 }} />This Month</span>
+                <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#B7B7B7", marginRight: 4 }} />Last Month</span>
+              </div>
+            </div>
+            <div style={{ height: 250 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={revenueSeries} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={VIZ.blue} stopOpacity={0.22} />
+                      <stop offset="95%" stopColor={VIZ.blue} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EFEFEF" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} interval={4} />
+                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
+                  <Tooltip formatter={(v) => fmt(Math.round(v))} labelFormatter={(d) => `Day ${d}`} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                  <Area type="monotone" dataKey="Last Month" stroke="#B7B7B7" strokeWidth={1.5} strokeDasharray="5 4" fill="none" dot={false} />
+                  <Area type="monotone" dataKey="This Month" stroke={VIZ.blue} strokeWidth={2.5} fill="url(#revFill)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </Card>
 
-        <Card>
-          <CardHeader title="Expense Breakdown" subtitle="By category" right={<Badge>{fmt(Math.round(totalExpenseMonth))}</Badge>} />
-          <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ width: 170, height: 200, position: "relative" }}>
-              {donut.length === 0 ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 12, color: C.textMuted }}>No expenses</div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={donut} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={80} paddingAngle={2}>
-                      {donut.map((d, i) => <Cell key={d.name} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: `1px solid ${C.border}` }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-            <div style={{ flex: 1, minWidth: 150 }}>
-              {donut.map((d, i) => (
-                <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 11 }}>
-                  <span style={{ width: 9, height: 9, borderRadius: 2, background: DONUT_COLORS[i % DONUT_COLORS.length], flexShrink: 0 }} />
-                  <span style={{ flex: 1, color: C.textSec }}>{d.name}</span>
-                  <span style={{ ...mono, fontWeight: 700, color: C.textPri }}>{fmt(Math.round(d.value))}</span>
-                  <span style={{ color: C.textMuted, width: 40, textAlign: "right" }}>{totalExpenseMonth ? ((d.value / totalExpenseMonth) * 100).toFixed(1) : 0}%</span>
-                </div>
-              ))}
+          {/* Expense Breakdown */}
+          <div style={{ paddingLeft: 4 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri, padding: "6px 4px 2px" }}>Expense Breakdown</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ width: 150, height: 180, position: "relative" }}>
+                {donut.length === 0 ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 12, color: C.textMuted }}>No expenses</div>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={donut} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={74} paddingAngle={2} stroke="#fff" strokeWidth={2}>
+                          {donut.map((d, i) => <Cell key={d.name} fill={DONUT[i % DONUT.length]} />)}
+                        </Pie>
+                        <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                      <div style={{ ...mono, fontSize: 13, fontWeight: 800, color: C.textPri }}>{fmt(Math.round(totalExpenseMonth))}</div>
+                      <div style={{ fontSize: 8.5, color: C.textMuted }}>Total Expense</div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 150 }}>
+                {donut.map((d, i) => (
+                  <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, fontSize: 10.5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: DONUT[i % DONUT.length], flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
+                    <span style={{ ...mono, fontWeight: 700, color: C.textPri }}>{fmt(Math.round(d.value))}</span>
+                    <span style={{ color: C.textMuted, width: 38, textAlign: "right" }}>{totalExpenseMonth ? ((d.value / totalExpenseMonth) * 100).toFixed(1) : 0}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
 
       {/* Vehicle Profitability + Top Performing */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-        <Card>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card style={cardStyle}>
           <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car" />
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr style={{ background: C.bg }}>{["Vehicle", "Revenue", "Expense", "Profit", "Profit %"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Vehicle", "Revenue", "Expense", "Profit", "Profit %"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {vehicleRows.map((v) => (
-                  <tr key={v.plate} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
                     <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: C.green, textAlign: "right" }}>{fmt(Math.round(v.revenue))}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: C.red, textAlign: "right" }}>{fmt(Math.round(v.expense))}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: v.profit >= 0 ? C.navy : C.red, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: v.profitPct >= 0 ? C.green : C.red, textAlign: "right" }}>{v.profitPct.toFixed(1)}%</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.green, textAlign: "right" }}>{fmt(Math.round(v.revenue))}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.red, textAlign: "right" }}>{fmt(Math.round(v.expense))}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: v.profit >= 0 ? C.navy : VIZ.red, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
+                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                      <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: v.profitPct >= 0 ? UP : DOWN, background: v.profitPct >= 0 ? tint(VIZ.green) : tint(VIZ.red), padding: "2px 7px", borderRadius: 20 }}>{v.profitPct.toFixed(1)}%</span>
+                    </td>
                   </tr>
                 ))}
                 {vehicleRows.length === 0 && <tr><td colSpan="5" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
@@ -223,22 +239,25 @@ const LedgerDashboard = ({
           </div>
         </Card>
 
-        <Card>
+        <Card style={cardStyle}>
           <CardHeader title="Top Performing Vehicles" subtitle="By lifetime profit" />
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr style={{ background: C.bg }}>{["#", "Vehicle", "Model", "Profit", "Days Rented"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+              <thead><tr>{["#", "Vehicle", "Model", "Profit", "Days", "Type"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
                 {topVehicles.map((v, i) => (
-                  <tr key={v.plate} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "9px 12px", fontSize: 12, fontWeight: 700, color: C.textMuted }}>{i + 1}</td>
+                  <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                    <td style={{ padding: "9px 12px" }}>
+                      <span style={{ display: "inline-flex", width: 20, height: 20, borderRadius: "50%", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", background: rank[i] || "#CBD5E1" }}>{i + 1}</span>
+                    </td>
                     <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
                     <td style={{ padding: "9px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{v.model}</td>
                     <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
                     <td style={{ padding: "9px 12px", fontSize: 11, textAlign: "center" }}>{daysRentedByPlate[v.plate] || 0}</td>
+                    <td style={{ padding: "9px 12px" }}><span style={{ fontSize: 9.5, fontWeight: 600, color: UP, background: tint(VIZ.green), padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>Rental Income</span></td>
                   </tr>
                 ))}
-                {topVehicles.length === 0 && <tr><td colSpan="5" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
+                {topVehicles.length === 0 && <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
               </tbody>
             </table>
           </div>
@@ -248,11 +267,14 @@ const LedgerDashboard = ({
       {/* Stat tiles */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
         {tiles.map((t) => (
-          <Card key={t.label}>
-            <div style={{ padding: 14, textAlign: "center" }}>
-              <div style={{ fontSize: 20 }}>{t.icon}</div>
-              <div style={{ ...mono, fontSize: 20, fontWeight: 700, color: t.color, marginTop: 4 }}>{t.value}</div>
-              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>{t.label}</div>
+          <Card key={t.label} style={cardStyle}>
+            <div style={{ padding: 14, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: "50%", background: tint(t.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{t.icon}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ ...mono, fontSize: 18, fontWeight: 800, color: t.color, lineHeight: 1.1 }}>{t.value}</div>
+                <div style={{ fontSize: 10, color: C.textPri, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</div>
+                <div style={{ fontSize: 9, color: C.textMuted }}>{t.sub}</div>
+              </div>
             </div>
           </Card>
         ))}
