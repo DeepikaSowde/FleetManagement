@@ -438,22 +438,32 @@ export default function FleetOpzApp() {
   //     unmatched number), clear the stale auto-filled values rather than
   //     leaving the last customer's details sitting in an unlocked field.
   const handleICBlur = () => {
-    const match = findCustomerByIC(fleetData.bookings, newBookingData.ic);
-    setMatchedCustomer(match);
+    // Primary source is the real customers table (master records). Booking
+    // history is a fallback for fields the customers table doesn't store
+    // (passport, licenseExpiry).
+    const normIC = (v) => (v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const key = normIC(newBookingData.ic);
+    const cust = key ? (fleetData.customers || []).find(c => normIC(c.ic) === key) : null;
+    const bookingMatch = findCustomerByIC(fleetData.bookings, newBookingData.ic);
+    const match = cust || bookingMatch;
+    setMatchedCustomer(match || null);
     setNewBookingData(prev => {
       if (match) {
         return {
           ...prev,
-          customer: prev.customer || match.customer,
-          contact: match.contact,
-          passport: match.passport,
-          license: match.license,
-          licenseExpiry: match.licenseExpiry,
-          address: match.address,
+          customer: prev.customer || cust?.name || bookingMatch?.customer || "",
+          contact: cust?.contact ?? bookingMatch?.contact ?? "",
+          passport: bookingMatch?.passport ?? prev.passport ?? "",
+          license: cust?.license ?? bookingMatch?.license ?? "",
+          licenseExpiry: bookingMatch?.licenseExpiry ?? prev.licenseExpiry ?? "",
+          address: cust?.address ?? bookingMatch?.address ?? "",
+          customerType: cust?.customerType ?? prev.customerType,
+          age: cust?.age ?? prev.age ?? "",
+          drivingExperience: cust?.drivingExperience ?? prev.drivingExperience ?? "",
         };
       }
       if (matchedCustomer) {
-        return { ...prev, contact: "", passport: "", license: "", licenseExpiry: "", address: "" };
+        return { ...prev, contact: "", passport: "", license: "", licenseExpiry: "", address: "", customerType: "Local", age: "", drivingExperience: "" };
       }
       return prev;
     });
