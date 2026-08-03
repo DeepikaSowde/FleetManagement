@@ -1119,11 +1119,8 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Bookings</div>
-          <div style={{ fontSize: 11, color: C.textMuted }}>{scopedBookings.length} total bookings</div>
-        </div>
+      {/* New Booking button (page title is shown by the app top bar) */}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
         <Btn primary onClick={onNewBooking}>＋ New Booking</Btn>
       </div>
 
