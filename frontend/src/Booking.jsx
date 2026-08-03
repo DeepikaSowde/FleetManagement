@@ -99,7 +99,10 @@ const hasHandedOver = (b) => !!b.handoverAt;
 // happened — used to surface an "Awaiting Handover" flag so staff notice
 // the status pill already reads Active even though the rental hasn't
 // actually been handed over (no Agreement, no mileage/fuel on file yet).
-const isAwaitingHandover = (b) => !hasHandedOver(b) && b.start && new Date() >= new Date(b.start) && b.status !== "Completed";
+// A booking is "done" once it's been returned or reached a terminal status —
+// past that point it must never nag about handover.
+const isTerminalBooking = (b) => b.status === "Completed" || b.status === "Closed" || !!b.returnedAt || !!b.mileageIn;
+const isAwaitingHandover = (b) => !hasHandedOver(b) && b.start && new Date() >= new Date(b.start) && !isTerminalBooking(b);
 
 // Charge types offered in the New Booking wizard's "+ Add Charge" form
 // (FleetOpzApp.jsx, Pricing & Charges step) — imported from there via this
@@ -373,12 +376,43 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // spot needs no changes, but a backdated/late-logged payment can be corrected.
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [paymentTime, setPaymentTime] = useState(() => new Date().toTimeString().slice(0, 5));
+  // Vehicle Handover — now done right here (not hidden inside Edit).
+  const [startingMileage, setStartingMileage] = useState(booking.startingMileage || "");
+  const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
+  const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
+  const [showHandover, setShowHandover] = useState(false);
+  const returnRef = useRef(null);
 
   if (!booking) return null;
   const car = fleet.find(c => c.plate === booking.plate);
   const inv = computeBookingInvoice(booking);
   const payStatus = paymentStatus(inv.totalPaid, inv.finalInvoiceTotal);
   const alreadyReturned = !!booking.mileageIn || booking.status === "Completed";
+
+  // ── Lifecycle stage → the one relevant next action ────────────────────────
+  const handedOver = hasHandedOver(booking);
+  const pickupArrived = booking.start && new Date() >= new Date(booking.start);
+  const terminal = booking.status === "Completed" || booking.status === "Closed" || !!booking.returnedAt || alreadyReturned;
+  let stageIdx, action; // action: "handover" | "return" | "payment" | "done"
+  if (terminal) {
+    if (inv.balanceDue > 0) { stageIdx = 3; action = "payment"; }
+    else { stageIdx = 4; action = "done"; }
+  } else if (handedOver) {
+    stageIdx = 2; action = "return";
+  } else {
+    stageIdx = pickupArrived ? 1 : 0; action = "handover";
+  }
+  const STAGES = ["Upcoming", "Handover", "On Rental", "Returned", "Closed"];
+
+  const handleCompleteHandover = () => {
+    if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
+    if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
+    const updates = { startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active" };
+    onUpdateBooking(booking.id, updates);
+    // The Rental Agreement needs mileage/fuel/condition — generate it now.
+    generateRentalAgreementPdf({ ...booking, ...updates }, car);
+    setShowHandover(false);
+  };
 
   // Balance Due coloring, per spec: green once fully paid, orange while
   // partially paid, red while nothing's been paid against an outstanding balance.
@@ -527,12 +561,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
             </div>
           </div>
 
-          {isAwaitingHandover(booking) && (
-            <div style={{ margin: "10px 0 0", padding: "8px 12px", borderRadius: 8, border: `1px solid #f59e0b55`, background: "#f59e0b14", fontSize: 11.5, color: "#92400e", fontWeight: 600 }}>
-              ⏳ Awaiting Vehicle Handover — the pickup date has arrived but mileage, fuel, and condition haven't been recorded yet, so no Rental Agreement exists for this booking.
-            </div>
-          )}
-
           {/* Tabs — same numbered circle-badge + connector style as the
               New Booking wizard's step header. These stay freely clickable
               (not a linear progress gate) since Overview/Pricing
@@ -573,6 +601,88 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         <div style={{ padding: "16px 22px", overflowY: "auto", flex: 1 }}>
           {activeTab === "Overview" ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {/* Next Action bar — stage tracker + the single relevant action */}
+              <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, background: "#fff" }}>
+                {/* Stage tracker */}
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+                  {STAGES.map((label, i) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", flex: i < STAGES.length - 1 ? 1 : "0 0 auto" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, background: i <= stageIdx ? C.teal : C.bg, color: i <= stageIdx ? "#fff" : C.textMuted, border: i <= stageIdx ? "none" : `1px solid ${C.border}` }}>
+                          {i < stageIdx ? "✓" : i + 1}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: i === stageIdx ? 700 : 500, color: i <= stageIdx ? C.navy : C.textMuted, whiteSpace: "nowrap" }}>{label}</span>
+                      </div>
+                      {i < STAGES.length - 1 && <div style={{ flex: 1, height: 2, margin: "0 8px", minWidth: 12, background: i < stageIdx ? C.teal : C.border }} />}
+                    </div>
+                  ))}
+                </div>
+
+                {/* The one relevant action for this stage */}
+                {action === "handover" && (showHandover ? (
+                  <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 10 }}>🔑 Complete Vehicle Handover</div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                      <div style={{ flex: "1 1 160px" }}>
+                        <div style={detailFieldLabelStyle}>Starting Mileage (km)</div>
+                        <input type="number" min="0" value={startingMileage} onChange={(e) => setStartingMileage(e.target.value)} placeholder="e.g., 9000" style={detailInputStyle} />
+                      </div>
+                      <div style={{ flex: "1 1 140px" }}>
+                        <div style={detailFieldLabelStyle}>Fuel Level at Pickup</div>
+                        <select value={fuelLevel} onChange={(e) => setFuelLevel(e.target.value)} style={detailInputStyle}>
+                          {FUEL_LEVELS.map((f) => <option key={f} value={f}>{f}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <div style={detailFieldLabelStyle}>Vehicle Condition (optional)</div>
+                      <textarea value={vehicleCondition} onChange={(e) => setVehicleCondition(e.target.value)} placeholder="Any scratches, dents, notes…" style={{ ...detailInputStyle, minHeight: 52, resize: "vertical" }} />
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                      <Btn primary onClick={handleCompleteHandover}>Save &amp; Generate Agreement</Btn>
+                      <Btn onClick={() => setShowHandover(false)}>Cancel</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 22 }}>🔑</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Next step: Complete Vehicle Handover</div>
+                      <div style={{ fontSize: 11.5, color: C.textMuted }}>Record starting mileage, fuel &amp; condition to activate the rental and generate the Rental Agreement.</div>
+                    </div>
+                    <Btn primary onClick={() => setShowHandover(true)}>Complete Handover →</Btn>
+                  </div>
+                ))}
+
+                {action === "return" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 22 }}>🏁</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Vehicle on rental</div>
+                      <div style={{ fontSize: 11.5, color: C.textMuted }}>When the customer returns the car, record the mileage &amp; fuel to close it out.</div>
+                    </div>
+                    <Btn primary onClick={() => returnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}>Mark Vehicle Returned →</Btn>
+                  </div>
+                )}
+
+                {action === "payment" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 22 }}>💳</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Payment pending</div>
+                      <div style={{ fontSize: 11.5, color: C.textMuted }}>Vehicle returned. Balance due <strong style={{ color: C.red }}>{fmt(inv.balanceDue)}</strong> — record the remaining payment.</div>
+                    </div>
+                    <Btn primary onClick={() => setActiveTab("Pricing & Payment")}>Record Payment →</Btn>
+                  </div>
+                )}
+
+                {action === "done" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.teal, fontWeight: 700, fontSize: 13 }}>
+                    ✅ Booking completed — handed over, returned, and fully paid.
+                  </div>
+                )}
+              </div>
+
               {/* Rental Summary */}
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Rental Summary</SectionHeading>
@@ -589,17 +699,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>{row.value}</span>
                   </div>
                 ))}
-                {/* Vehicle Handover is now completed from the Edit Booking flow
-                    (Step 5 — Review), not a button here — this row just reflects
-                    whatever state that flow has produced. */}
+                {/* Reflects handover state; the action itself is the Next Action
+                    bar at the top of this tab. */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "3px 0", fontSize: 12 }}>
                   <span style={{ color: C.textMuted }}>Vehicle Handover</span>
                   {hasHandedOver(booking) ? (
                     <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>✅ {formatDateTime(booking.handoverAt)}</span>
-                  ) : booking.status !== "Completed" ? (
-                    <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Complete via Edit</span>
                   ) : (
-                    <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>⏳ Pending</span>
+                    <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Pending</span>
                   )}
                 </div>
               </div>
@@ -668,12 +775,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               )}
 
               {/* Vehicle Return — spans both columns */}
-              <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+              <div ref={returnRef} style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
                 <SectionHeading size="sm">Vehicle Return</SectionHeading>
                 {alreadyReturned ? (
                   <div style={{ fontSize: 12.5, color: C.textSec }}>
                     ✅ Returned{booking.actualReturnAt ? ` ${new Date(booking.actualReturnAt).toLocaleString()}` : ""} — Mileage In {booking.mileageIn || mileageIn} km · Fuel In {booking.fuelIn || fuelIn}
                   </div>
+                ) : !handedOver ? (
+                  <div style={{ fontSize: 12, color: C.textMuted }}>Complete the Vehicle Handover first — then you can record the return here.</div>
                 ) : (
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div style={{ flex: "1 1 140px" }}>
