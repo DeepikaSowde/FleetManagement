@@ -662,6 +662,8 @@ export default function FleetOpzApp() {
         calculateCarMonthlyTarget={fleetData.calculateCarMonthlyTarget}
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}
         getExpensesByCategory={fleetData.getExpensesByCategory}
+        onNewBooking={openNewBookingModal}
+        onNavigate={setActive}
       />
     ),
     fleet: (
@@ -767,7 +769,7 @@ export default function FleetOpzApp() {
     dashboard: { title: "Fleet Dashboard", sub: `${fleetData.fleet.length} cars · ${fleetData.bookings.filter(b => b.status === "Active").length} active` },
     fleet: { title: "Fleet Management", sub: `${fleetData.fleet.length} cars registered` },
     bookings: { title: "Bookings", sub: `${fleetData.bookings.length} total bookings` },
-    customers: { title: "Customers", sub: "Customer directory from booking history" },
+    customers: { title: "Customer Management", sub: "Manage all customers. Customer details are updated automatically from Bookings." },
     earnings: { title: "Actual Earnings", sub: "Locked rental income records" },
     expenses: { title: "Expense Management", sub: "Log and track running costs" },
     ledger: { title: "Financial Ledger", sub: "Rental income & expenses with running balance" },

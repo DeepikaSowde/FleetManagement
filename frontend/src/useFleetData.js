@@ -593,9 +593,13 @@ export const useFleetData = () => {
       ic: data.ic,
       name: data.customer ?? data.name ?? "",
       contact: data.contact ?? null,
+      email: data.email ?? null,
       license: data.license ?? null,
+      licenseExpiry: data.licenseExpiry ?? null,
       customerType: data.customerType ?? null,
       age: data.age === "" || data.age == null ? null : Number(data.age),
+      dob: data.dob ?? null,
+      nationality: data.nationality ?? null,
       drivingExperience: data.drivingExperience === "" || data.drivingExperience == null ? null : Number(data.drivingExperience),
       address: data.address ?? null,
     };

@@ -114,12 +114,35 @@ CREATE TABLE IF NOT EXISTS customers (
   ic                  VARCHAR(80) UNIQUE NOT NULL,
   name                VARCHAR(160) NOT NULL,
   contact             VARCHAR(80),
+  email               VARCHAR(160),
   license             VARCHAR(120),
+  license_expiry      TEXT,                 -- driving-license expiry date (ISO string)
   customer_type       VARCHAR(40),          -- Local | Foreigner | Tourist
   age                 INTEGER,
+  dob                 TEXT,                 -- date of birth (ISO string)
+  nationality         VARCHAR(80),
   driving_experience  INTEGER,              -- years
   address             TEXT,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ
+);
+
+-- Idempotent migrations so existing databases (created before these columns
+-- existed) pick up the new fields without a manual rebuild. Safe to re-run.
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS email          VARCHAR(160);
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS license_expiry TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS dob            TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS nationality    VARCHAR(80);
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ;
+
+-- ── EMPLOYEES — staff who operations (pickups/returns) get assigned to ──────
+CREATE TABLE IF NOT EXISTS employees (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(120) NOT NULL,
+  phone       VARCHAR(40),
+  role        VARCHAR(60),
+  active      BOOLEAN DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ── RESTRICTED LICENSES — driving-license blocklist (admin managed) ──────────

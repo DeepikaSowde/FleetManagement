@@ -1,463 +1,548 @@
-import { C, mono, fmt, totalInv, daysUntil } from "./theme";
-import { Badge, StatusTag, PlateBadge, Card, CardHeader, Btn, KpiCard, Ring, PLRow } from "./components";
+import { useState } from "react";
+import { fmt } from "./theme";
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ReferenceLine, PieChart, Pie, Cell,
+} from "recharts";
 
-const Dashboard = ({ fleet, bookings, earnings, expenses, alerts, month, calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory, calculateMonthlyTarget, calculateCarMonthlyTarget, calculateMonthlyBudget }) => {
+// ── DASHBOARD PALETTE ─────────────────────────────────────────────────────────
+// This bright palette is scoped to the Dashboard only (per design decision) so
+// it can match the reference mockup without disturbing the app-wide muted theme.
+const D = {
+  blue: "#2563EB", blueSoft: "#EAF1FE",
+  green: "#16A34A", greenSoft: "#E7F7EE",
+  purple: "#8B5CF6", purpleSoft: "#F1ECFE",
+  orange: "#F97316", orangeSoft: "#FEEEE0",
+  red: "#EF4444", redSoft: "#FDECEC",
+  yellow: "#EAB308", yellowSoft: "#FDF4D7",
+  teal: "#0EA5A5", tealSoft: "#E2F6F6",
+  ink: "#0F172A",      // headings
+  body: "#334155",     // body text
+  muted: "#64748B",    // muted labels
+  faint: "#94A3B8",    // faintest text
+  line: "#EAEDF2",     // borders
+  track: "#EEF1F6",    // progress track
+  card: "#FFFFFF",
+  page: "#F4F6FB",
+};
+
+const CARD = {
+  background: D.card,
+  borderRadius: 14,
+  border: `1px solid ${D.line}`,
+  boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)",
+};
+
+const MONTHS = ["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06","2026-07","2026-08","2026-09","2026-10","2026-11","2026-12"];
+const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const TODAY_MONTH = "2026-06"; // mirrors the fixed "today" reference used elsewhere for YTD roll-ups
+
+// Compact SGD for chart axes ("50K", "1.2M") so long tick labels don't crowd.
+const fmtK = (n) => {
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `${Math.round(n / 1000)}K`;
+  return `${n}`;
+};
+
+const prevMonthOf = (m) => {
+  const [y, mo] = m.split("-").map(Number);
+  const d = new Date(y, mo - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+// ── SMALL PRESENTATIONAL PIECES ───────────────────────────────────────────────
+const Card = ({ children, style }) => <div style={{ ...CARD, ...style }}>{children}</div>;
+
+const SectionHead = ({ title, note, right }) => (
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+    <div style={{ fontSize: 15.5, fontWeight: 700, color: D.ink }}>
+      {title}{note && <span style={{ fontSize: 12, fontWeight: 500, color: D.faint, marginLeft: 6 }}>{note}</span>}
+    </div>
+    {right}
+  </div>
+);
+
+const LinkBtn = ({ children, color = D.blue, onClick }) => (
+  <button onClick={onClick} style={{
+    background: "none", border: "none", padding: 0, cursor: "pointer",
+    fontSize: 12, fontWeight: 600, color, fontFamily: "inherit",
+  }}>{children}</button>
+);
+
+const KpiTile = ({ icon, iconColor, iconBg, label, value, sub, subColor, link, onLink }) => (
+  <Card style={{ padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 132 }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, color: D.muted, textTransform: "uppercase" }}>{label}</div>
+        <div style={{ width: 38, height: 38, borderRadius: 10, background: iconBg, color: iconColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{icon}</div>
+      </div>
+      <div style={{ fontSize: 27, fontWeight: 800, color: D.ink, marginTop: 8, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11.5, color: subColor || D.muted, marginTop: 3, fontWeight: subColor ? 600 : 400 }}>{sub}</div>}
+    </div>
+    {link && <LinkBtn color={iconColor} onClick={onLink}>{link} →</LinkBtn>}
+  </Card>
+);
+
+const Donut = ({ data, centerTop, centerBottom, size = 132, thickness = 20 }) => (
+  <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+    <PieChart width={size} height={size}>
+      <Pie data={data} dataKey="value" cx="50%" cy="50%"
+        innerRadius={(size / 2) - thickness} outerRadius={size / 2}
+        startAngle={90} endAngle={-270} paddingAngle={data.length > 1 ? 2 : 0} stroke="none">
+        {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+      </Pie>
+    </PieChart>
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: D.ink }}>{centerTop}</div>
+      {centerBottom && <div style={{ fontSize: 10, color: D.faint }}>{centerBottom}</div>}
+    </div>
+  </div>
+);
+
+const StatusBadge = ({ label, color, bg }) => (
+  <span style={{ fontSize: 10.5, fontWeight: 700, color, background: bg, padding: "3px 9px", borderRadius: 20 }}>{label}</span>
+);
+
+const Dashboard = ({
+  fleet, bookings, earnings, expenses, alerts, month,
+  calculateMetrics, calculateMonthlyMetrics, calculateMonthlyTarget,
+  getExpensesByCategory, onNewBooking, onNavigate,
+}) => {
+  const [revPeriod, setRevPeriod] = useState("Month");
+
   const metrics = calculateMetrics();
-  const currentMonth = month || "2026-06"; // driven by the month dropdown in the topbar
-  const isAllMonths = currentMonth === "all";
+  const isAll = month === "all";
+  const refMonth = isAll ? TODAY_MONTH : (month || TODAY_MONTH);
+  const refMonthIdx = MONTHS.indexOf(refMonth);
+  const refMonthLabel = isAll ? "YTD" : (refMonthIdx >= 0 ? MONTH_LABELS[refMonthIdx] : refMonth);
 
-  const months = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
-  const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const currentMonthIdx = months.indexOf(currentMonth);
-  const currentMonthLabel = isAllMonths ? "YTD" : (currentMonthIdx >= 0 ? monthLabels[currentMonthIdx] : currentMonth);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-  // When "All Months" is selected, roll every month's numbers up into one YTD view instead
-  // of a single month's slice.
-  const monthMetrics = isAllMonths
-    ? {
-        monthlyEarnings: metrics.totalEarnings,
-        monthlyExpenses: metrics.totalExpenses,
-        monthlyProfit: metrics.netProfit,
-        monthlyBookings: metrics.totalBookings,
-        monthlyCustomers: metrics.uniqueCustomers,
+  const total = Math.max(1, metrics.totalFleet);
+  const pct = (n) => Math.round((n / total) * 100);
+
+  // ── Monthly rollups (respect the topbar month / "all") ──────────────────────
+  const ytdMonths = MONTHS.filter((m) => m <= TODAY_MONTH);
+  const mm = isAll
+    ? { monthlyEarnings: metrics.totalEarnings, monthlyExpenses: metrics.totalExpenses, monthlyProfit: metrics.netProfit }
+    : calculateMonthlyMetrics(refMonth);
+  const monthlyTarget = isAll
+    ? ytdMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0)
+    : calculateMonthlyTarget(refMonth);
+
+  const achieved = mm.monthlyEarnings;
+  const remaining = Math.max(0, monthlyTarget - achieved);
+  const achievedPct = monthlyTarget > 0 ? (achieved / monthlyTarget) * 100 : 0;
+
+  // ── Today's revenue (daily accrual from cars out on rent) ────────────────────
+  const dayRevenue = (dayStr) => bookings
+    .filter((b) => b.start && b.end && b.start.slice(0, 10) <= dayStr && dayStr <= b.end.slice(0, 10) && (b.status === "Active" || b.status === "Ending Today"))
+    .reduce((s, b) => s + (Number(b.rate) || 0), 0);
+  const todayRevenue = dayRevenue(todayStr);
+  const yestRevenue = dayRevenue(yesterdayStr);
+  const revDelta = yestRevenue > 0 ? ((todayRevenue - yestRevenue) / yestRevenue) * 100 : null;
+  const todaysBookings = bookings.filter((b) => b.start && b.start.slice(0, 10) === todayStr).length;
+
+  const urgentAlerts = alerts.filter((a) => a.urgent).length;
+
+  // ── Revenue Overview chart series ───────────────────────────────────────────
+  const buildSeries = () => {
+    const earn2026 = earnings.filter((e) => e.start?.startsWith("2026"));
+    if (revPeriod === "Year") {
+      let cum = 0;
+      const data = MONTHS.map((m, i) => {
+        cum += earn2026.filter((e) => e.start.slice(0, 7) === m).reduce((s, e) => s + (e.total || 0), 0);
+        return { label: MONTH_LABELS[i], actual: cum };
+      });
+      const target = ytdMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0);
+      return { data, target };
+    }
+    if (revPeriod === "Week") {
+      const data = [];
+      for (let i = 6; i >= 0; i--) {
+        const ds = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        const day = earn2026.filter((e) => e.start.slice(0, 10) === ds).reduce((s, e) => s + (e.total || 0), 0);
+        data.push({ label: ds.slice(5), actual: day });
       }
-    : calculateMonthlyMetrics(currentMonth);
-
-  // Monthly target is derived automatically from each car's remaining investment to recover,
-  // its remaining COE runway, and its maintenance cost as of this month — not a fixed manual number.
-  // For "All Months", it's the sum of every month's target so far THIS YEAR — up to the current
-  // real-world month, not the full year (the dropdown lists Jan-Dec so future months can be
-  // previewed individually, but "YTD" must stop at today, or it double-counts months that
-  // haven't happened yet).
-  const TODAY_MONTH = "2026-06"; // keep in sync with the fixed "today" reference in theme.js
-  const ytdMonths = months.filter(m => m <= TODAY_MONTH);
-  const monthlyTarget = isAllMonths
-    ? ytdMonths.reduce((sum, m) => sum + calculateMonthlyTarget(m), 0)
-    : calculateMonthlyTarget(currentMonth);
-  const targetPercentage = monthlyTarget > 0 ? Math.round((monthMetrics.monthlyEarnings / monthlyTarget) * 100) : 0;
-
-  // Monthly operating budget is derived automatically from each car's own maintenance %,
-  // instead of a flat manual percentage of total fleet investment.
-  const monthlyBudget = isAllMonths
-    ? ytdMonths.reduce((sum, m) => sum + calculateMonthlyBudget(m), 0)
-    : calculateMonthlyBudget(currentMonth);
-
-  // Calculate YTD metrics
-  const ytdMetrics = {
-    income: earnings.reduce((sum, e) => sum + (e.total || 0), 0),
-    expenses: expenses.reduce((sum, e) => sum + (e.amount || 0), 0),
-    get profit() { return this.income - this.expenses; },
+      return { data, target: Math.round(monthlyTarget / 4) };
+    }
+    if (revPeriod === "Today") {
+      return { data: [{ label: "Today", actual: todayRevenue }], target: Math.round(monthlyTarget / 30) };
+    }
+    // Month (default): cumulative revenue by day of the reference month
+    const [y, mo] = refMonth.split("-").map(Number);
+    const daysInMonth = new Date(y, mo, 0).getDate();
+    const monthEarn = earn2026.filter((e) => e.start.slice(0, 7) === refMonth);
+    let cum = 0;
+    const data = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      cum += monthEarn.filter((e) => Number(e.start.slice(8, 10)) === d).reduce((s, e) => s + (e.total || 0), 0);
+      data.push({ label: `${d} ${MONTH_LABELS[mo - 1]}`, actual: cum });
+    }
+    return { data, target: monthlyTarget };
   };
+  const { data: revData, target: revTarget } = buildSeries();
 
-  // Calculate per-car metrics for table
-  const carMetricsForTable = fleet.map(car => {
-    const metrics = calculateCarMetrics(car.plate);
-    return { ...car, ...metrics };
-  });
+  // ── Fleet Status buckets ────────────────────────────────────────────────────
+  const fsc = metrics.fleetStatusCounts || {};
+  const fleetRows = [
+    { label: "Available", count: fsc.Available || 0, color: D.green },
+    { label: "On Rent", count: fsc["On Rental"] || 0, color: D.blue },
+    { label: "Reserved (Upcoming)", count: fsc.Upcoming || 0, color: D.purple },
+    { label: "Maintenance", count: fsc.Maintenance || 0, color: D.orange },
+    { label: "Inactive", count: fsc.Inactive || 0, color: D.faint },
+  ];
 
-  // Calculate fleet recovery
-  const totalFleetInvestment = fleet.reduce((sum, car) => sum + totalInv(car), 0);
-  const totalFleetRecovered = earnings.reduce((sum, e) => sum + (e.total || 0), 0);
-  const fleetRecoveryPct = totalFleetInvestment > 0 ? Math.round((totalFleetRecovered / totalFleetInvestment) * 100) : 0;
+  // ── Today's Operations ──────────────────────────────────────────────────────
+  const isReturned = (b) => b.forceCompleted || b.status === "Completed" || b.status === "Closed";
+  const startToday = bookings.filter((b) => b.start && b.start.slice(0, 10) === todayStr);
+  const endToday = bookings.filter((b) => b.end && b.end.slice(0, 10) === todayStr);
+  const ops = [
+    {
+      icon: "🚗", color: D.blue, bg: D.blueSoft, label: "Pickups",
+      done: startToday.filter((b) => b.handoverAt).length,
+      pending: startToday.filter((b) => !b.handoverAt && !b.cancelled).length,
+    },
+    {
+      icon: "🔑", color: D.green, bg: D.greenSoft, label: "Returns",
+      done: endToday.filter(isReturned).length,
+      pending: endToday.filter((b) => !isReturned(b) && !b.cancelled).length,
+    },
+    {
+      icon: "✅", color: D.teal, bg: D.tealSoft, label: "Completed Rentals",
+      done: bookings.filter((b) => isReturned(b) && b.end && b.end.slice(0, 10) === todayStr).length,
+      pending: null,
+    },
+    {
+      icon: "⏰", color: D.orange, bg: D.orangeSoft, label: "Pending Returns",
+      done: null,
+      pending: bookings.filter((b) => (b.status === "Ending Today") || (b.end && b.end.slice(0, 10) < todayStr && !isReturned(b) && !b.cancelled)).length,
+    },
+  ];
 
-  // Expense breakdown by category — YTD uses every logged expense, otherwise just this month's
-  const expensesByCategory = isAllMonths
+  // ── P&L Summary (this month, vs previous month) ─────────────────────────────
+  const prevMM = isAll ? null : calculateMonthlyMetrics(prevMonthOf(refMonth));
+  const pctChange = (cur, prev) => (prev && prev > 0 ? ((cur - prev) / prev) * 100 : null);
+  const revenue = mm.monthlyEarnings;
+  const expTotal = mm.monthlyExpenses;
+  const netProfit = mm.monthlyProfit;
+  const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const denom = revenue + expTotal;
+  const revShare = denom > 0 ? Math.round((revenue / denom) * 100) : 0;
+  const expShare = denom > 0 ? 100 - revShare : 0;
+
+  const plStats = [
+    { label: "Total Revenue", value: fmt(Math.round(revenue)), delta: pctChange(revenue, prevMM?.monthlyEarnings), goodUp: true },
+    { label: "Total Expenses", value: fmt(Math.round(expTotal)), delta: pctChange(expTotal, prevMM?.monthlyExpenses), goodUp: false },
+    { label: "Net Profit", value: fmt(Math.round(netProfit)), delta: pctChange(netProfit, prevMM?.monthlyProfit), goodUp: true },
+    { label: "Profit Margin", value: `${margin.toFixed(1)}%`, delta: null, goodUp: true },
+  ];
+
+  // ── Expense Overview (by category) ──────────────────────────────────────────
+  const expByCat = isAll
     ? expenses.reduce((acc, e) => { acc[e.category] = (acc[e.category] || 0) + (e.amount || 0); return acc; }, {})
-    : getExpensesByCategory(currentMonth);
-  const totalExpensesMonth = Object.values(expensesByCategory).reduce((sum, amt) => sum + amt, 0);
-  const expenseCategoryArray = Object.entries(expensesByCategory)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 5)
-    .map(([category, amount]) => ({
-      category,
-      amount,
-      pct: totalExpensesMonth > 0 ? Math.round((amount / totalExpensesMonth) * 100) : 0,
-    }));
+    : getExpensesByCategory(refMonth);
+  const catColors = [D.blue, D.green, D.purple, D.orange, D.yellow, D.red, D.teal];
+  const expEntries = Object.entries(expByCat).sort(([, a], [, b]) => b - a);
+  const expTotalCat = expEntries.reduce((s, [, a]) => s + a, 0);
+  const expSlices = expEntries.map(([category, amount], i) => ({
+    name: category, value: amount, color: catColors[i % catColors.length],
+    pct: expTotalCat > 0 ? Math.round((amount / expTotalCat) * 100) : 0,
+  }));
 
-  // Active bookings
-  const activeBookings = bookings.filter(b => b.status === "Active" || b.status === "Ending Today");
+  // ── Vehicle Performance (this month) ────────────────────────────────────────
+  const [vy, vmo] = refMonth.split("-").map(Number);
+  const mStart = new Date(vy, vmo - 1, 1);
+  const mEnd = new Date(vy, vmo, 1);
+  const overlapDays = (b) => {
+    if (!b.start || !b.end) return 0;
+    const s = new Date(Math.max(new Date(b.start).getTime(), mStart.getTime()));
+    const e = new Date(Math.min(new Date(b.end).getTime(), mEnd.getTime()));
+    return Math.max(0, Math.round((e - s) / 86400000));
+  };
+  const statusFor = (u) => u >= 90 ? { label: "Excellent", color: D.green, bg: D.greenSoft }
+    : u >= 70 ? { label: "Good", color: D.blue, bg: D.blueSoft }
+    : u >= 40 ? { label: "Average", color: D.orange, bg: D.orangeSoft }
+    : { label: "Low", color: D.red, bg: D.redSoft };
+  const vehicleRows = fleet.map((c) => {
+    const targetDays = Number(c.runningDaysTarget) || 25;
+    const rentedDays = isAll
+      ? Math.round(bookings.filter((b) => b.plate === c.plate && b.start && b.end).reduce((s, b) => s + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0))
+      : bookings.filter((b) => b.plate === c.plate).reduce((s, b) => s + overlapDays(b), 0);
+    const util = targetDays > 0 ? Math.round((rentedDays / targetDays) * 100) : 0;
+    return { plate: c.plate, name: `${c.make} ${c.model}`, targetDays, rentedDays, util, st: statusFor(util) };
+  }).sort((a, b) => b.util - a.util);
 
-  // Recent alerts
-  const recentAlerts = alerts;
+  const quickActions = [
+    { label: "New Booking", icon: "＋", color: D.green, bg: D.greenSoft, onClick: () => onNewBooking?.() },
+    { label: "Add Vehicle", icon: "＋", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("fleet") },
+    { label: "Add Customer", icon: "＋", color: D.purple, bg: D.purpleSoft, onClick: () => onNavigate?.("customers") },
+    { label: "Record Expense", icon: "＋", color: D.orange, bg: D.orangeSoft, onClick: () => onNavigate?.("expenses") },
+    { label: "Calendar", icon: "📅", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("bookings") },
+  ];
 
-  // Monthly earnings data for chart (Jan-Dec)
-  const allEarnings = earnings.filter(e => e.start?.startsWith("2026"));
-
-  const monthlyActual = months.map(month => {
-    const monthTotal = allEarnings
-      .filter(e => e.start?.startsWith(month))
-      .reduce((sum, e) => sum + (e.total || 0), 0);
-    const monthTarget = calculateMonthlyTarget(month);
-    return monthTotal > 0 && monthTarget > 0 ? Math.round((monthTotal / monthTarget) * 100) : 0;
-  });
+  const chartTint = D.green;
 
   return (
-    <div>
-      {/* KPI Strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 20 }}>
-        <KpiCard 
-          label="Total Fleet" 
-          value={metrics.totalFleet.toString()} 
-          sub="Cars registered" 
-          badge={`↑ ${metrics.activeFleet} active`}
-          badgeColor={C.green} 
-          badgeBg={C.greenFaint} 
-          accent={C.teal} 
-        />
-        <KpiCard 
-          label={`${currentMonthLabel} Earnings`}
-          value={fmt(monthMetrics.monthlyEarnings)} 
-          sub={`Target: ${fmt(Math.round(monthlyTarget))}`}
-          badge={`${targetPercentage}% of target`}
-          badgeColor={targetPercentage >= 80 ? C.green : targetPercentage >= 60 ? C.amber : C.red} 
-          badgeBg={targetPercentage >= 80 ? C.greenFaint : targetPercentage >= 60 ? C.amberFaint : C.redFaint} 
-          accent={C.green} 
-        />
-        <KpiCard 
-          label="Active Rentals" 
-          value={bookings.filter(b => b.status === "Active").length.toString()}
-          sub={`${metrics.availableFleet} cars available`}
-          badge={`${Math.round((metrics.activeFleet / metrics.totalFleet) * 100)}% occupancy`}
-          badgeColor={C.green} 
-          badgeBg={C.greenFaint} 
-          accent={C.navyMid} 
-        />
-        <KpiCard 
-          label={`${currentMonthLabel} Expenses`}
-          value={fmt(monthMetrics.monthlyExpenses)} 
-          sub={`Budget: ${fmt(Math.round(monthlyBudget))}`}
-          badge={monthMetrics.monthlyExpenses < monthlyBudget ? "Under budget" : "Over budget"}
-          badgeColor={monthMetrics.monthlyExpenses < monthlyBudget ? C.green : C.red} 
-          badgeBg={monthMetrics.monthlyExpenses < monthlyBudget ? C.greenFaint : C.redFaint} 
-          accent={C.amber} 
-        />
-        <KpiCard 
-          label="COE Alerts" 
-          value={alerts.filter(a => a.type === "coe").length.toString()}
-          sub="Expiring soon"
-          badge={alerts.filter(a => a.urgent).length > 0 ? "Action needed" : "OK"}
-          badgeColor={alerts.filter(a => a.urgent).length > 0 ? C.red : C.green}
-          badgeBg={alerts.filter(a => a.urgent).length > 0 ? C.redFaint : C.greenFaint}
-          accent={C.red} 
-        />
+    // Negative margin lets the dashboard own its lighter background inside the
+    // shell's 24px-padded content area, without changing the shell itself.
+    <div style={{ margin: -24, padding: 24, background: D.page, minHeight: "100%", fontFamily: "'Inter','Segoe UI',sans-serif", color: D.body }}>
+
+      {/* ── KPI STRIP ─────────────────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16, marginBottom: 20 }}>
+        <KpiTile icon="🚗" iconColor={D.blue} iconBg={D.blueSoft} label="Total Fleet" value={metrics.totalFleet} sub="Cars" link="View Fleet" onLink={() => onNavigate?.("fleet")} />
+        <KpiTile icon="✅" iconColor={D.green} iconBg={D.greenSoft} label="Available" value={metrics.availableCount} sub={`Cars (${pct(metrics.availableCount)}%)`} link="View Fleet" onLink={() => onNavigate?.("fleet")} />
+        <KpiTile icon="🚘" iconColor={D.teal} iconBg={D.tealSoft} label="On Rent" value={metrics.onRentalCount} sub={`Cars (${pct(metrics.onRentalCount)}%)`} link="View Bookings" onLink={() => onNavigate?.("bookings")} />
+        <KpiTile icon="📅" iconColor={D.purple} iconBg={D.purpleSoft} label="Today's Bookings" value={todaysBookings} sub="Bookings" link="View Bookings" onLink={() => onNavigate?.("bookings")} />
+        <KpiTile icon="💰" iconColor={D.orange} iconBg={D.orangeSoft} label="Today's Revenue" value={fmt(todayRevenue)}
+          sub={revDelta == null ? "vs yesterday" : `${revDelta >= 0 ? "↑" : "↓"} ${Math.abs(revDelta).toFixed(1)}% vs yesterday`}
+          subColor={revDelta == null ? undefined : (revDelta >= 0 ? D.green : D.red)}
+          link="View Earnings" onLink={() => onNavigate?.("earnings")} />
+        <KpiTile icon="🛡️" iconColor={D.red} iconBg={D.redSoft} label="Active Alerts" value={alerts.length}
+          sub={urgentAlerts > 0 ? "Requires attention" : "All clear"} subColor={urgentAlerts > 0 ? D.red : D.green}
+          link="View Alerts" onLink={() => onNavigate?.("alerts")} />
       </div>
 
-      {/* Row 1 */}
+      {/* ── ROW 1: Revenue Overview · Fleet Status · Today's Operations ────── */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
-        {/* Monthly Chart */}
-        <Card>
-          <CardHeader title="Monthly Earnings vs Target" subtitle="Jan – Jun 2026 · All Cars"
-            right={<Badge>YTD: {fmt(ytdMetrics.income)}</Badge>} />
-          <div style={{ padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120, marginBottom: 8 }}>
-              {monthLabels.map((m, i) => (
-                <div key={m} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                  <div style={{ display: "flex", gap: 2, alignItems: "flex-end", width: "100%", height: 100 }}>
-                    <div style={{ flex: 1, height: `${100}%`, background: C.navyMid, opacity: 0.2, borderRadius: "3px 3px 0 0" }} />
-                    <div style={{ flex: 1, height: `${monthlyActual[i]}%`, background: i === currentMonthIdx ? C.tealLight : C.teal, borderRadius: "3px 3px 0 0" }} />
-                  </div>
-                  <div style={{ fontSize: 9, color: i === currentMonthIdx ? C.teal : C.textMuted, fontWeight: i === currentMonthIdx ? 700 : 400 }}>{m}</div>
-                </div>
+
+        {/* Revenue Overview */}
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="Revenue Overview" right={
+            <div style={{ display: "flex", gap: 4, background: D.track, borderRadius: 8, padding: 3 }}>
+              {["Today", "Week", "Month", "Year"].map((p) => (
+                <button key={p} onClick={() => setRevPeriod(p)} style={{
+                  border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, fontWeight: 600,
+                  padding: "4px 10px", borderRadius: 6,
+                  background: revPeriod === p ? D.card : "transparent",
+                  color: revPeriod === p ? D.ink : D.muted,
+                  boxShadow: revPeriod === p ? "0 1px 2px rgba(16,24,40,0.08)" : "none",
+                }}>{p}</button>
               ))}
             </div>
-            <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: C.textMuted }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: C.teal }} /> Actual
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: C.textMuted }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: C.navyMid, opacity: 0.4 }} /> Target
+          } />
+          <div style={{ display: "grid", gridTemplateColumns: "170px 1fr", gap: 18 }}>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: D.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Monthly Target</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: D.ink, marginBottom: 12 }}>{fmt(Math.round(monthlyTarget))}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: D.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Achieved</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: D.green, marginBottom: 12 }}>{fmt(Math.round(achieved))}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: D.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Remaining</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: D.ink, marginBottom: 14 }}>{fmt(Math.round(remaining))}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: D.green }}>{achievedPct.toFixed(1)}%</div>
+              <div style={{ fontSize: 11, color: D.muted, marginBottom: 8 }}>of monthly target achieved</div>
+              <div style={{ height: 8, borderRadius: 5, background: D.track, overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(100, achievedPct)}%`, height: "100%", background: D.green, borderRadius: 5 }} />
               </div>
             </div>
-            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, display: "flex", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: 10, color: C.textMuted }}>YTD Net P&L</div>
-                <div style={{ ...mono, fontSize: 14, fontWeight: 700, color: ytdMetrics.profit >= 0 ? C.green : C.red }}>
-                  {ytdMetrics.profit >= 0 ? "+" : "−"}{fmt(Math.abs(ytdMetrics.profit))}
-                </div>
+            <div>
+              <div style={{ height: 210 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={revData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={chartTint} stopOpacity={0.28} />
+                        <stop offset="100%" stopColor={chartTint} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={D.line} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: D.faint }} axisLine={false} tickLine={false}
+                      interval={Math.max(0, Math.floor(revData.length / 7))} minTickGap={12} />
+                    <YAxis tickFormatter={fmtK} tick={{ fontSize: 10, fill: D.faint }} axisLine={false} tickLine={false} width={40} />
+                    <Tooltip formatter={(v) => fmt(Math.round(v))} labelStyle={{ color: D.ink, fontWeight: 700 }}
+                      contentStyle={{ borderRadius: 8, border: `1px solid ${D.line}`, fontSize: 12 }} />
+                    {revTarget > 0 && (
+                      <ReferenceLine y={revTarget} stroke={D.faint} strokeDasharray="6 5" ifOverflow="extendDomain"
+                        label={{ value: `Target ${fmt(Math.round(revTarget))}`, position: "insideTopRight", fontSize: 10, fill: D.muted }} />
+                    )}
+                    <Area type="monotone" dataKey="actual" stroke={chartTint} strokeWidth={2.5} fill="url(#revGrad)" name="Actual Revenue" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10, color: C.textMuted }}>Fleet Recovery</div>
-                <div style={{ ...mono, fontSize: 14, fontWeight: 700, color: C.navy }}>{fleetRecoveryPct}%</div>
+              <div style={{ display: "flex", gap: 18, marginTop: 8, paddingLeft: 4 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: D.muted }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: chartTint }} /> Actual Revenue
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: D.muted }}>
+                  <span style={{ width: 14, height: 0, borderTop: `2px dashed ${D.faint}` }} /> Target
+                </span>
               </div>
             </div>
           </div>
         </Card>
 
-        {/* Active Bookings */}
-        <Card>
-          <CardHeader title="Active Bookings" subtitle={`Today · ${activeBookings.length} active`} right={<Badge>{activeBookings.length}</Badge>} />
-          <div style={{ padding: "8px 18px 16px", maxHeight: 260, overflowY: "auto" }}>
-            {activeBookings.length === 0 ? (
-              <div style={{ padding: "20px", textAlign: "center", color: C.textMuted, fontSize: 12 }}>No active bookings</div>
-            ) : (
-              activeBookings.map(b => {
-                const days = Math.round((new Date(b.end) - new Date(b.start)) / 86400000);
-                return (
-                  <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-                      background: b.status === "Active" ? C.teal : b.status === "Ending Today" ? C.amber : C.navyMid }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.customer}</div>
-                      <div style={{ fontSize: 10, color: C.textMuted, marginTop: 1, display: "flex", alignItems: "center", gap: 4 }}>
-                        <PlateBadge plate={b.plate} small /> {b.start.slice(5)} – {b.end.slice(5)}
-                      </div>
-                    </div>
-                    <div style={{ ...mono, fontSize: 12, fontWeight: 700, color: C.teal, flexShrink: 0 }}>{fmt(b.rate * days)}</div>
-                  </div>
-                );
-              })
-            )}
+        {/* Fleet Status */}
+        <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
+          <SectionHead title="Fleet Status" />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 15 }}>
+            {fleetRows.map((r) => (
+              <div key={r.label}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12 }}>
+                  <span style={{ color: D.body }}>{r.label}</span>
+                  <span style={{ fontWeight: 700, color: D.ink }}>{r.count} <span style={{ color: D.faint, fontWeight: 500 }}>({pct(r.count)}%)</span></span>
+                </div>
+                <div style={{ height: 8, borderRadius: 5, background: D.track, overflow: "hidden" }}>
+                  <div style={{ width: `${pct(r.count)}%`, height: "100%", background: r.color, borderRadius: 5 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 16, textAlign: "center" }}>
+            <LinkBtn color={D.teal} onClick={() => onNavigate?.("fleet")}>View Fleet</LinkBtn>
           </div>
         </Card>
 
-        {/* Alerts */}
-        <Card>
-          <CardHeader title="Alerts" subtitle="Requires attention"
-            right={<Badge color={C.red} bg={C.redFaint}>{alerts.length}</Badge>} />
-          <div style={{ padding: "8px 18px 16px", maxHeight: 260, overflowY: "auto" }}>
-            {recentAlerts.length === 0 ? (
-              <div style={{ padding: "20px", textAlign: "center", color: C.textMuted, fontSize: 12 }}>No active alerts</div>
-            ) : (
-              recentAlerts.map(a => (
-                <div key={a.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 18, flexShrink: 0 }}>{a.type === "coe" ? "⚠️" : a.type === "return" ? "🔔" : "📋"}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>
-                      {a.type === "coe" ? `COE Expiry — ${a.plate}` : a.type === "return" ? "Return Today" : "Booking"}
-                    </div>
-                    <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 2 }}>{a.msg}</div>
-                  </div>
-                  <div style={{ ...mono, fontSize: 11, fontWeight: 700, padding: "3px 7px", borderRadius: 6, flexShrink: 0, alignSelf: "center",
-                    background: a.urgent ? C.redFaint : C.amberFaint, color: a.urgent ? C.red : C.amber }}>
-                    {a.days === 0 ? "Today" : `${a.days}d`}
-                  </div>
+        {/* Today's Operations */}
+        <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
+          <SectionHead title="Today's Operations" right={<LinkBtn onClick={() => onNavigate?.("bookings")}>View Details</LinkBtn>} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0 18px", alignItems: "center" }}>
+            <div />
+            <div style={{ fontSize: 10, fontWeight: 700, color: D.faint, textTransform: "uppercase", textAlign: "center", width: 64 }}>Completed</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: D.faint, textTransform: "uppercase", textAlign: "center", width: 52 }}>Pending</div>
+            {ops.map((o) => (
+              <div key={o.label} style={{ display: "contents" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 0", borderTop: `1px solid ${D.line}` }}>
+                  <span style={{ width: 32, height: 32, borderRadius: 9, background: o.bg, color: o.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>{o.icon}</span>
+                  <span style={{ fontSize: 12.5, color: D.body, fontWeight: 500 }}>{o.label}</span>
                 </div>
-              ))
-            )}
+                <div style={{ textAlign: "center", borderTop: `1px solid ${D.line}`, fontSize: 15, fontWeight: 700, color: o.done == null ? D.faint : D.green }}>{o.done == null ? "–" : o.done}</div>
+                <div style={{ textAlign: "center", borderTop: `1px solid ${D.line}`, fontSize: 15, fontWeight: 700, color: o.pending == null ? D.faint : (o.pending > 0 ? D.orange : D.ink) }}>{o.pending == null ? "–" : o.pending}</div>
+              </div>
+            ))}
           </div>
         </Card>
       </div>
 
-      {/* Row 2: Fleet Table + Recovery Rings */}
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 16, marginBottom: 16 }}>
-        <Card>
-          <CardHeader title="Fleet Overview" subtitle={`All ${fleet.length} registered cars`} right={<Btn small>View Fleet →</Btn>} />
-          <div style={{ maxHeight: 340, overflowY: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: C.bg }}>
-                {["Plate","Car","Status","Investment","COE Expiry","Month Earned","Recovery"].map(h => (
-                  <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.6, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, background: C.bg }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {carMetricsForTable.map((c) => {
-                const d = daysUntil(c.coe);
-                return (
-                  <tr key={c.plate} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "10px 12px" }}><PlateBadge plate={c.plate} /></td>
-                    <td style={{ padding: "10px 12px" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{c.make}</div>
-                      <div style={{ fontSize: 10, color: C.textMuted }}>{c.model}</div>
-                    </td>
-                    <td style={{ padding: "10px 12px" }}><StatusTag status={c.status} /></td>
-                    <td style={{ padding: "10px 12px", ...mono, fontSize: 11 }}>{fmt(c.investment)}</td>
-                    <td style={{ padding: "10px 12px", fontSize: 11, color: d < 30 ? C.red : d < 90 ? C.amber : C.textMuted, fontWeight: d < 90 ? 700 : 400 }}>
-                      {c.coe} {d < 30 ? "⚠" : d < 90 ? "⚡" : ""}
-                    </td>
-                    <td style={{ padding: "10px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.green }}>{fmt(c.earnings)}</td>
-                    <td style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 40, height: 4, background: C.bg, borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ width: `${c.recoveryPct}%`, height: "100%", background: c.recoveryPct >= 50 ? C.green : c.recoveryPct >= 25 ? C.amber : C.red }} />
-                      </div>
-                      <span style={{ ...mono, fontSize: 10, fontWeight: 700, minWidth: 25 }}>{c.recoveryPct}%</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader title="Recovery Progress" />
-          <div style={{ padding: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14, maxHeight: 260, overflowY: "auto" }}>
-              {fleet.map(car => {
-                const carMetrics = calculateCarMetrics(car.plate);
-                return (
-                  <Ring 
-                    key={car.plate}
-                    pct={carMetrics.recoveryPct} 
-                    color={carMetrics.recoveryPct >= 50 ? C.green : carMetrics.recoveryPct >= 25 ? C.amber : C.red}
-                    plate={car.plate} 
-                    model={car.model}
-                    note={`COE: ${daysUntil(car.coe)}d`}
-                    noteColor={daysUntil(car.coe) < 30 ? C.red : undefined}
-                  />
-                );
-              })}
-            </div>
-            <div style={{ background: C.bg, borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>Fleet Total Recovery</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ flex: 1, height: 10, background: C.border, borderRadius: 5, overflow: "hidden" }}>
-                  <div style={{ width: `${fleetRecoveryPct}%`, height: "100%", background: `linear-gradient(90deg, ${C.teal}, ${C.tealLight})`, borderRadius: 5 }} />
-                </div>
-                <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: C.navy }}>{fleetRecoveryPct}%</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: C.textMuted }}>
-                <span>Recovered: <b style={{ color: C.teal }}>{fmt(totalFleetRecovered)}</b></span>
-                <span>Total: <b style={{ color: C.navy }}>{fmt(totalFleetInvestment)}</b></span>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Row 3: Target vs Actual + Expense Breakdown + P&L */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16 }}>
-        {/* Target vs Actual — per car */}
-        <Card>
-          <CardHeader
-            title={`Target vs Actual — ${currentMonthLabel}`}
-            subtitle="Per car rental performance"
-            right={
-              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.textMuted }}>
-                <div style={{ width: 12, height: 2, background: C.amber, borderRadius: 1 }} />
-                Target
-              </div>
-            }
-          />
-          <div style={{ padding: 16, maxHeight: 340, overflowY: "auto" }}>
-            {(() => {
-              // Compute actual + target for every car first so they can share one
-              // horizontal scale — this is what makes the target tick land at each
-              // car's own target dollar amount (not always the track's right edge),
-              // matching the reference layout where higher-target cars' ticks sit
-              // further along the bar.
-              const rows = fleet.map(car => {
-                const carActual = isAllMonths
-                  ? earnings.filter(e => e.plate === car.plate).reduce((s, e) => s + (e.total || 0), 0)
-                  : earnings.filter(e => e.plate === car.plate && e.start?.startsWith(currentMonth)).reduce((s, e) => s + (e.total || 0), 0);
-                // Target comes straight from the car's own saved target (set when the
-                // car was added, or via "Set Target") — target income = targetRate ×
-                // runningDaysTarget. Never a guess.
-                const hasTarget = !!(car.targetRate && car.runningDaysTarget);
-                const monthlyTarget = hasTarget ? car.targetRate * car.runningDaysTarget : 0;
-                const carTarget = isAllMonths ? monthlyTarget * months.length : monthlyTarget;
-                const pct = carTarget > 0 ? Math.round((carActual / carTarget) * 100) : 0;
-                return { car, carActual, carTarget, hasTarget, pct };
-              });
-              // Shared scale = the largest target or actual across the list, with a
-              // little headroom, so every row's bar/tick is comparable at a glance.
-              const scaleMax = Math.max(1, ...rows.map(r => Math.max(r.carTarget, r.carActual))) * 1.08;
-
-              return rows.map(({ car, hasTarget, carTarget, carActual, pct }) => {
-                const pctColor = pct >= 80 ? C.green : pct >= 50 ? C.amber : C.red;
-                const targetTickPos = hasTarget ? Math.min((carTarget / scaleMax) * 100, 100) : 0;
-                const actualFillPos = hasTarget ? Math.min((carActual / scaleMax) * 100, 100) : 0;
-                return (
-                  <div key={car.plate} style={{ marginBottom: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 5 }}>
-                      <div>
-                        <div style={{ ...mono, fontSize: 11, fontWeight: 700, color: C.navy }}>{car.plate}</div>
-                        <div style={{ fontSize: 10, color: C.textMuted }}>{car.model}</div>
-                      </div>
-                      {hasTarget ? (
-                        pct > 100 ? (
-                          <div style={{ ...mono, fontSize: 12, fontWeight: 700, color: C.green }}>100%+ ✓</div>
-                        ) : (
-                          <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: pctColor }}>{pct}%</div>
-                        )
-                      ) : (
-                        <div style={{ fontSize: 9.5, color: C.amber, fontWeight: 600 }}>⚠ No target</div>
-                      )}
-                    </div>
-                    <div style={{ position: "relative", height: 7, background: C.bg, borderRadius: 4, overflow: "hidden" }}>
-                      {hasTarget && (
-                        <div style={{ width: `${actualFillPos}%`, height: "100%", background: pctColor, borderRadius: 4 }} />
-                      )}
-                      {/* Target tick — placed at this car's own target amount on the shared scale */}
-                      {hasTarget && (
-                        <div style={{ position: "absolute", top: -1, bottom: -1, left: `${targetTickPos}%`, width: 2, background: C.amber }} />
-                      )}
-                    </div>
-                  </div>
-                );
-              });
-            })()}
-          </div>
-        </Card>
-
-        {/* Expense Breakdown */}
-        <Card>
-          <CardHeader title={`Expense Breakdown — ${currentMonthLabel} 2026`} subtitle="By category" right={<Badge>{fmt(totalExpensesMonth)}</Badge>} />
-          <div style={{ padding: 16 }}>
-            {expenseCategoryArray.length === 0 ? (
-              <div style={{ textAlign: "center", color: C.textMuted, fontSize: 12, padding: "20px" }}>No expenses recorded</div>
-            ) : (
-              <>
-                <svg width="100%" height={110} viewBox="0 0 110 110" style={{ display: "block", margin: "0 auto 12px" }}>
-                  {expenseCategoryArray.reduce((acc, seg, i, arr) => {
-                    const circ = 2 * Math.PI * 38;
-                    const offset = -acc.offset;
-                    const colors = [C.teal, C.navyMid, C.amber, C.green, C.textMuted];
-                    const dash = circ * seg.pct / 100;
-                    acc.els.push(
-                      <circle key={i} cx={55} cy={55} r={38} fill="none" stroke={colors[i] || C.textMuted} strokeWidth={18}
-                        strokeDasharray={`${dash} ${circ}`} strokeDashoffset={offset} transform="rotate(-90 55 55)" />
-                    );
-                    acc.offset -= dash;
-                    return acc;
-                  }, { els: [], offset: 0 }).els}
-                  <circle cx={55} cy={55} r={27} fill="white" />
-                  <text x={55} y={52} textAnchor="middle" fontFamily="'Courier New',monospace" fontSize={9} fontWeight={700} fill={C.navy}>{fmt(totalExpensesMonth)}</text>
-                  <text x={55} y={62} textAnchor="middle" fontFamily="inherit" fontSize={7} fill={C.textMuted}>total</text>
-                </svg>
-                {expenseCategoryArray.map((e, i) => {
-                  const colors = [C.teal, C.navyMid, C.amber, C.green, C.textMuted];
-                  return (
-                    <div key={e.category} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-                      <div style={{ width: 9, height: 9, borderRadius: 2, background: colors[i] || C.textMuted, flexShrink: 0 }} />
-                      <div style={{ fontSize: 11, color: C.textSec, flex: 1 }}>{e.category}</div>
-                      <div style={{ width: 40, height: 4, background: C.bg, borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ width: `${e.pct}%`, height: "100%", background: colors[i] || C.textMuted, borderRadius: 2 }} />
-                      </div>
-                      <div style={{ ...mono, fontSize: 11, fontWeight: 600, minWidth: 50, textAlign: "right" }}>{fmt(e.amount)}</div>
-                    </div>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </Card>
+      {/* ── ROW 2: P&L · Expense Overview · Vehicle Performance ────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr", gap: 16, marginBottom: 16 }}>
 
         {/* P&L Summary */}
-        <Card>
-          <CardHeader title="P&L Summary" subtitle={`${currentMonthLabel} 2026 · Fleet`} />
-          <div style={{ padding: 16 }}>
-            <PLRow label="Total Rental Income" value={`+${fmt(monthMetrics.monthlyEarnings)}`} positive={true} />
-            <PLRow label="Total Expenses" value={`−${fmt(monthMetrics.monthlyExpenses)}`} positive={false} />
-            <PLRow label={`Net P&L — ${currentMonthLabel}`} value={`${monthMetrics.monthlyProfit >= 0 ? "+" : "−"}${fmt(Math.abs(monthMetrics.monthlyProfit))}`} positive={monthMetrics.monthlyProfit >= 0} bold divider />
-            <div style={{ marginTop: 12, padding: 10, background: monthMetrics.monthlyProfit >= 0 ? C.greenFaint : C.redFaint, borderRadius: 8, borderLeft: `3px solid ${monthMetrics.monthlyProfit >= 0 ? C.green : C.red}` }}>
-              <div style={{ fontSize: 10, color: monthMetrics.monthlyProfit >= 0 ? C.green : C.red, fontWeight: 700 }}>
-                {monthMetrics.monthlyProfit >= 0 ? "↑" : "↓"} Profitable
+        <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
+          <SectionHead title="P&L Summary" note={`(${refMonthLabel})`} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+            {plStats.map((s) => {
+              const good = s.delta == null ? null : (s.goodUp ? s.delta >= 0 : s.delta <= 0);
+              return (
+                <div key={s.label}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: D.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>{s.label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: D.ink, marginTop: 3 }}>{s.value}</div>
+                  {s.delta != null && (
+                    <div style={{ fontSize: 11, fontWeight: 600, marginTop: 2, color: good ? D.green : D.red }}>
+                      {s.delta >= 0 ? "↑" : "↓"} {Math.abs(s.delta).toFixed(1)}%
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: "auto" }}>
+            <Donut size={120} thickness={19}
+              data={denom > 0 ? [{ value: revenue, color: D.green }, { value: expTotal, color: D.orange }] : [{ value: 1, color: D.track }]}
+              centerTop={fmt(Math.round(netProfit))} centerBottom="net" />
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: D.green }} />
+                <span style={{ fontSize: 12, color: D.body, flex: 1 }}>Revenue ({revShare}%)</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: D.ink }}>{fmt(Math.round(revenue))}</span>
               </div>
-              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>This month's performance</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: D.orange }} />
+                <span style={{ fontSize: 12, color: D.body, flex: 1 }}>Expenses ({expShare}%)</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: D.ink }}>{fmt(Math.round(expTotal))}</span>
+              </div>
             </div>
-            <div style={{ marginTop: 10, padding: 10, background: C.bg, borderRadius: 8 }}>
-              <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 600 }}>YTD Progress</div>
-              <PLRow label="Total Income YTD" value={fmt(ytdMetrics.income)} />
-              <PLRow label="Total Expense YTD" value={fmt(ytdMetrics.expenses)} positive={false} />
-              <PLRow label="Net YTD" value={`${ytdMetrics.profit >= 0 ? "+" : "−"}${fmt(Math.abs(ytdMetrics.profit))}`} positive={ytdMetrics.profit >= 0} bold divider />
-            </div>
+          </div>
+          <div style={{ marginTop: 16, textAlign: "center" }}>
+            <LinkBtn onClick={() => onNavigate?.("pl")}>View P&L Report</LinkBtn>
           </div>
         </Card>
 
+        {/* Expense Overview */}
+        <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
+          <SectionHead title="Expense Overview" note={`(${refMonthLabel})`} />
+          {expSlices.length === 0 ? (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: D.faint, fontSize: 12 }}>No expenses recorded</div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <Donut size={130} thickness={20}
+                data={expSlices}
+                centerTop={fmtK(expTotalCat)} centerBottom="SGD" />
+              <div style={{ flex: 1 }}>
+                {expSlices.slice(0, 6).map((s) => (
+                  <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11.5, color: D.body, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name} ({s.pct}%)</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: D.ink }}>{fmt(s.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ marginTop: "auto", paddingTop: 16, textAlign: "center" }}>
+            <LinkBtn color={D.orange} onClick={() => onNavigate?.("expenses")}>View Expenses Report</LinkBtn>
+          </div>
+        </Card>
+
+        {/* Vehicle Performance */}
+        <Card style={{ padding: 18 }}>
+          <SectionHead title="Vehicle Performance" note={`(${refMonthLabel})`} right={<LinkBtn onClick={() => onNavigate?.("fleet")}>View All Vehicles</LinkBtn>} />
+          <div style={{ maxHeight: 300, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Vehicle", "Target Days", "Rented Days", "Utilization", "Status"].map((h, i) => (
+                    <th key={h} style={{ textAlign: i === 0 ? "left" : "center", padding: "0 8px 10px", fontSize: 10, fontWeight: 700, color: D.faint, textTransform: "uppercase", letterSpacing: 0.4, position: "sticky", top: 0, background: D.card }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {vehicleRows.map((v) => (
+                  <tr key={v.plate} style={{ borderTop: `1px solid ${D.line}` }}>
+                    <td style={{ padding: "11px 8px" }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: D.ink }}>{v.name}</div>
+                      <div style={{ fontSize: 10.5, color: D.faint }}>({v.plate})</div>
+                    </td>
+                    <td style={{ padding: "11px 8px", textAlign: "center", fontSize: 12.5, color: D.body }}>{v.targetDays}</td>
+                    <td style={{ padding: "11px 8px", textAlign: "center", fontSize: 12.5, color: D.body }}>{v.rentedDays}</td>
+                    <td style={{ padding: "11px 8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ flex: 1, height: 6, background: D.track, borderRadius: 4, overflow: "hidden", minWidth: 44 }}>
+                          <div style={{ width: `${Math.min(100, v.util)}%`, height: "100%", background: v.st.color, borderRadius: 4 }} />
+                        </div>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: D.ink, minWidth: 34, textAlign: "right" }}>{v.util}%</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: "11px 8px", textAlign: "center" }}>
+                      <StatusBadge label={v.st.label} color={v.st.color} bg={v.st.bg} />
+                    </td>
+                  </tr>
+                ))}
+                {vehicleRows.length === 0 && (
+                  <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: D.faint, fontSize: 12 }}>No vehicles in fleet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </div>
+
+      {/* ── QUICK ACTIONS ─────────────────────────────────────────────────── */}
+      <Card style={{ padding: 18 }}>
+        <div style={{ fontSize: 15.5, fontWeight: 700, color: D.ink, marginBottom: 14 }}>Quick Actions</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 }}>
+          {quickActions.map((a) => (
+            <button key={a.label} onClick={a.onClick} style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              padding: "14px 10px", borderRadius: 10, border: `1px solid ${a.color}22`,
+              background: a.bg, color: a.color, fontSize: 13, fontWeight: 700,
+              cursor: "pointer", fontFamily: "inherit",
+            }}>
+              <span style={{ fontSize: 16 }}>{a.icon}</span> {a.label}
+            </button>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 };
