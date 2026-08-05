@@ -1168,6 +1168,9 @@ export default function FleetOpzApp() {
             <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>{topbar[active]?.title}</div>
             <div style={{ fontSize: 11, color: C.textMuted }}>{topbar[active]?.sub}</div>
           </div>
+          {/* Car + month filters only apply to Dashboard & Bookings; hide them
+              elsewhere (Cash Flow, Ledger, etc. have their own controls). */}
+          {(active === "dashboard" || active === "bookings") && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <select value={selectedCar} onChange={e => setSelectedCar(e.target.value)}
               style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: C.textPri, fontFamily: "inherit", cursor: "pointer", outline: "none" }}>
@@ -1191,6 +1194,7 @@ export default function FleetOpzApp() {
               <option value="2026-12">December 2026</option>
             </select>
           </div>
+          )}
         </header>
 
         {/* Content */}
