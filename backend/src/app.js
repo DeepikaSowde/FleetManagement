@@ -10,6 +10,7 @@ const bookingRoutes = require("./routes/bookingRoutes");
 const earningRoutes = require("./routes/earningRoutes");
 const expenseRoutes = require("./routes/expenseRoutes");
 const customerRoutes = require("./routes/customerRoutes");
+const employeeRoutes = require("./routes/employeeRoutes");
 const restrictedLicenseRoutes = require("./routes/restrictedLicenseRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
@@ -27,6 +28,7 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/earnings", earningRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/employees", employeeRoutes);
 app.use("/api/restricted-licenses", restrictedLicenseRoutes);
 
 // ── Fallbacks (must be last) ────────────────────────────────────────────────

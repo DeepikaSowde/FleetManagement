@@ -341,6 +341,7 @@ export const useFleetData = () => {
   const [expenses, setExpenses] = useState([]);
   const [restrictedLicenses, setRestrictedLicenses] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -349,13 +350,14 @@ export const useFleetData = () => {
   // as it did when the data came from localStorage — only the source changed.
   const reload = async () => {
     try {
-      const [f, b, e, x, rl, cu] = await Promise.all([
+      const [f, b, e, x, rl, cu, em] = await Promise.all([
         api.get("/fleet"),
         api.get("/bookings"),
         api.get("/earnings"),
         api.get("/expenses"),
         api.get("/restricted-licenses"),
         api.get("/customers"),
+        api.get("/employees"),
       ]);
       setFleet(f);
       setBookings(b);
@@ -363,6 +365,7 @@ export const useFleetData = () => {
       setExpenses(x);
       setRestrictedLicenses(rl);
       setCustomers(cu);
+      setEmployees(em);
     } catch (err) {
       console.error("FleetOpz: failed to load data from server", err);
     } finally {
@@ -899,6 +902,9 @@ export const useFleetData = () => {
     addRestrictedLicense,
     updateRestrictedLicense,
     deleteRestrictedLicense,
+
+    // Employees (staff for operation assignment)
+    employees,
 
     // Customer operations
     customers,

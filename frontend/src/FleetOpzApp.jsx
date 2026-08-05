@@ -12,6 +12,7 @@ import Dashboard from "./Dashboard";
 import Fleet from "./Fleet";
 import Booking, { CHARGE_TYPES } from "./Booking";
 import Customers from "./Customers";
+import TodayOperations from "./TodayOperations";
 import Earning from "./Earning";
 import Expenses from "./Expenses";
 import Ledger from "./Ledger";
@@ -636,6 +637,7 @@ export default function FleetOpzApp() {
     { id: "fleet", label: "Fleet", icon: "🚗" },
     { id: "bookings", label: "Bookings", icon: "📅" },
     { id: "customers", label: "Customers", icon: "👥" },
+    { id: "today-ops", label: "Today's Operations", icon: "🗓️" },
     // Finance
     { id: "ledger", label: "Ledger", icon: "📒" },
     { id: "earnings", label: "Earnings", icon: "💰" },
@@ -701,6 +703,16 @@ export default function FleetOpzApp() {
         onSaveCustomer={fleetData.saveCustomer}
         onUpdateCustomer={fleetData.updateCustomer}
         onDeleteCustomer={fleetData.deleteCustomer}
+      />
+    ),
+    "today-ops": (
+      <TodayOperations
+        bookings={fleetData.bookings}
+        fleet={fleetData.fleet}
+        employees={fleetData.employees}
+        onUpdateBooking={fleetData.updateBooking}
+        onNewBooking={openNewBookingModal}
+        onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
       />
     ),
     earnings: (
@@ -770,6 +782,7 @@ export default function FleetOpzApp() {
     fleet: { title: "Fleet Management", sub: `${fleetData.fleet.length} cars registered` },
     bookings: { title: "Bookings", sub: `${fleetData.bookings.length} total bookings` },
     customers: { title: "Customer Management", sub: "Manage all customers. Customer details are updated automatically from Bookings." },
+    "today-ops": { title: "Today's Operations", sub: "All pickups & returns scheduled for the day" },
     earnings: { title: "Actual Earnings", sub: "Locked rental income records" },
     expenses: { title: "Expense Management", sub: "Log and track running costs" },
     ledger: { title: "Financial Ledger", sub: "Rental income & expenses with running balance" },
@@ -1087,7 +1100,7 @@ export default function FleetOpzApp() {
         {/* Nav */}
         <nav style={{ flex: 1, overflowY: "auto", paddingBottom: 10, marginTop: 6 }}>
           <div style={{ padding: "10px 20px 4px", fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Operations</div>
-          {NAV.slice(0, 4).map(n => (
+          {NAV.slice(0, 5).map(n => (
             <div key={n.id} onClick={() => setActive(n.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1096,7 +1109,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(4, 8).map(n => (
+          {NAV.slice(5, 9).map(n => (
             <div key={n.id} onClick={() => setActive(n.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1105,7 +1118,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
-          {NAV.slice(8).map(n => (
+          {NAV.slice(9).map(n => (
             <div key={n.id} onClick={() => setActive(n.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
