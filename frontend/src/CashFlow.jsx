@@ -1,0 +1,229 @@
+import { useMemo, useState } from "react";
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+} from "recharts";
+import { C, mono, fmt, daysUntil } from "./theme";
+import { Card, Btn, PlateBadge } from "./components";
+import { buildLedgerRows } from "./ledgerUtils";
+
+// Cash Flow Forecast — a rolling projection of cash on hand across future
+// months (like the RDK "Cash Flow reference" sheet). Each car contributes an
+// editable flat monthly receipt (defaulting to its computed monthly target);
+// outflows use the fleet's monthly maintenance budget. Everything is a
+// projection layered on a starting cash balance — no new persisted data except
+// the per-car monthly_forecast the user edits here.
+
+const VIZ = { blue: "#2a78d6", green: "#008300", amber: "#eda100", violet: "#4a3aa7", red: "#e34948", aqua: "#1baf7a" };
+const tint = (h) => `${h}1A`;
+const cardStyle = { background: "#fff", borderRadius: 14, border: "1px solid #ECECEC", boxShadow: "0 1px 2px rgba(16,24,40,0.06)" };
+const selectStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 12.5, fontFamily: "inherit", color: C.textPri, outline: "none" };
+
+const monthsFrom = (startYm, n) => {
+  const [y, m] = startYm.split("-").map(Number);
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(y, m - 1 + i, 1);
+    return { ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }) };
+  });
+};
+const invOf = (car) => (Number(car.purchase) || 0) + (Number(car.insurance) || 0) + (Number(car.reg) || 0) + (Number(car.otherCharges) || 0);
+
+const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onUpdateCar, calculateCarMonthlyTarget, calculateMonthlyBudget }) => {
+  // Current cash position from the ledger — the natural default for "starting cash".
+  const currentBalance = useMemo(() => {
+    const rows = buildLedgerRows(earnings, expenses, bookings);
+    return Math.round(rows.reduce((s, r) => s + r.credit - r.debit, 0));
+  }, [earnings, expenses, bookings]);
+
+  const [startingCash, setStartingCash] = useState(currentBalance);
+  const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [horizon, setHorizon] = useState(12);
+  const [minBalance, setMinBalance] = useState(5000);
+  const [edits, setEdits] = useState({}); // in-progress per-car receipt edits (plate -> string)
+
+  // Per-car monthly receipt: the editable value, defaulting to the computed target.
+  const receiptOf = (car) => {
+    if (car.monthlyForecast != null) return Number(car.monthlyForecast);
+    const t = calculateCarMonthlyTarget?.(car.plate, startMonth) || 0;
+    return Math.round(t);
+  };
+  const costOf = (car) => (invOf(car) * (Number(car.maint) || 0) / 100) / 12;
+
+  const months = useMemo(() => monthsFrom(startMonth, horizon), [startMonth, horizon]);
+  const totalReceiptsPerMonth = useMemo(() => fleet.reduce((s, c) => s + receiptOf(c), 0), [fleet, edits, startMonth]);
+
+  // Build the month-by-month projection.
+  const projection = useMemo(() => {
+    let opening = Number(startingCash) || 0;
+    return months.map((m) => {
+      const receipts = totalReceiptsPerMonth;
+      const outflows = Math.round(calculateMonthlyBudget?.(m.ym) || 0);
+      const closing = opening + receipts - outflows;
+      const row = { ...m, opening, receipts, outflows, net: receipts - outflows, closing };
+      opening = closing;
+      return row;
+    });
+  }, [months, startingCash, totalReceiptsPerMonth, calculateMonthlyBudget]);
+
+  const totalReceipts = projection.reduce((s, r) => s + r.receipts, 0);
+  const totalOutflows = projection.reduce((s, r) => s + r.outflows, 0);
+  const closingCash = projection.length ? projection[projection.length - 1].closing : startingCash;
+  const lowest = projection.reduce((min, r) => Math.min(min, r.opening, r.closing), Number(startingCash) || 0);
+  const belowMin = lowest < Number(minBalance);
+  const firstBreach = projection.find((r) => r.closing < Number(minBalance));
+
+  const kpis = [
+    { label: "Starting Cash", value: startingCash, color: VIZ.blue, icon: "📗", sub: `${months[0]?.label || ""}` },
+    { label: `Closing (${horizon}mo)`, value: closingCash, color: VIZ.aqua, icon: "💵", sub: months[months.length - 1]?.label || "" },
+    { label: "Total Receipts", value: totalReceipts, color: VIZ.green, icon: "📈", sub: "Projected" },
+    { label: "Total Outflows", value: totalOutflows, color: VIZ.red, icon: "📉", sub: "Projected" },
+    { label: "Lowest Balance", value: lowest, color: belowMin ? VIZ.red : VIZ.violet, icon: belowMin ? "⚠️" : "🛡️", sub: belowMin ? "Below minimum!" : "Above minimum" },
+  ];
+
+  const commitEdit = (plate) => {
+    const v = edits[plate];
+    if (v === undefined) return;
+    const num = v === "" ? null : Number(v);
+    onUpdateCar?.(plate, { monthlyForecast: num });
+    setEdits((e) => { const n = { ...e }; delete n[plate]; return n; });
+  };
+
+  const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid #EFEFEF", whiteSpace: "nowrap" };
+  const numCell = { padding: "9px 12px", ...mono, fontSize: 11.5, textAlign: "right", whiteSpace: "nowrap" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Controls */}
+      <Card style={cardStyle}>
+        <div style={{ padding: 14, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Starting cash on hand</div>
+            <input type="number" value={startingCash} onChange={(e) => setStartingCash(e.target.value)} style={{ ...selectStyle, width: 130 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Start month</div>
+            <input type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} style={selectStyle} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Horizon</div>
+            <select value={horizon} onChange={(e) => setHorizon(Number(e.target.value))} style={selectStyle}>
+              <option value={6}>6 months</option><option value={12}>12 months</option><option value={24}>24 months</option>
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Min balance alert</div>
+            <input type="number" value={minBalance} onChange={(e) => setMinBalance(e.target.value)} style={{ ...selectStyle, width: 120 }} />
+          </div>
+          <div style={{ marginLeft: "auto" }}>
+            <Btn onClick={() => setStartingCash(currentBalance)}>Use current balance ({fmt(currentBalance)})</Btn>
+          </div>
+        </div>
+      </Card>
+
+      {/* Alert banner */}
+      {belowMin && firstBreach && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #f59e0b66", background: "#f59e0b14", color: "#92400e", fontSize: 12.5, fontWeight: 600 }}>
+          ⚠️ Projected cash dips below your minimum ({fmt(minBalance)}) in <strong>{firstBreach.label}</strong> (closing {fmt(firstBreach.closing)}). Consider adding rentals or trimming costs before then.
+        </div>
+      )}
+
+      {/* KPI cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        {kpis.map((k) => (
+          <Card key={k.label} style={cardStyle}>
+            <div style={{ padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{k.label}</div>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: tint(k.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{k.icon}</div>
+              </div>
+              <div style={{ ...mono, fontSize: 17, fontWeight: 800, color: k.color, marginTop: 8 }}>{fmt(Math.round(k.value))}</div>
+              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{k.sub}</div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Projection chart */}
+      <Card style={cardStyle}>
+        <div style={{ padding: "14px 16px 0", fontSize: 13, fontWeight: 700, color: C.navy }}>Projected Cash on Hand</div>
+        <div style={{ padding: "6px 12px 16px", height: 280 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={projection} margin={{ top: 10, right: 12, left: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id="cfFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={VIZ.blue} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={VIZ.blue} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EFEFEF" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} />
+              <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={52} tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
+              <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+              <ReferenceLine y={Number(minBalance)} stroke={VIZ.red} strokeDasharray="5 4" label={{ value: "Min", position: "right", fill: VIZ.red, fontSize: 10 }} />
+              <Area type="monotone" dataKey="closing" name="Cash on hand" stroke={VIZ.blue} strokeWidth={2.5} fill="url(#cfFill)" dot={{ r: 2 }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* Monthly projection matrix + Per-car forecast */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card style={cardStyle}>
+          <div style={{ padding: "14px 16px 8px", fontSize: 13, fontWeight: 700, color: C.navy }}>Monthly Projection</div>
+          <div style={{ overflowX: "auto", maxHeight: 360, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>{["Month", "Opening", "+ Receipts", "− Outflows", "= Closing"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
+              <tbody>
+                {projection.map((r) => (
+                  <tr key={r.ym} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                    <td style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 600, color: C.navy }}>{r.label}</td>
+                    <td style={{ ...numCell, color: C.textSec }}>{fmt(Math.round(r.opening))}</td>
+                    <td style={{ ...numCell, color: VIZ.green }}>{fmt(Math.round(r.receipts))}</td>
+                    <td style={{ ...numCell, color: VIZ.red }}>{fmt(Math.round(r.outflows))}</td>
+                    <td style={{ ...numCell, fontWeight: 700, color: r.closing < Number(minBalance) ? VIZ.red : C.navy }}>{fmt(Math.round(r.closing))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card style={cardStyle}>
+          <div style={{ padding: "14px 16px 8px", fontSize: 13, fontWeight: 700, color: C.navy }}>Per-Car Forecast <span style={{ fontSize: 10.5, fontWeight: 500, color: C.textMuted }}>· monthly receipt is editable</span></div>
+          <div style={{ overflowX: "auto", maxHeight: 360, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>{["Vehicle", "Monthly Receipt", "Cost/mo", "Net/mo", "Mo. to COE", `${horizon}-mo`].map((h) => <th key={h} style={{ ...th, textAlign: h === "Vehicle" ? "left" : "right" }}>{h}</th>)}</tr></thead>
+              <tbody>
+                {fleet.map((car) => {
+                  const receipt = receiptOf(car);
+                  const cost = costOf(car);
+                  const net = receipt - cost;
+                  const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : "—";
+                  const editVal = edits[car.plate] !== undefined ? edits[car.plate] : receipt;
+                  return (
+                    <tr key={car.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                      <td style={{ padding: "8px 12px" }}><PlateBadge plate={car.plate} small /></td>
+                      <td style={{ padding: "8px 12px", textAlign: "right" }}>
+                        <input type="number" value={editVal}
+                          onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
+                          onBlur={() => commitEdit(car.plate)}
+                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          style={{ width: 90, padding: "5px 8px", borderRadius: 6, border: "1px solid #E0E0E0", fontFamily: "inherit", fontSize: 11.5, textAlign: "right", outline: "none" }} />
+                      </td>
+                      <td style={{ ...numCell, color: VIZ.red }}>{fmt(Math.round(cost))}</td>
+                      <td style={{ ...numCell, fontWeight: 700, color: net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(net))}</td>
+                      <td style={{ ...numCell, color: C.textSec }}>{moToCoe}</td>
+                      <td style={{ ...numCell, fontWeight: 700, color: C.navy }}>{fmt(Math.round(net * horizon))}</td>
+                    </tr>
+                  );
+                })}
+                {fleet.length === 0 && <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
+export default CashFlow;

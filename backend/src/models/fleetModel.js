@@ -31,6 +31,7 @@ function toCar(r) {
     targetRate: r.target_rate === null ? null : Number(r.target_rate),
     runningDaysTarget: r.running_days_target === null ? null : Number(r.running_days_target),
     profitPctTarget: r.profit_pct_target === null ? null : Number(r.profit_pct_target),
+    monthlyForecast: r.monthly_forecast === null ? null : Number(r.monthly_forecast),
     maintenanceStartDate: r.maintenance_start_date,
     maintenanceCompletedAt: r.maintenance_completed_at,
     maintenanceAutoReleased: r.maintenance_auto_released,
@@ -53,10 +54,10 @@ async function create(car) {
        plate, make, model, year, color, fuel_type, transmission, purchase, insurance,
        reg, other_charges, purchase_date, insurance_expiry, lta_transfer_date,
        road_tax_expiry, inspection_expiry, maint, coe, status, min_rate, max_rate,
-       target_rate, running_days_target, profit_pct_target, maintenance_start_date,
+       target_rate, running_days_target, profit_pct_target, monthly_forecast, maintenance_start_date,
        maintenance_completed_at, maintenance_auto_released
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
      )
      RETURNING *`,
     [
@@ -66,6 +67,7 @@ async function create(car) {
       car.ltaTransferDate ?? null, car.roadTaxExpiry ?? null, car.inspectionExpiry ?? null,
       car.maint, car.coe, car.status || "Available", car.minRate ?? null, car.maxRate ?? null,
       car.targetRate ?? null, car.runningDaysTarget ?? null, car.profitPctTarget ?? null,
+      car.monthlyForecast ?? null,
       car.maintenanceStartDate ?? null, car.maintenanceCompletedAt ?? null,
       car.maintenanceAutoReleased ?? false,
     ]
@@ -89,7 +91,8 @@ async function update(plate, updates) {
        insurance_expiry = $13, lta_transfer_date = $14, road_tax_expiry = $15,
        inspection_expiry = $16, maint = $17, coe = $18, status = $19, min_rate = $20,
        max_rate = $21, target_rate = $22, running_days_target = $23, profit_pct_target = $24,
-       maintenance_start_date = $25, maintenance_completed_at = $26, maintenance_auto_released = $27
+       monthly_forecast = $25, maintenance_start_date = $26, maintenance_completed_at = $27,
+       maintenance_auto_released = $28
      WHERE plate = $1
      RETURNING *`,
     [
@@ -98,7 +101,7 @@ async function update(plate, updates) {
       c.insuranceExpiry ?? null, c.ltaTransferDate ?? null, c.roadTaxExpiry ?? null,
       c.inspectionExpiry ?? null, c.maint, c.coe, c.status ?? "Available",
       c.minRate ?? null, c.maxRate ?? null, c.targetRate ?? null,
-      c.runningDaysTarget ?? null, c.profitPctTarget ?? null,
+      c.runningDaysTarget ?? null, c.profitPctTarget ?? null, c.monthlyForecast ?? null,
       c.maintenanceStartDate ?? null, c.maintenanceCompletedAt ?? null,
       c.maintenanceAutoReleased ?? false,
     ]
