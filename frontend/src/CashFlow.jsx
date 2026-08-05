@@ -44,13 +44,20 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   const [minBalance, setMinBalance] = useState(5000);
   const [edits, setEdits] = useState({}); // in-progress per-car receipt edits (plate -> string)
 
-  // Per-car monthly receipt: the editable value, defaulting to the computed target.
+  // Per-car monthly receipt: the editable value, with a SANE default.
+  //  1) the value the user saved (car.monthlyForecast) always wins
+  //  2) else the car's target daily rate × ~26 rented days
+  //  3) else the computed monthly target — but ignore absurd spikes (a car whose
+  //     COE has already passed makes that target = its whole remaining
+  //     investment), falling back to a sensible placeholder the user can edit.
   const receiptOf = (car) => {
     if (car.monthlyForecast != null) return Number(car.monthlyForecast);
-    const t = calculateCarMonthlyTarget?.(car.plate, startMonth) || 0;
-    return Math.round(t);
+    if (car.targetRate) return Math.round(Number(car.targetRate) * 26);
+    const t = Math.round(calculateCarMonthlyTarget?.(car.plate, startMonth) || 0);
+    return t > 0 && t <= 15000 ? t : 1500;
   };
   const costOf = (car) => (invOf(car) * (Number(car.maint) || 0) / 100) / 12;
+  const maxNet = Math.max(1, ...fleet.map((c) => receiptOf(c) - costOf(c)));
 
   const months = useMemo(() => monthsFrom(startMonth, horizon), [startMonth, horizon]);
   const totalReceiptsPerMonth = useMemo(() => fleet.reduce((s, c) => s + receiptOf(c), 0), [fleet, edits, startMonth]);
@@ -169,63 +176,67 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
         </div>
       </Card>
 
-      {/* Monthly projection matrix + Per-car forecast */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16 }}>
-        <Card style={cardStyle}>
-          <CardHeader title="Monthly Projection" subtitle={`${horizon}-month cash flow`} />
-          <div style={{ overflowX: "auto", maxHeight: 380, overflowY: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr>{["Month", "Opening", "+ Receipts", "− Outflows", "= Closing"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
-              <tbody>
-                {projection.map((r) => (
-                  <tr key={r.ym} style={{ borderBottom: "1px solid #F3F3F3" }}>
-                    <td style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 600, color: C.navy }}>{r.label}</td>
-                    <td style={{ ...numCell, color: C.textSec }}>{fmt(Math.round(r.opening))}</td>
-                    <td style={{ ...numCell, color: VIZ.green }}>{fmt(Math.round(r.receipts))}</td>
-                    <td style={{ ...numCell, color: VIZ.red }}>{fmt(Math.round(r.outflows))}</td>
-                    <td style={{ ...numCell, fontWeight: 700, color: r.closing < Number(minBalance) ? VIZ.red : C.navy }}>{fmt(Math.round(r.closing))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+      {/* Per-car forecast — card grid */}
+      <Card style={cardStyle}>
+        <CardHeader title="Per-Car Forecast" subtitle="Each car's monthly receipt is editable — the bar shows its net contribution" />
+        <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+          {fleet.map((car) => {
+            const receipt = receiptOf(car);
+            const cost = costOf(car);
+            const net = receipt - cost;
+            const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : null;
+            const editVal = edits[car.plate] !== undefined ? edits[car.plate] : receipt;
+            const barPct = Math.max(0, Math.min(100, (net / maxNet) * 100));
+            return (
+              <div key={car.plate} style={{ border: "1px solid #ECECEC", borderRadius: 12, padding: 14, background: "#fff", boxShadow: "0 1px 2px rgba(16,24,40,0.05)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <PlateBadge plate={car.plate} small />
+                  {moToCoe != null && <span style={{ fontSize: 9.5, color: C.textMuted }}>{moToCoe} mo to COE</span>}
+                </div>
+                <div style={{ fontSize: 9.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Monthly Receipt</div>
+                <input type="number" value={editVal}
+                  onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
+                  onBlur={() => commitEdit(car.plate)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  style={{ ...mono, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontSize: 14, fontWeight: 700, color: C.navy, outline: "none" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
+                  <span style={{ fontSize: 10, color: C.textMuted }}>Net / month</span>
+                  <span style={{ ...mono, fontSize: 14, fontWeight: 800, color: net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(net))}</span>
+                </div>
+                <div style={{ height: 6, background: "#F0F0F0", borderRadius: 4, overflow: "hidden", marginTop: 6 }}>
+                  <div style={{ height: "100%", width: `${barPct}%`, background: net >= 0 ? VIZ.green : VIZ.red, borderRadius: 4 }} />
+                </div>
+                <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: 9, display: "flex", justifyContent: "space-between" }}>
+                  <span>Cost {fmt(Math.round(cost))}/mo</span>
+                  <span>{horizon}-mo <strong style={{ color: C.navy }}>{fmt(Math.round(net * horizon))}</strong></span>
+                </div>
+              </div>
+            );
+          })}
+          {fleet.length === 0 && <div style={{ color: C.textMuted, fontSize: 12, padding: 20 }}>No vehicles</div>}
+        </div>
+      </Card>
 
-        <Card style={cardStyle}>
-          <CardHeader title="Per-Car Forecast" subtitle="Monthly receipt is editable" />
-          <div style={{ overflowX: "auto", maxHeight: 380, overflowY: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr>{["Vehicle", "Monthly Receipt", "Cost/mo", "Net/mo", "Mo. to COE", `${horizon}-mo`].map((h) => <th key={h} style={{ ...th, textAlign: h === "Vehicle" ? "left" : "right" }}>{h}</th>)}</tr></thead>
-              <tbody>
-                {fleet.map((car) => {
-                  const receipt = receiptOf(car);
-                  const cost = costOf(car);
-                  const net = receipt - cost;
-                  const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : "—";
-                  const editVal = edits[car.plate] !== undefined ? edits[car.plate] : receipt;
-                  return (
-                    <tr key={car.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
-                      <td style={{ padding: "8px 12px" }}><PlateBadge plate={car.plate} small /></td>
-                      <td style={{ padding: "8px 12px", textAlign: "right" }}>
-                        <input type="number" value={editVal}
-                          onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
-                          onBlur={() => commitEdit(car.plate)}
-                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                          style={{ width: 92, padding: "5px 8px", borderRadius: 6, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontFamily: "inherit", fontSize: 11.5, fontWeight: 600, textAlign: "right", outline: "none", color: C.navy }} />
-                      </td>
-                      <td style={{ ...numCell, color: VIZ.red }}>{fmt(Math.round(cost))}</td>
-                      <td style={{ ...numCell, fontWeight: 700, color: net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(net))}</td>
-                      <td style={{ ...numCell, color: C.textSec }}>{moToCoe}</td>
-                      <td style={{ ...numCell, fontWeight: 700, color: C.navy }}>{fmt(Math.round(net * horizon))}</td>
-                    </tr>
-                  );
-                })}
-                {fleet.length === 0 && <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
+      {/* Monthly projection — full-width slim table */}
+      <Card style={cardStyle}>
+        <CardHeader title="Monthly Projection" subtitle={`${horizon}-month cash flow`} />
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>{["Month", "Opening", "+ Receipts", "− Outflows", "= Closing"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
+            <tbody>
+              {projection.map((r) => (
+                <tr key={r.ym} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                  <td style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 600, color: C.navy }}>{r.label}</td>
+                  <td style={{ ...numCell, color: C.textSec }}>{fmt(Math.round(r.opening))}</td>
+                  <td style={{ ...numCell, color: VIZ.green }}>{fmt(Math.round(r.receipts))}</td>
+                  <td style={{ ...numCell, color: VIZ.red }}>{fmt(Math.round(r.outflows))}</td>
+                  <td style={{ ...numCell, fontWeight: 700, color: r.closing < Number(minBalance) ? VIZ.red : C.navy }}>{fmt(Math.round(r.closing))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 };
