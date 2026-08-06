@@ -48,8 +48,8 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   // usable at 100+ cars instead of one giant wall of cards.
   const [viewOverride, setViewOverride] = useState(null); // null = auto by fleet size
   const [query, setQuery] = useState("");
-  const [sortKey, setSortKey] = useState("net");
-  const [sortDir, setSortDir] = useState("asc"); // worst net first by default
+  const [sortKey, setSortKey] = useState("receipt");
+  const [sortDir, setSortDir] = useState("desc"); // highest receipt first by default
   const [netFilter, setNetFilter] = useState("all"); // all | positive | negative
   const [uplift, setUplift] = useState("");
 
@@ -65,8 +65,10 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
     const t = Math.round(calculateCarMonthlyTarget?.(car.plate, startMonth) || 0);
     return t > 0 && t <= 15000 ? t : 1500;
   };
-  const costOf = (car) => (invOf(car) * (Number(car.maint) || 0) / 100) / 12;
-  const maxNet = Math.max(1, ...fleet.map((c) => receiptOf(c) - costOf(c)));
+  // Client cash-flow model subtracts nothing — it's receipts only. Kept as a
+  // function so the rest of the (parallel-built) per-car code stays intact.
+  const costOf = () => 0;
+  const maxNet = Math.max(1, ...fleet.map((c) => receiptOf(c)));
 
   // Cards for small fleets, table for large — but only until the user picks one.
   const effectiveView = viewOverride ?? (fleet.length > 24 ? "table" : "cards");
@@ -136,16 +138,11 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
           onBlur={() => commitEdit(car.plate)}
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
           style={{ ...mono, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontSize: 14, fontWeight: 700, color: C.navy, outline: "none" }} />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
-          <span style={{ fontSize: 10, color: C.textMuted }}>Net / month</span>
-          <span style={{ ...mono, fontSize: 14, fontWeight: 800, color: net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(net))}</span>
+        <div style={{ height: 6, background: "#F0F0F0", borderRadius: 4, overflow: "hidden", marginTop: 10 }}>
+          <div style={{ height: "100%", width: `${barPct}%`, background: VIZ.green, borderRadius: 4 }} />
         </div>
-        <div style={{ height: 6, background: "#F0F0F0", borderRadius: 4, overflow: "hidden", marginTop: 6 }}>
-          <div style={{ height: "100%", width: `${barPct}%`, background: net >= 0 ? VIZ.green : VIZ.red, borderRadius: 4 }} />
-        </div>
-        <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: 9, display: "flex", justifyContent: "space-between" }}>
-          <span>Cost {fmt(Math.round(cost))}/mo</span>
-          <span>{horizon}-mo <strong style={{ color: C.navy }}>{fmt(Math.round(net * horizon))}</strong></span>
+        <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: 9, textAlign: "right" }}>
+          {horizon}-mo contribution <strong style={{ color: C.navy }}>{fmt(Math.round(receipt * horizon))}</strong>
         </div>
       </div>
     );
@@ -159,26 +156,27 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
     let opening = Number(startingCash) || 0;
     return months.map((m) => {
       const receipts = totalReceiptsPerMonth;
-      const outflows = Math.round(calculateMonthlyBudget?.(m.ym) || 0);
-      const closing = opening + receipts - outflows;
-      const row = { ...m, opening, receipts, outflows, net: receipts - outflows, closing };
+      // Client model: purely the Ledger balance + rental receipts rolling up —
+      // nothing is subtracted (no maintenance/outflows). Total cash available
+      // this month becomes next month's opening balance.
+      const closing = opening + receipts;
+      const row = { ...m, opening, receipts, closing };
       opening = closing;
       return row;
     });
-  }, [months, startingCash, totalReceiptsPerMonth, calculateMonthlyBudget]);
+  }, [months, startingCash, totalReceiptsPerMonth]);
 
   const totalReceipts = projection.reduce((s, r) => s + r.receipts, 0);
-  const totalOutflows = projection.reduce((s, r) => s + r.outflows, 0);
   const closingCash = projection.length ? projection[projection.length - 1].closing : startingCash;
   const lowest = projection.reduce((min, r) => Math.min(min, r.opening, r.closing), Number(startingCash) || 0);
   const belowMin = lowest < Number(minBalance);
   const firstBreach = projection.find((r) => r.closing < Number(minBalance));
 
   const kpis = [
-    { label: "Starting Cash", value: startingCash, color: VIZ.blue, icon: "📗", sub: `${months[0]?.label || ""}` },
-    { label: `Closing (${horizon}mo)`, value: closingCash, color: VIZ.aqua, icon: "💵", sub: months[months.length - 1]?.label || "" },
-    { label: "Total Receipts", value: totalReceipts, color: VIZ.green, icon: "📈", sub: "Projected" },
-    { label: "Total Outflows", value: totalOutflows, color: VIZ.red, icon: "📉", sub: "Projected" },
+    { label: "Starting Cash (Ledger)", value: startingCash, color: VIZ.blue, icon: "📗", sub: `${months[0]?.label || ""}` },
+    { label: "Monthly Receipts", value: totalReceiptsPerMonth, color: VIZ.green, icon: "📈", sub: "Sum of all car rates" },
+    { label: `Total Receipts (${horizon}mo)`, value: totalReceipts, color: VIZ.aqua, icon: "💰", sub: "Projected" },
+    { label: `Total Cash Available (${horizon}mo)`, value: closingCash, color: VIZ.violet, icon: "💵", sub: months[months.length - 1]?.label || "" },
     { label: "Lowest Balance", value: lowest, color: belowMin ? VIZ.red : VIZ.violet, icon: belowMin ? "⚠️" : "🛡️", sub: belowMin ? "Below minimum!" : "Above minimum" },
   ];
 
@@ -276,16 +274,10 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
         {/* Controls */}
         <div style={{ padding: "12px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
           <input placeholder="🔍 Search plate…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ ...selectStyle, width: 160 }} />
-          <select value={netFilter} onChange={(e) => setNetFilter(e.target.value)} style={selectStyle}>
-            <option value="all">All cars</option>
-            <option value="negative">Net negative</option>
-            <option value="positive">Net positive</option>
-          </select>
           <select value={`${sortKey}:${sortDir}`} onChange={(e) => { const [k, d] = e.target.value.split(":"); setSortKey(k); setSortDir(d); }} style={selectStyle}>
-            <option value="net:asc">Sort: Net ↑ (worst first)</option>
-            <option value="net:desc">Sort: Net ↓ (best first)</option>
-            <option value="receipt:desc">Sort: Receipt ↓</option>
-            <option value="twelveMo:desc">Sort: 12-mo ↓</option>
+            <option value="receipt:desc">Sort: Receipt ↓ (highest first)</option>
+            <option value="receipt:asc">Sort: Receipt ↑ (lowest first)</option>
+            <option value="twelveMo:desc">Sort: {horizon}-mo ↓</option>
             <option value="coe:asc">Sort: COE soonest</option>
             <option value="plate:asc">Sort: Plate A–Z</option>
           </select>
@@ -317,7 +309,7 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {[["Plate", "plate", "left"], ["Monthly Receipt", "receipt", "right"], ["Cost/mo", null, "right"], ["Net/mo", "net", "right"], [`${horizon}-mo`, "twelveMo", "right"], ["COE", "coe", "right"]].map(([label, key, align]) => (
+                  {[["Plate", "plate", "left"], ["Monthly Receipt", "receipt", "right"], [`${horizon}-mo contribution`, "twelveMo", "right"], ["COE", "coe", "right"]].map(([label, key, align]) => (
                     <th key={label} onClick={key ? () => toggleSort(key) : undefined} style={{ ...th, textAlign: align, cursor: key ? "pointer" : "default", userSelect: "none" }}>
                       {label}{key && sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
                     </th>
@@ -337,14 +329,12 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
                           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                           style={{ ...mono, width: 96, textAlign: "right", padding: "5px 8px", borderRadius: 7, border: `1px solid ${VIZ.blue}44`, background: tint(VIZ.blue), fontSize: 12.5, fontWeight: 700, color: C.navy, outline: "none" }} />
                       </td>
-                      <td style={{ ...numCell, color: C.textMuted }}>{fmt(Math.round(r.cost))}</td>
-                      <td style={{ ...numCell, fontWeight: 700, color: r.net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(r.net))}</td>
-                      <td style={{ ...numCell, color: C.navy }}>{fmt(Math.round(r.twelveMo))}</td>
+                      <td style={{ ...numCell, fontWeight: 700, color: C.navy }}>{fmt(Math.round(r.twelveMo))}</td>
                       <td style={{ ...numCell, color: r.moToCoe != null && r.moToCoe <= 6 ? VIZ.red : C.textSec }}>{r.moToCoe != null ? `${r.moToCoe} mo` : "—"}</td>
                     </tr>
                   );
                 })}
-                {perCarRows.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No matching vehicles</td></tr>}
+                {perCarRows.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No matching vehicles</td></tr>}
               </tbody>
             </table>
           </div>
@@ -353,17 +343,16 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
 
       {/* Monthly projection — full-width slim table */}
       <Card style={cardStyle}>
-        <CardHeader title="Monthly Projection" subtitle={`${horizon}-month cash flow`} />
+        <CardHeader title="Monthly Projection" subtitle={`${horizon}-month cash flow · Ledger balance + rental receipts`} />
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>{["Month", "Opening", "+ Receipts", "− Outflows", "= Closing"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Month", "Cash on hand (beginning)", "+ Rental Receipts", "= Total Cash Available"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
             <tbody>
               {projection.map((r) => (
                 <tr key={r.ym} style={{ borderBottom: "1px solid #F3F3F3" }}>
                   <td style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 600, color: C.navy }}>{r.label}</td>
                   <td style={{ ...numCell, color: C.textSec }}>{fmt(Math.round(r.opening))}</td>
                   <td style={{ ...numCell, color: VIZ.green }}>{fmt(Math.round(r.receipts))}</td>
-                  <td style={{ ...numCell, color: VIZ.red }}>{fmt(Math.round(r.outflows))}</td>
                   <td style={{ ...numCell, fontWeight: 700, color: r.closing < Number(minBalance) ? VIZ.red : C.navy }}>{fmt(Math.round(r.closing))}</td>
                 </tr>
               ))}
