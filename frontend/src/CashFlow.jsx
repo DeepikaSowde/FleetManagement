@@ -21,6 +21,7 @@ const field = { ...selectStyle, width: "100%", boxSizing: "border-box" };
 const fieldWrap = { display: "flex", flexDirection: "column", gap: 6 };
 const fieldLabel = { fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 };
 const miniLink = { marginTop: 2, background: "none", border: "none", padding: 0, color: VIZ.blue, fontSize: 10.5, fontWeight: 600, cursor: "pointer", textAlign: "left" };
+const bulkBtn = { padding: "7px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 11.5, fontWeight: 600, color: VIZ.blue, cursor: "pointer", fontFamily: "inherit" };
 
 const monthsFrom = (startYm, n) => {
   const [y, m] = startYm.split("-").map(Number);
@@ -43,6 +44,14 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   const [horizon, setHorizon] = useState(12);
   const [minBalance, setMinBalance] = useState(5000);
   const [edits, setEdits] = useState({}); // in-progress per-car receipt edits (plate -> string)
+  // Per-car list controls — search / sort / filter / view, so the section stays
+  // usable at 100+ cars instead of one giant wall of cards.
+  const [viewOverride, setViewOverride] = useState(null); // null = auto by fleet size
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState("net");
+  const [sortDir, setSortDir] = useState("asc"); // worst net first by default
+  const [netFilter, setNetFilter] = useState("all"); // all | positive | negative
+  const [uplift, setUplift] = useState("");
 
   // Per-car monthly receipt: the editable value, with a SANE default.
   //  1) the value the user saved (car.monthlyForecast) always wins
@@ -58,6 +67,89 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   };
   const costOf = (car) => (invOf(car) * (Number(car.maint) || 0) / 100) / 12;
   const maxNet = Math.max(1, ...fleet.map((c) => receiptOf(c) - costOf(c)));
+
+  // Cards for small fleets, table for large — but only until the user picks one.
+  const effectiveView = viewOverride ?? (fleet.length > 24 ? "table" : "cards");
+
+  // One derived list feeds BOTH views, so search/sort/filter behave identically
+  // whichever is showing. Default sort is Net ascending — the cars dragging cash
+  // flow down surface at the top, which is the whole point of a forecast.
+  const perCarRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = fleet.map((car) => {
+      const receipt = receiptOf(car);
+      const cost = costOf(car);
+      const net = receipt - cost;
+      const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : null;
+      return { car, plate: car.plate, receipt, cost, net, moToCoe, twelveMo: net * horizon };
+    });
+    if (q) list = list.filter((r) => r.plate.toLowerCase().includes(q));
+    if (netFilter === "positive") list = list.filter((r) => r.net >= 0);
+    else if (netFilter === "negative") list = list.filter((r) => r.net < 0);
+    const dir = sortDir === "asc" ? 1 : -1;
+    list.sort((a, b) => {
+      if (sortKey === "plate") return a.plate < b.plate ? -dir : a.plate > b.plate ? dir : 0;
+      const pick = { receipt: "receipt", twelveMo: "twelveMo", coe: "moToCoe", net: "net" }[sortKey] || "net";
+      const av = a[pick] ?? Infinity;
+      const bv = b[pick] ?? Infinity;
+      return (av - bv) * dir;
+    });
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fleet, edits, query, sortKey, sortDir, netFilter, horizon, startMonth]);
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir(key === "plate" || key === "coe" ? "asc" : "desc"); }
+  };
+
+  // Bulk edits apply to the CURRENTLY FILTERED rows only, so "search a subset,
+  // then apply" scopes the change to just those cars.
+  const applyUplift = () => {
+    const pct = Number(uplift);
+    if (uplift === "" || Number.isNaN(pct)) return;
+    perCarRows.forEach((r) => onUpdateCar?.(r.plate, { monthlyForecast: Math.round(r.receipt * (1 + pct / 100)) }));
+    setUplift("");
+  };
+  const resetAllToTarget = () => {
+    perCarRows.forEach((r) => onUpdateCar?.(r.plate, { monthlyForecast: null }));
+  };
+
+  // The existing card, factored out so both the cards view and (small-fleet)
+  // default can render it from the shared, filtered/sorted list.
+  const renderCard = (car) => {
+    const receipt = receiptOf(car);
+    const cost = costOf(car);
+    const net = receipt - cost;
+    const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : null;
+    const editVal = edits[car.plate] !== undefined ? edits[car.plate] : receipt;
+    const barPct = Math.max(0, Math.min(100, (net / maxNet) * 100));
+    return (
+      <div key={car.plate} style={{ border: "1px solid #ECECEC", borderRadius: 12, padding: 14, background: "#fff", boxShadow: "0 1px 2px rgba(16,24,40,0.05)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <PlateBadge plate={car.plate} small />
+          {moToCoe != null && <span style={{ fontSize: 9.5, color: C.textMuted }}>{moToCoe} mo to COE</span>}
+        </div>
+        <div style={{ fontSize: 9.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Monthly Receipt</div>
+        <input type="number" value={editVal}
+          onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
+          onBlur={() => commitEdit(car.plate)}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          style={{ ...mono, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontSize: 14, fontWeight: 700, color: C.navy, outline: "none" }} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
+          <span style={{ fontSize: 10, color: C.textMuted }}>Net / month</span>
+          <span style={{ ...mono, fontSize: 14, fontWeight: 800, color: net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(net))}</span>
+        </div>
+        <div style={{ height: 6, background: "#F0F0F0", borderRadius: 4, overflow: "hidden", marginTop: 6 }}>
+          <div style={{ height: "100%", width: `${barPct}%`, background: net >= 0 ? VIZ.green : VIZ.red, borderRadius: 4 }} />
+        </div>
+        <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: 9, display: "flex", justifyContent: "space-between" }}>
+          <span>Cost {fmt(Math.round(cost))}/mo</span>
+          <span>{horizon}-mo <strong style={{ color: C.navy }}>{fmt(Math.round(net * horizon))}</strong></span>
+        </div>
+      </div>
+    );
+  };
 
   const months = useMemo(() => monthsFrom(startMonth, horizon), [startMonth, horizon]);
   const totalReceiptsPerMonth = useMemo(() => fleet.reduce((s, c) => s + receiptOf(c), 0), [fleet, edits, startMonth]);
@@ -176,45 +268,87 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
         </div>
       </Card>
 
-      {/* Per-car forecast — card grid */}
+      {/* Per-car forecast — scales from cards (small fleet) to a dense,
+          searchable/sortable/bulk-editable table (large fleet). */}
       <Card style={cardStyle}>
-        <CardHeader title="Per-Car Forecast" subtitle="Each car's monthly receipt is editable — the bar shows its net contribution" />
-        <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-          {fleet.map((car) => {
-            const receipt = receiptOf(car);
-            const cost = costOf(car);
-            const net = receipt - cost;
-            const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : null;
-            const editVal = edits[car.plate] !== undefined ? edits[car.plate] : receipt;
-            const barPct = Math.max(0, Math.min(100, (net / maxNet) * 100));
-            return (
-              <div key={car.plate} style={{ border: "1px solid #ECECEC", borderRadius: 12, padding: 14, background: "#fff", boxShadow: "0 1px 2px rgba(16,24,40,0.05)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <PlateBadge plate={car.plate} small />
-                  {moToCoe != null && <span style={{ fontSize: 9.5, color: C.textMuted }}>{moToCoe} mo to COE</span>}
-                </div>
-                <div style={{ fontSize: 9.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Monthly Receipt</div>
-                <input type="number" value={editVal}
-                  onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
-                  onBlur={() => commitEdit(car.plate)}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                  style={{ ...mono, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontSize: 14, fontWeight: 700, color: C.navy, outline: "none" }} />
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
-                  <span style={{ fontSize: 10, color: C.textMuted }}>Net / month</span>
-                  <span style={{ ...mono, fontSize: 14, fontWeight: 800, color: net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(net))}</span>
-                </div>
-                <div style={{ height: 6, background: "#F0F0F0", borderRadius: 4, overflow: "hidden", marginTop: 6 }}>
-                  <div style={{ height: "100%", width: `${barPct}%`, background: net >= 0 ? VIZ.green : VIZ.red, borderRadius: 4 }} />
-                </div>
-                <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: 9, display: "flex", justifyContent: "space-between" }}>
-                  <span>Cost {fmt(Math.round(cost))}/mo</span>
-                  <span>{horizon}-mo <strong style={{ color: C.navy }}>{fmt(Math.round(net * horizon))}</strong></span>
-                </div>
-              </div>
-            );
-          })}
-          {fleet.length === 0 && <div style={{ color: C.textMuted, fontSize: 12, padding: 20 }}>No vehicles</div>}
+        <CardHeader title="Per-Car Forecast" subtitle="Each car's monthly receipt is editable — search, sort, and bulk-edit for large fleets" />
+
+        {/* Controls */}
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+          <input placeholder="🔍 Search plate…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ ...selectStyle, width: 160 }} />
+          <select value={netFilter} onChange={(e) => setNetFilter(e.target.value)} style={selectStyle}>
+            <option value="all">All cars</option>
+            <option value="negative">Net negative</option>
+            <option value="positive">Net positive</option>
+          </select>
+          <select value={`${sortKey}:${sortDir}`} onChange={(e) => { const [k, d] = e.target.value.split(":"); setSortKey(k); setSortDir(d); }} style={selectStyle}>
+            <option value="net:asc">Sort: Net ↑ (worst first)</option>
+            <option value="net:desc">Sort: Net ↓ (best first)</option>
+            <option value="receipt:desc">Sort: Receipt ↓</option>
+            <option value="twelveMo:desc">Sort: 12-mo ↓</option>
+            <option value="coe:asc">Sort: COE soonest</option>
+            <option value="plate:asc">Sort: Plate A–Z</option>
+          </select>
+          <span style={{ fontSize: 11, color: C.textMuted }}>Showing <strong style={{ color: C.navy }}>{perCarRows.length}</strong> of {fleet.length}</span>
+
+          <div style={{ flex: 1, minWidth: 12 }} />
+
+          {/* Bulk actions — scoped to the filtered rows */}
+          <input type="number" placeholder="% uplift" value={uplift} onChange={(e) => setUplift(e.target.value)} style={{ ...selectStyle, width: 92 }} />
+          <button type="button" onClick={applyUplift} style={bulkBtn}>Apply to {perCarRows.length}</button>
+          <button type="button" onClick={resetAllToTarget} style={{ ...bulkBtn, color: C.textSec }}>↺ Reset to target</button>
+
+          {/* View toggle */}
+          <div style={{ display: "flex", border: "1px solid #E0E0E0", borderRadius: 8, overflow: "hidden" }}>
+            {["table", "cards"].map((v) => (
+              <button key={v} type="button" onClick={() => setViewOverride(v)}
+                style={{ padding: "7px 12px", fontSize: 11.5, fontWeight: 600, border: "none", cursor: "pointer", textTransform: "capitalize", background: effectiveView === v ? VIZ.blue : "#fff", color: effectiveView === v ? "#fff" : C.textSec }}>{v}</button>
+            ))}
+          </div>
         </div>
+
+        {effectiveView === "cards" ? (
+          <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, maxHeight: 520, overflowY: "auto" }}>
+            {perCarRows.map((r) => renderCard(r.car))}
+            {perCarRows.length === 0 && <div style={{ color: C.textMuted, fontSize: 12, padding: 20 }}>No matching vehicles</div>}
+          </div>
+        ) : (
+          <div style={{ maxHeight: 520, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {[["Plate", "plate", "left"], ["Monthly Receipt", "receipt", "right"], ["Cost/mo", null, "right"], ["Net/mo", "net", "right"], [`${horizon}-mo`, "twelveMo", "right"], ["COE", "coe", "right"]].map(([label, key, align]) => (
+                    <th key={label} onClick={key ? () => toggleSort(key) : undefined} style={{ ...th, textAlign: align, cursor: key ? "pointer" : "default", userSelect: "none" }}>
+                      {label}{key && sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {perCarRows.map((r) => {
+                  const editVal = edits[r.plate] !== undefined ? edits[r.plate] : r.receipt;
+                  return (
+                    <tr key={r.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                      <td style={{ padding: "6px 12px" }}><PlateBadge plate={r.plate} small /></td>
+                      <td style={{ padding: "5px 12px", textAlign: "right" }}>
+                        <input type="number" value={editVal}
+                          onChange={(e) => setEdits((s) => ({ ...s, [r.plate]: e.target.value }))}
+                          onBlur={() => commitEdit(r.plate)}
+                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          style={{ ...mono, width: 96, textAlign: "right", padding: "5px 8px", borderRadius: 7, border: `1px solid ${VIZ.blue}44`, background: tint(VIZ.blue), fontSize: 12.5, fontWeight: 700, color: C.navy, outline: "none" }} />
+                      </td>
+                      <td style={{ ...numCell, color: C.textMuted }}>{fmt(Math.round(r.cost))}</td>
+                      <td style={{ ...numCell, fontWeight: 700, color: r.net >= 0 ? VIZ.green : VIZ.red }}>{fmt(Math.round(r.net))}</td>
+                      <td style={{ ...numCell, color: C.navy }}>{fmt(Math.round(r.twelveMo))}</td>
+                      <td style={{ ...numCell, color: r.moToCoe != null && r.moToCoe <= 6 ? VIZ.red : C.textSec }}>{r.moToCoe != null ? `${r.moToCoe} mo` : "—"}</td>
+                    </tr>
+                  );
+                })}
+                {perCarRows.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No matching vehicles</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Monthly projection — full-width slim table */}
