@@ -395,7 +395,7 @@ const Dashboard = ({
 
         {/* Today's Operations */}
         <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
-          <SectionHead title="Today's Operations" right={<LinkBtn onClick={() => onNavigate?.("bookings")}>View Details</LinkBtn>} />
+          <SectionHead title="Today's Operations" right={<LinkBtn onClick={() => onNavigate?.("today-ops")}>View Details</LinkBtn>} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0 18px", alignItems: "center" }}>
             <div />
             <div style={{ fontSize: 10, fontWeight: 700, color: D.faint, textTransform: "uppercase", textAlign: "center", width: 64 }}>Completed</div>
