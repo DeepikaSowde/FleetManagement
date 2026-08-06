@@ -15,6 +15,7 @@ function toCar(r) {
     fuelType: r.fuel_type,
     transmission: r.transmission,
     purchase: r.purchase === null ? null : Number(r.purchase),
+    purchaseAdvance: r.purchase_advance === null ? null : Number(r.purchase_advance),
     insurance: r.insurance === null ? null : Number(r.insurance),
     reg: r.reg === null ? null : Number(r.reg),
     otherCharges: r.other_charges === null ? null : Number(r.other_charges),
@@ -51,18 +52,18 @@ async function getByPlate(plate) {
 async function create(car) {
   const { rows } = await db.query(
     `INSERT INTO cars (
-       plate, make, model, year, color, fuel_type, transmission, purchase, insurance,
+       plate, make, model, year, color, fuel_type, transmission, purchase, purchase_advance, insurance,
        reg, other_charges, purchase_date, insurance_expiry, lta_transfer_date,
        road_tax_expiry, inspection_expiry, maint, coe, status, min_rate, max_rate,
        target_rate, running_days_target, profit_pct_target, monthly_forecast, maintenance_start_date,
        maintenance_completed_at, maintenance_auto_released
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
      )
      RETURNING *`,
     [
       car.plate, car.make, car.model, car.year, car.color, car.fuelType ?? null,
-      car.transmission ?? null, car.purchase, car.insurance, car.reg,
+      car.transmission ?? null, car.purchase, car.purchaseAdvance ?? 0, car.insurance, car.reg,
       car.otherCharges ?? 0, car.purchaseDate, car.insuranceExpiry ?? null,
       car.ltaTransferDate ?? null, car.roadTaxExpiry ?? null, car.inspectionExpiry ?? null,
       car.maint, car.coe, car.status || "Available", car.minRate ?? null, car.maxRate ?? null,
@@ -87,17 +88,17 @@ async function update(plate, updates) {
   const { rows } = await db.query(
     `UPDATE cars SET
        make = $2, model = $3, year = $4, color = $5, fuel_type = $6, transmission = $7,
-       purchase = $8, insurance = $9, reg = $10, other_charges = $11, purchase_date = $12,
-       insurance_expiry = $13, lta_transfer_date = $14, road_tax_expiry = $15,
-       inspection_expiry = $16, maint = $17, coe = $18, status = $19, min_rate = $20,
-       max_rate = $21, target_rate = $22, running_days_target = $23, profit_pct_target = $24,
-       monthly_forecast = $25, maintenance_start_date = $26, maintenance_completed_at = $27,
-       maintenance_auto_released = $28
+       purchase = $8, purchase_advance = $9, insurance = $10, reg = $11, other_charges = $12,
+       purchase_date = $13, insurance_expiry = $14, lta_transfer_date = $15, road_tax_expiry = $16,
+       inspection_expiry = $17, maint = $18, coe = $19, status = $20, min_rate = $21,
+       max_rate = $22, target_rate = $23, running_days_target = $24, profit_pct_target = $25,
+       monthly_forecast = $26, maintenance_start_date = $27, maintenance_completed_at = $28,
+       maintenance_auto_released = $29
      WHERE plate = $1
      RETURNING *`,
     [
       plate, c.make, c.model, c.year, c.color, c.fuelType ?? null, c.transmission ?? null,
-      c.purchase, c.insurance, c.reg, c.otherCharges ?? 0, c.purchaseDate,
+      c.purchase, c.purchaseAdvance ?? 0, c.insurance, c.reg, c.otherCharges ?? 0, c.purchaseDate,
       c.insuranceExpiry ?? null, c.ltaTransferDate ?? null, c.roadTaxExpiry ?? null,
       c.inspectionExpiry ?? null, c.maint, c.coe, c.status ?? "Available",
       c.minRate ?? null, c.maxRate ?? null, c.targetRate ?? null,

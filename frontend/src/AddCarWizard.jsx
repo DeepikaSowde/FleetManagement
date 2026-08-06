@@ -26,6 +26,7 @@ const emptyCar = () => ({
   fuelType: "Petrol",
   transmission: "Automatic",
   purchase: "",
+  purchaseAdvance: "",
   insurance: "",
   reg: "",
   otherCharges: "",
@@ -143,6 +144,7 @@ const AddCarWizard = ({ onComplete, onClose }) => {
     const finalCar = {
       ...car,
       purchase: parseFloat(car.purchase),
+      purchaseAdvance: parseFloat(car.purchaseAdvance) || 0,
       insurance: parseFloat(car.insurance) || 0,
       reg: parseFloat(car.reg) || 0,
       otherCharges: parseFloat(car.otherCharges) || 0,
@@ -206,12 +208,13 @@ const AddCarWizard = ({ onComplete, onClose }) => {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Input label="Purchase Price (SGD)" type="number" value={car.purchase} onChange={e => setField("purchase", e.target.value)} placeholder="e.g., 26000" />
-                <Input label="Insurance (SGD)" type="number" value={car.insurance} onChange={e => setField("insurance", e.target.value)} placeholder="e.g., 1200" />
+                <Input label="Purchase Advance (SGD)" type="number" value={car.purchaseAdvance} onChange={e => setField("purchaseAdvance", e.target.value)} placeholder="e.g., 5000" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Input label="Insurance (SGD)" type="number" value={car.insurance} onChange={e => setField("insurance", e.target.value)} placeholder="e.g., 1200" />
                 <Input label="Registration (SGD)" type="number" value={car.reg} onChange={e => setField("reg", e.target.value)} placeholder="e.g., 1300" />
-                <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" />
               </div>
+              <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" />
               <Input label="Purchase Date" type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} />
             </div>
           )}

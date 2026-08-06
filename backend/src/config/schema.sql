@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS cars (
   fuel_type                  VARCHAR(40),
   transmission               VARCHAR(40),
   purchase                   NUMERIC(12,2) DEFAULT 0,
+  purchase_advance           NUMERIC(12,2) DEFAULT 0,   -- advance already paid toward the purchase
   insurance                  NUMERIC(12,2) DEFAULT 0,
   reg                        NUMERIC(12,2) DEFAULT 0,
   other_charges              NUMERIC(12,2) DEFAULT 0,
@@ -136,6 +137,7 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS dob            TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS nationality    VARCHAR(80);
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ;
 ALTER TABLE cars      ADD COLUMN IF NOT EXISTS monthly_forecast NUMERIC(12,2);
+ALTER TABLE cars      ADD COLUMN IF NOT EXISTS purchase_advance NUMERIC(12,2);
 
 -- ── EMPLOYEES — staff who operations (pickups/returns) get assigned to ──────
 CREATE TABLE IF NOT EXISTS employees (
