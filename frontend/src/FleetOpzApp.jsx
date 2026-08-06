@@ -130,7 +130,19 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
 
   const timeline = computeCarAvailabilityTimeline(car, bookings, 120);
   const statusByDate = {};
-  timeline.forEach(({ date, status }) => { statusByDate[date] = status; });
+  const availableFromByDate = {}; // date -> "HH:MM" the car frees up on a same-day turnover
+  timeline.forEach(({ date, status, availableFrom }) => {
+    statusByDate[date] = status;
+    if (availableFrom) availableFromByDate[date] = availableFrom;
+  });
+  // "13:00" → "1:00 PM", for the turnover "available from" hint.
+  const fmtTime = (hhmm) => {
+    if (!hhmm) return "";
+    let [h, m] = hhmm.split(":").map(Number);
+    const ap = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return `${h}:${String(m).padStart(2, "0")} ${ap}`;
+  };
 
   const isPast = (d) => d < today;
   // Maintenance is not a booking-flow concept — any day the underlying
@@ -217,6 +229,10 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
             {s}
           </div>
         ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+          Returns midday
+        </div>
       </div>
 
       {/* Weekday header */}
@@ -241,14 +257,16 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
           // calendar (no minDate): only Available days are clickable.
           const clickable = minDate ? (!isPast(d) && !belowMin) : isAvailableDay(d);
           const dimmed = !clickable && !isSelected;
+          const af = availableFromByDate[iso]; // turnover: car returns this day, free after
           return (
             <button
               type="button"
               key={iso}
               disabled={!clickable && !isSelected}
               onClick={() => handleDayClick(day)}
-              title={status}
+              title={af ? `Available from ${fmtTime(af)} — car returns this day` : status}
               style={{
+                position: "relative",
                 padding: "4px 0", fontSize: 10.5, borderRadius: 4,
                 border: isSelected ? `2px solid ${C.navy}` : isToday ? `1px solid ${C.navy}` : "1px solid transparent",
                 fontFamily: "inherit", cursor: clickable ? "pointer" : "default", boxSizing: "border-box",
@@ -259,6 +277,7 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
               }}
             >
               {day}
+              {af && <span style={{ position: "absolute", top: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: C.amber }} />}
             </button>
           );
         })}
@@ -268,7 +287,14 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
         <div style={{ fontSize: 10, color: C.textMuted }}>
-          {selectedDate ? <>Selected: <strong style={{ color: C.navy }}>{selectedDate}</strong></> : "No date selected"}
+          {selectedDate ? (
+            <>
+              Selected: <strong style={{ color: C.navy }}>{selectedDate}</strong>
+              {availableFromByDate[selectedDate] && (
+                <span style={{ color: C.amber, fontWeight: 700 }}> · available from {fmtTime(availableFromByDate[selectedDate])}</span>
+              )}
+            </>
+          ) : "No date selected"}
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button type="button" onClick={() => { onClear(); setDayError(""); }}

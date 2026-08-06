@@ -20,11 +20,31 @@ import { generateRentalAgreementPdf } from "./rentalAgreement";
 // excluded — it's the car's overall current status (shown elsewhere, e.g.
 // Fleet), not something a single day in this per-day projection ever
 // becomes: every day before a future booking's start is just "Available".
-const TIMELINE_STATUSES = ["Available", "On Rental", "Maintenance", "Ending Today"];
+// A booking's return day is no longer a blocked "Ending Today" cell — the car
+// is free from its return time, so it renders as Available with a turnover
+// marker instead (see availableFrom below). The three below are the only
+// whole-day states left.
+const TIMELINE_STATUSES = ["Available", "On Rental", "Maintenance"];
 
 const formatDayLabel = (dateStr) => {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+};
+
+// "13:00" → "1:00 PM" (full) / "1p", "1:30p" (compact, for the tiny strip cell).
+const fmtTime = (hhmm) => {
+  if (!hhmm) return "";
+  let [h, m] = hhmm.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ap}`;
+};
+const fmtTimeShort = (hhmm) => {
+  if (!hhmm) return "";
+  let [h, m] = hhmm.split(":").map(Number);
+  const ap = h >= 12 ? "p" : "a";
+  h = h % 12 || 12;
+  return m ? `${h}:${String(m).padStart(2, "0")}${ap}` : `${h}${ap}`;
 };
 
 // Professional 10-day horizontal Gantt-style strip for a single car, built
@@ -43,10 +63,10 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
         10-Day Availability — <span style={{ ...mono, color: C.navy }}>{car.plate}</span>
       </div>
       <div style={{ display: "flex", border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
-        {timeline.map(({ date, status }, i) => (
+        {timeline.map(({ date, status, availableFrom }, i) => (
           <div
             key={date}
-            title={`${date}: ${status}`}
+            title={availableFrom ? `${date}: available from ${fmtTime(availableFrom)} (car returns this day)` : `${date}: ${status}`}
             style={{
               flex: 1,
               textAlign: "center",
@@ -57,7 +77,8 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
           >
             <div style={{
               width: 8, height: 8, borderRadius: "50%", margin: "0 auto 4px",
-              background: STATUS_PILL_COLORS[status] || C.textMuted,
+              background: availableFrom ? C.amber : (STATUS_PILL_COLORS[status] || C.textMuted),
+              boxShadow: availableFrom ? `0 0 0 2px ${C.amber}33` : "none",
             }} />
             <div style={{
               fontSize: 9, color: date === todayStr ? C.navy : C.textMuted,
@@ -65,6 +86,11 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
             }}>
               {formatDayLabel(date)}
             </div>
+            {availableFrom && (
+              <div style={{ fontSize: 8, color: C.amber, fontWeight: 700, marginTop: 1, lineHeight: 1 }}>
+                {fmtTimeShort(availableFrom)}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -75,6 +101,10 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
             <span style={{ fontSize: 10, color: C.textMuted }}>{s}</span>
           </div>
         ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, boxShadow: `0 0 0 2px ${C.amber}33` }} />
+          <span style={{ fontSize: 10, color: C.textMuted }}>Returns midday (free after)</span>
+        </div>
       </div>
     </div>
   );

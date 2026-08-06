@@ -220,21 +220,49 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
     ? new Date(new Date(car.maintenanceStartDate).getTime() + MAINTENANCE_MAX_DAYS * 86400000).toISOString().slice(0, 10)
     : null;
 
+  // "HH:MM" pulled straight from the stored naive datetime string, so the
+  // return time shown to the user matches what was entered (no UTC shift).
+  const timeOf = (v) => (typeof v === "string" && v.includes("T") ? v.slice(11, 16) : "");
+
   const timeline = [];
   for (let i = 0; i < days; i++) {
     const dateStr = new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10);
 
-    let status;
+    let status = "Available"; // days before a future booking's start default here
+    let availableFrom = null;  // set on a same-day turnover: car is free from this time
+
     if (maintenanceEndStr && dateStr < maintenanceEndStr) {
       status = "Maintenance";
     } else {
-      const statusesOnDay = carBookings.map(b => computeBookingStatus(b, dateStr));
-      if (statusesOnDay.includes("Ending Today")) status = "Ending Today";
-      else if (statusesOnDay.includes("Active")) status = "On Rental";
-      else status = "Available"; // includes days before a future booking's start
+      let occupied = false;     // out all day (mid-rental, or overdue & not returned)
+      let turnoverTime = null;  // latest return time if a booking actually ends today
+      for (const b of carBookings) {
+        const st = computeBookingStatus(b, dateStr);
+        if (st === "Active") {
+          occupied = true;
+        } else if (st === "Ending Today") {
+          // Only the booking's REAL end date is a same-day turnover — the car
+          // comes back at b.end time and is free for the rest of that day. A
+          // LATER day still reading "Ending Today" means the rental is overdue
+          // and hasn't actually been returned, so the car is genuinely still
+          // out — keep that day blocked rather than falsely showing it free.
+          if (dateStr === toDateStr(b.end)) {
+            const t = timeOf(b.end);
+            if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
+          } else {
+            occupied = true;
+          }
+        }
+      }
+      if (occupied) {
+        status = "On Rental"; // a full-day rental (or another booking) wins over a turnover
+      } else if (turnoverTime) {
+        status = "Available";
+        availableFrom = turnoverTime; // e.g. "13:00" → UI shows "available from 1:00 PM"
+      }
     }
 
-    timeline.push({ date: dateStr, status });
+    timeline.push({ date: dateStr, status, availableFrom });
   }
   return timeline;
 };
