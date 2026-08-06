@@ -39,6 +39,9 @@ const CALENDAR_STATUS_BG = { Available: "#dcfce7", "On Rental": "#ffedd5", "Endi
 const CALENDAR_STATUS_TEXT = { Available: "#166534", "On Rental": "#9a3412", "Ending Today": "#9a3412" };
 const CALENDAR_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// Local calendar date "YYYY-MM-DD" (not UTC) — used to tell whether a booking's
+// pickup is today, so the same-day Vehicle Handover fields surface at creation.
+const localDateStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // Step 1 (Customer Details) option lists for Customer Type and Driving
 // Experience — both plain selects, same field style as everything else on
@@ -995,21 +998,41 @@ export default function FleetOpzApp() {
           addedAt: `${newBookingData.amountCollectedDate}T${newBookingData.amountCollectedTime}`,
         }]
       : [];
+    // Same-day pickup: if staff filled the Vehicle Handover fields (Kilometer
+    // Out + Fuel Level) shown in Review for a booking starting today, create it
+    // already handed over — Active, with the Rental Agreement generated — rather
+    // than leaving it Awaiting Handover to be re-opened later. Future-dated
+    // bookings keep the "Confirmed → hand over on the pickup day" flow.
+    const startIsToday = !!newBookingData.start && newBookingData.start.slice(0, 10) === localDateStr();
+    const wantsImmediateHandover = startIsToday &&
+      (newBookingData.startingMileage !== "" || !!newBookingData.fuelLevel);
+    if (wantsImmediateHandover) {
+      if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
+        alert("Enter a valid Kilometer Out (Starting Mileage) to complete the handover");
+        return;
+      }
+      if (!newBookingData.fuelLevel) {
+        alert("Select the Fuel Level to complete the handover");
+        return;
+      }
+    }
     const createdBooking = fleetData.addBooking({
       ...newBookingData,
       ageGroup: getAgeGroup(newBookingData.age),
-      // Confirmed, not Active — this booking can be made well ahead of the
-      // rental and every detail here stays editable (via Booking.jsx) right
-      // up until the pickup day. It only becomes Active, and only gets its
-      // Rental Agreement, once Vehicle Handover is completed below.
-      status: "Confirmed",
+      // Future-dated (or same-day with no handover details filled): Confirmed,
+      // not Active — stays editable until it's handed over on the pickup day.
+      // Same-day WITH handover details: Active immediately, handoverAt stamped.
+      status: wantsImmediateHandover ? "Active" : "Confirmed",
+      handoverAt: wantsImmediateHandover ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString(),
       payments: initialPayments,
     });
-    // Booking succeeded — the modal stays open on Review so staff see the
-    // confirmation; there's no Agreement to download yet, since the
-    // agreement is only generated once Vehicle Handover happens — from the
-    // Edit Booking flow's Review step (see handleCompleteHandover).
+    // A same-day handover generates the Rental Agreement right away (it needs
+    // the mileage/fuel/condition just captured); otherwise the agreement waits
+    // until Vehicle Handover happens later from the booking's detail view.
+    if (wantsImmediateHandover) {
+      generateRentalAgreementPdf(createdBooking, selectedCar);
+    }
     setCreatedBookingInfo({ booking: createdBooking, car: selectedCar });
   };
 
@@ -2077,6 +2100,63 @@ export default function FleetOpzApp() {
                             </div>
                           );
                         })()}
+
+                        {/* Same-day pickup (creating a NEW booking whose start
+                            date is today): surface the Vehicle Handover fields
+                            right here so the car can be handed over in the same
+                            flow. Filling Kilometer Out + Fuel Level makes
+                            "Confirm & Create Booking" create it already Active
+                            with the Rental Agreement generated; leaving them
+                            blank creates it as Upcoming to hand over later. */}
+                        {!editingBookingId && !createdBookingInfo && newBookingData.start
+                          && newBookingData.start.slice(0, 10) === localDateStr() && (
+                          <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover — same-day pickup</div>
+                            <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
+                              Pickup is today. Record Kilometer Out &amp; Fuel Level to hand the car over now — the booking becomes Active and the Rental Agreement is generated on create. Leave blank to hand over later.
+                            </div>
+                            <div style={{ marginBottom: 14 }}>
+                              <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={newBookingData.startingMileage}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v !== "" && Number(v) < 0) return;
+                                  setNewBookingData({ ...newBookingData, startingMileage: v });
+                                }}
+                                placeholder="9210"
+                                style={bookingFieldInputStyle(false)}
+                              />
+                            </div>
+                            <div style={{ marginBottom: 14 }}>
+                              <label style={bookingFieldLabelStyle}>Fuel Level</label>
+                              <select
+                                value={newBookingData.fuelLevel}
+                                onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })}
+                                style={bookingFieldInputStyle(false)}
+                              >
+                                <option value="">Select fuel level</option>
+                                <option value="Empty">Empty</option>
+                                <option value="1/4">1/4</option>
+                                <option value="1/2">1/2</option>
+                                <option value="3/4">3/4</option>
+                                <option value="Full">Full</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style={bookingFieldLabelStyle}>Vehicle Condition</label>
+                              <textarea
+                                value={newBookingData.vehicleCondition}
+                                onChange={(e) => setNewBookingData({ ...newBookingData, vehicleCondition: e.target.value })}
+                                placeholder="Note any existing scratches, dents, or issues before handing over the keys"
+                                rows={3}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </>
                     );
                   })()}
