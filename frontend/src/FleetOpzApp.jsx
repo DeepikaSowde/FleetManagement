@@ -312,8 +312,6 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
 
 export default function FleetOpzApp() {
   const [active, setActive] = useState("dashboard");
-  const [selectedCar, setSelectedCar] = useState("All Cars");
-  const [selectedRange, setSelectedRange] = useState("2026-06");
   const [showNewBooking, setShowNewBooking] = useState(false);
   const [showNewFleet, setShowNewFleet] = useState(false);
   const [showNewUser, setShowNewUser] = useState(false);
@@ -687,7 +685,6 @@ export default function FleetOpzApp() {
         earnings={fleetData.earnings}
         expenses={fleetData.expenses}
         alerts={fleetData.alerts}
-        month={selectedRange}
         calculateMetrics={fleetData.calculateMetrics}
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
@@ -723,8 +720,6 @@ export default function FleetOpzApp() {
         detailBookingId={detailBookingId}
         onDetailBookingIdHandled={() => setDetailBookingId(null)}
         onEditBooking={openEditBookingModal}
-        selectedCar={selectedCar}
-        selectedRange={selectedRange}
       />
     ),
     customers: (
@@ -817,21 +812,6 @@ export default function FleetOpzApp() {
         onDeleteRestrictedLicense={deleteRestrictedLicense}
       />
     ),
-  };
-
-  const topbar = {
-    dashboard: { title: "Fleet Dashboard", sub: `${fleetData.fleet.length} cars · ${fleetData.bookings.filter(b => b.status === "Active").length} active` },
-    fleet: { title: "Fleet Management", sub: `${fleetData.fleet.length} cars registered` },
-    bookings: { title: "Bookings", sub: `${fleetData.bookings.length} total bookings` },
-    customers: { title: "Customer Management", sub: "Manage all customers. Customer details are updated automatically from Bookings." },
-    "today-ops": { title: "Today's Operations", sub: "All pickups & returns scheduled for the day" },
-    earnings: { title: "Actual Earnings", sub: "Locked rental income records" },
-    expenses: { title: "Expense Management", sub: "Log and track running costs" },
-    ledger: { title: "Financial Ledger", sub: "Rental income & expenses with running balance" },
-    pl: { title: "P&L Reports", sub: "Profitability by car and fleet" },
-    "cash-flow": { title: "Cash Flow Forecast", sub: "Projected cash on hand across future months, per car" },
-    alerts: { title: "Alerts", sub: `${fleetData.alerts.length} active alerts` },
-    settings: { title: "Settings", sub: "Company profile and users" },
   };
 
   const ALLOWED_ATTACHMENT_EXTENSIONS = ["jpg", "jpeg", "png", "pdf", "doc", "docx", "xls", "xlsx"];
@@ -1209,43 +1189,11 @@ export default function FleetOpzApp() {
         </div>
       </aside>
 
-      {/* MAIN */}
+      {/* MAIN — the global top header bar was removed; each module renders its
+          own content straight from the top. The car/month filters that lived in
+          that bar went with it: the Dashboard now shows the current month and
+          Bookings shows all cars / all months (its own status filters remain). */}
       <main style={{ marginLeft: 220, flex: 1, display: "flex", flexDirection: "column" }}>
-        {/* Topbar */}
-        <header style={{ height: 60, background: C.surface, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", padding: "0 24px", gap: 16, position: "sticky", top: 0, zIndex: 50 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>{topbar[active]?.title}</div>
-            <div style={{ fontSize: 11, color: C.textMuted }}>{topbar[active]?.sub}</div>
-          </div>
-          {/* Car + month filters only apply to Dashboard & Bookings; hide them
-              elsewhere (Cash Flow, Ledger, etc. have their own controls). */}
-          {(active === "dashboard" || active === "bookings") && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <select value={selectedCar} onChange={e => setSelectedCar(e.target.value)}
-              style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: C.textPri, fontFamily: "inherit", cursor: "pointer", outline: "none" }}>
-              <option>All Cars</option>
-              {fleetData.fleet.map(c => <option key={c.plate}>{c.plate}</option>)}
-            </select>
-            <select value={selectedRange} onChange={e => setSelectedRange(e.target.value)}
-              style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, color: C.textPri, fontFamily: "inherit", cursor: "pointer", outline: "none" }}>
-              <option value="all">All Months (YTD)</option>
-              <option value="2026-01">January 2026</option>
-              <option value="2026-02">February 2026</option>
-              <option value="2026-03">March 2026</option>
-              <option value="2026-04">April 2026</option>
-              <option value="2026-05">May 2026</option>
-              <option value="2026-06">June 2026</option>
-              <option value="2026-07">July 2026</option>
-              <option value="2026-08">August 2026</option>
-              <option value="2026-09">September 2026</option>
-              <option value="2026-10">October 2026</option>
-              <option value="2026-11">November 2026</option>
-              <option value="2026-12">December 2026</option>
-            </select>
-          </div>
-          )}
-        </header>
-
         {/* Content */}
         <div style={{ flex: 1, overflow: "auto", padding: "24px" }}>
           {TAB_CONTENT[active]}
