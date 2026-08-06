@@ -7,11 +7,16 @@ import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows } from "./ledgerUtils";
 
 // Cash Flow Forecast — a rolling projection of cash on hand across future
-// months (like the RDK "Cash Flow reference" sheet). Each car contributes an
-// editable flat monthly receipt (defaulting to its computed monthly target);
-// outflows use the fleet's monthly maintenance budget. Everything is a
-// projection layered on a starting cash balance — no new persisted data except
-// the per-car monthly_forecast the user edits here.
+// months (like the RDK "Cash Flow reference" sheet). Receipts can be forecast
+// two ways (the "Forecast method" toggle):
+//   • CAGR Targets — each car's saved CAGR tier (chosen when the vehicle was
+//     added) drives its monthly receipt automatically = targetRate ×
+//     runningDaysTarget. Read-only per car; the whole forecast can be nudged
+//     with a global adjustment %.
+//   • Manual Targets — the user sets/edits each car's monthly receipt directly
+//     (persisted as car.monthlyForecast).
+// The client model is receipts-only: nothing is subtracted (no maintenance/
+// outflows); cash rolls up on the starting Ledger balance.
 
 const VIZ = { blue: "#2a78d6", green: "#008300", amber: "#eda100", violet: "#4a3aa7", red: "#e34948", aqua: "#1baf7a" };
 const tint = (h) => `${h}1A`;
@@ -23,6 +28,16 @@ const fieldLabel = { fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTr
 const miniLink = { marginTop: 2, background: "none", border: "none", padding: 0, color: VIZ.blue, fontSize: 10.5, fontWeight: 600, cursor: "pointer", textAlign: "left" };
 const bulkBtn = { padding: "7px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 11.5, fontWeight: 600, color: VIZ.blue, cursor: "pointer", fontFamily: "inherit" };
 
+// A car's saved CAGR tier is encoded in its runningDaysTarget (see theme.js
+// TIERS): 25 → Conservative (8%), 22 → Balanced (11%), 18 → Aggressive (14%).
+// This lets us show the tier + CAGR badge deterministically from saved data,
+// without re-deriving it from profitPctTarget.
+const CAGR_TIERS = {
+  25: { label: "Conservative", cagr: 8, color: VIZ.aqua },
+  22: { label: "Balanced", cagr: 11, color: VIZ.blue },
+  18: { label: "Aggressive", cagr: 14, color: VIZ.amber },
+};
+
 const monthsFrom = (startYm, n) => {
   const [y, m] = startYm.split("-").map(Number);
   return Array.from({ length: n }, (_, i) => {
@@ -30,9 +45,16 @@ const monthsFrom = (startYm, n) => {
     return { ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }) };
   });
 };
-const invOf = (car) => (Number(car.purchase) || 0) + (Number(car.insurance) || 0) + (Number(car.reg) || 0) + (Number(car.otherCharges) || 0);
 
-const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onUpdateCar, calculateCarMonthlyTarget, calculateMonthlyBudget }) => {
+const TierBadge = ({ tier }) => tier ? (
+  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20, color: tier.color, background: tint(tier.color), whiteSpace: "nowrap" }}>
+    {tier.cagr}% {tier.label}
+  </span>
+) : (
+  <span style={{ fontSize: 10.5, color: C.textMuted }}>No CAGR target</span>
+);
+
+const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onUpdateCar, calculateCarMonthlyTarget }) => {
   // Current cash position from the ledger — the natural default for "starting cash".
   const currentBalance = useMemo(() => {
     const rows = buildLedgerRows(earnings, expenses, bookings);
@@ -43,70 +65,91 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [horizon, setHorizon] = useState(12);
   const [minBalance, setMinBalance] = useState(5000);
-  const [edits, setEdits] = useState({}); // in-progress per-car receipt edits (plate -> string)
-  // Per-car list controls — search / sort / filter / view, so the section stays
-  // usable at 100+ cars instead of one giant wall of cards.
+  const [edits, setEdits] = useState({}); // in-progress per-car receipt edits (plate -> string) — Manual method
+  // Forecast method: CAGR (from saved vehicle targets) or Manual (per-car edits).
+  const [forecastMethod, setForecastMethod] = useState("cagr");
+  const [adjustmentPct, setAdjustmentPct] = useState(0); // CAGR global forecast adjustment %
+  // Per-car list controls — search / sort / view, so the section stays usable
+  // at 100+ cars instead of one giant wall of cards.
   const [viewOverride, setViewOverride] = useState(null); // null = auto by fleet size
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState("receipt");
   const [sortDir, setSortDir] = useState("desc"); // highest receipt first by default
-  const [netFilter, setNetFilter] = useState("all"); // all | positive | negative
   const [uplift, setUplift] = useState("");
 
-  // Per-car monthly receipt: the editable value, with a SANE default.
-  //  1) the value the user saved (car.monthlyForecast) always wins
-  //  2) else the car's target daily rate × ~26 rented days
-  //  3) else the computed monthly target — but ignore absurd spikes (a car whose
-  //     COE has already passed makes that target = its whole remaining
-  //     investment), falling back to a sensible placeholder the user can edit.
-  const receiptOf = (car) => {
+  const cagrTierOf = (car) => (car.runningDaysTarget != null ? CAGR_TIERS[car.runningDaysTarget] : null) || null;
+  const hasCagrTarget = (car) => car.targetRate != null && car.runningDaysTarget != null;
+
+  // Raw per-car monthly receipt for the ACTIVE forecast method (before the CAGR
+  // global adjustment %).
+  const rawReceiptOf = (car) => {
+    if (forecastMethod === "cagr") {
+      // Saved CAGR target monthly income = target daily rate × the tier's
+      // target running days (both chosen when the car was added).
+      if (hasCagrTarget(car)) return Math.round(Number(car.targetRate) * Number(car.runningDaysTarget));
+      const t = Math.round(calculateCarMonthlyTarget?.(car.plate, startMonth) || 0);
+      return t > 0 && t <= 15000 ? t : 0; // 0 → no saved CAGR target
+    }
+    // Manual: the user-saved figure wins, then sensible fallbacks.
     if (car.monthlyForecast != null) return Number(car.monthlyForecast);
     if (car.targetRate) return Math.round(Number(car.targetRate) * 26);
     const t = Math.round(calculateCarMonthlyTarget?.(car.plate, startMonth) || 0);
     return t > 0 && t <= 15000 ? t : 1500;
   };
-  // Client cash-flow model subtracts nothing — it's receipts only. Kept as a
-  // function so the rest of the (parallel-built) per-car code stays intact.
-  const costOf = () => 0;
-  const maxNet = Math.max(1, ...fleet.map((c) => receiptOf(c)));
+  // CAGR mode supports a global forecast adjustment % that scales every car's
+  // receipt WITHOUT touching its saved CAGR target.
+  const cagrAdjFactor = forecastMethod === "cagr" ? 1 + (Number(adjustmentPct) || 0) / 100 : 1;
+  const receiptOf = (car) => Math.round(rawReceiptOf(car) * cagrAdjFactor);
+  const maxReceipt = Math.max(1, ...fleet.map((c) => receiptOf(c)));
 
   // Cards for small fleets, table for large — but only until the user picks one.
   const effectiveView = viewOverride ?? (fleet.length > 24 ? "table" : "cards");
 
-  // One derived list feeds BOTH views, so search/sort/filter behave identically
-  // whichever is showing. Default sort is Net ascending — the cars dragging cash
-  // flow down surface at the top, which is the whole point of a forecast.
+  // One derived list feeds BOTH views, so search/sort behave identically
+  // whichever is showing.
   const perCarRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = fleet.map((car) => {
       const receipt = receiptOf(car);
-      const cost = costOf(car);
-      const net = receipt - cost;
       const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : null;
-      return { car, plate: car.plate, receipt, cost, net, moToCoe, twelveMo: net * horizon };
+      return {
+        car,
+        plate: car.plate,
+        model: [car.make, car.model].filter(Boolean).join(" ") || "—",
+        receipt,
+        moToCoe,
+        twelveMo: receipt * horizon,
+        tier: cagrTierOf(car),
+        hasCagr: hasCagrTarget(car),
+      };
     });
-    if (q) list = list.filter((r) => r.plate.toLowerCase().includes(q));
-    if (netFilter === "positive") list = list.filter((r) => r.net >= 0);
-    else if (netFilter === "negative") list = list.filter((r) => r.net < 0);
+    if (q) list = list.filter((r) => r.plate.toLowerCase().includes(q) || r.model.toLowerCase().includes(q));
     const dir = sortDir === "asc" ? 1 : -1;
     list.sort((a, b) => {
       if (sortKey === "plate") return a.plate < b.plate ? -dir : a.plate > b.plate ? dir : 0;
-      const pick = { receipt: "receipt", twelveMo: "twelveMo", coe: "moToCoe", net: "net" }[sortKey] || "net";
+      const pick = { receipt: "receipt", twelveMo: "twelveMo", coe: "moToCoe" }[sortKey] || "receipt";
       const av = a[pick] ?? Infinity;
       const bv = b[pick] ?? Infinity;
       return (av - bv) * dir;
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fleet, edits, query, sortKey, sortDir, netFilter, horizon, startMonth]);
+  }, [fleet, edits, query, sortKey, sortDir, horizon, startMonth, forecastMethod, adjustmentPct]);
 
   const toggleSort = (key) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(key); setSortDir(key === "plate" || key === "coe" ? "asc" : "desc"); }
   };
 
-  // Bulk edits apply to the CURRENTLY FILTERED rows only, so "search a subset,
-  // then apply" scopes the change to just those cars.
+  const commitEdit = (plate) => {
+    const v = edits[plate];
+    if (v === undefined) return;
+    const num = v === "" ? null : Number(v);
+    onUpdateCar?.(plate, { monthlyForecast: num });
+    setEdits((e) => { const n = { ...e }; delete n[plate]; return n; });
+  };
+
+  // Manual bulk edits apply to the CURRENTLY FILTERED rows only.
   const applyUplift = () => {
     const pct = Number(uplift);
     if (uplift === "" || Number.isNaN(pct)) return;
@@ -117,27 +160,33 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
     perCarRows.forEach((r) => onUpdateCar?.(r.plate, { monthlyForecast: null }));
   };
 
-  // The existing card, factored out so both the cards view and (small-fleet)
-  // default can render it from the shared, filtered/sorted list.
-  const renderCard = (car) => {
-    const receipt = receiptOf(car);
-    const cost = costOf(car);
-    const net = receipt - cost;
-    const moToCoe = car.coe ? Math.max(0, Math.round(daysUntil(car.coe) / 30)) : null;
+  // Per-car card — editable (Manual) or read-only (CAGR).
+  const renderCard = (row) => {
+    const { car, receipt, moToCoe, tier, hasCagr } = row;
+    const barPct = Math.max(0, Math.min(100, (receipt / maxReceipt) * 100));
     const editVal = edits[car.plate] !== undefined ? edits[car.plate] : receipt;
-    const barPct = Math.max(0, Math.min(100, (net / maxNet) * 100));
     return (
       <div key={car.plate} style={{ border: "1px solid #ECECEC", borderRadius: 12, padding: 14, background: "#fff", boxShadow: "0 1px 2px rgba(16,24,40,0.05)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <PlateBadge plate={car.plate} small />
-          {moToCoe != null && <span style={{ fontSize: 9.5, color: C.textMuted }}>{moToCoe} mo to COE</span>}
+          {moToCoe != null && <span style={{ fontSize: 9.5, color: moToCoe <= 6 ? VIZ.red : C.textMuted }}>{moToCoe} mo to COE</span>}
         </div>
-        <div style={{ fontSize: 9.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Monthly Receipt</div>
-        <input type="number" value={editVal}
-          onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
-          onBlur={() => commitEdit(car.plate)}
-          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-          style={{ ...mono, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontSize: 14, fontWeight: 700, color: C.navy, outline: "none" }} />
+        {forecastMethod === "cagr" ? (
+          <>
+            <div style={{ marginBottom: 8 }}><TierBadge tier={tier} /></div>
+            <div style={{ fontSize: 9.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 }}>Monthly Target Receipt</div>
+            <div style={{ ...mono, fontSize: 18, fontWeight: 800, color: receipt > 0 ? C.navy : C.textMuted }}>{receipt > 0 ? fmt(receipt) : "—"}</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 9.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Monthly Receipt</div>
+            <input type="number" value={editVal}
+              onChange={(e) => setEdits((s) => ({ ...s, [car.plate]: e.target.value }))}
+              onBlur={() => commitEdit(car.plate)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+              style={{ ...mono, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 8, border: `1px solid ${VIZ.blue}55`, background: tint(VIZ.blue), fontSize: 14, fontWeight: 700, color: C.navy, outline: "none" }} />
+          </>
+        )}
         <div style={{ height: 6, background: "#F0F0F0", borderRadius: 4, overflow: "hidden", marginTop: 10 }}>
           <div style={{ height: "100%", width: `${barPct}%`, background: VIZ.green, borderRadius: 4 }} />
         </div>
@@ -149,16 +198,17 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   };
 
   const months = useMemo(() => monthsFrom(startMonth, horizon), [startMonth, horizon]);
-  const totalReceiptsPerMonth = useMemo(() => fleet.reduce((s, c) => s + receiptOf(c), 0), [fleet, edits, startMonth]);
+  const totalReceiptsPerMonth = useMemo(
+    () => fleet.reduce((s, c) => s + receiptOf(c), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fleet, edits, startMonth, forecastMethod, adjustmentPct]
+  );
 
-  // Build the month-by-month projection.
+  // Build the month-by-month projection (receipts-only, rolling up).
   const projection = useMemo(() => {
     let opening = Number(startingCash) || 0;
     return months.map((m) => {
       const receipts = totalReceiptsPerMonth;
-      // Client model: purely the Ledger balance + rental receipts rolling up —
-      // nothing is subtracted (no maintenance/outflows). Total cash available
-      // this month becomes next month's opening balance.
       const closing = opening + receipts;
       const row = { ...m, opening, receipts, closing };
       opening = closing;
@@ -172,24 +222,22 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
   const belowMin = lowest < Number(minBalance);
   const firstBreach = projection.find((r) => r.closing < Number(minBalance));
 
+  const isCagr = forecastMethod === "cagr";
   const kpis = [
     { label: "Starting Cash (Ledger)", value: startingCash, color: VIZ.blue, icon: "📗", sub: `${months[0]?.label || ""}` },
-    { label: "Monthly Receipts", value: totalReceiptsPerMonth, color: VIZ.green, icon: "📈", sub: "Sum of all car rates" },
-    { label: `Total Receipts (${horizon}mo)`, value: totalReceipts, color: VIZ.aqua, icon: "💰", sub: "Projected" },
+    { label: isCagr ? "Total Target Monthly Receipt" : "Monthly Receipts", value: totalReceiptsPerMonth, color: VIZ.green, icon: "📈", sub: isCagr ? "Sum of all cars' CAGR targets" : "Sum of all car receipts" },
+    { label: `${horizon}-Month ${isCagr ? "Target " : ""}Receipts`, value: totalReceipts, color: VIZ.aqua, icon: "💰", sub: "Projected" },
     { label: `Total Cash Available (${horizon}mo)`, value: closingCash, color: VIZ.violet, icon: "💵", sub: months[months.length - 1]?.label || "" },
     { label: "Lowest Balance", value: lowest, color: belowMin ? VIZ.red : VIZ.violet, icon: belowMin ? "⚠️" : "🛡️", sub: belowMin ? "Below minimum!" : "Above minimum" },
   ];
 
-  const commitEdit = (plate) => {
-    const v = edits[plate];
-    if (v === undefined) return;
-    const num = v === "" ? null : Number(v);
-    onUpdateCar?.(plate, { monthlyForecast: num });
-    setEdits((e) => { const n = { ...e }; delete n[plate]; return n; });
-  };
-
   const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid #EFEFEF", whiteSpace: "nowrap", position: "sticky", top: 0, background: "#fff", zIndex: 1 };
   const numCell = { padding: "9px 12px", ...mono, fontSize: 11.5, textAlign: "right", whiteSpace: "nowrap" };
+
+  const methods = [
+    { id: "cagr", label: "CAGR Targets (from vehicles)", rec: true },
+    { id: "manual", label: "Manual Targets", rec: false },
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -216,6 +264,33 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
             <span style={fieldLabel}>Minimum balance alert</span>
             <input type="number" value={minBalance} onChange={(e) => setMinBalance(e.target.value)} style={field} />
           </label>
+
+          {/* Forecast method selector — spans the full row */}
+          <div style={{ ...fieldWrap, gridColumn: "1 / -1" }}>
+            <span style={fieldLabel}>Forecast method</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {methods.map((m) => (
+                <button key={m.id} type="button" onClick={() => setForecastMethod(m.id)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 10, cursor: "pointer",
+                    border: `1.5px solid ${forecastMethod === m.id ? VIZ.blue : "#E0E0E0"}`,
+                    background: forecastMethod === m.id ? tint(VIZ.blue) : "#fff",
+                    fontSize: 12.5, fontWeight: 600, color: C.textPri, fontFamily: "inherit",
+                  }}>
+                  <span style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${forecastMethod === m.id ? VIZ.blue : "#C0C0C0"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {forecastMethod === m.id && <span style={{ width: 6, height: 6, borderRadius: "50%", background: VIZ.blue }} />}
+                  </span>
+                  {m.label}
+                  {m.rec && <span style={{ fontSize: 9.5, fontWeight: 700, color: VIZ.green, background: tint(VIZ.green), padding: "1px 6px", borderRadius: 10 }}>Recommended</span>}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: 10.5, color: C.textMuted, marginTop: 2 }}>
+              {isCagr
+                ? "CAGR tiers are chosen when a vehicle is added. Cash Flow uses those saved targets to forecast each car's monthly receipt from its investment, COE runway & target return — automatically."
+                : "You set each car's monthly receipt below; it's saved per vehicle and used as-is."}
+            </span>
+          </div>
         </div>
       </Card>
 
@@ -266,14 +341,18 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
         </div>
       </Card>
 
-      {/* Per-car forecast — scales from cards (small fleet) to a dense,
-          searchable/sortable/bulk-editable table (large fleet). */}
+      {/* Per-car forecast */}
       <Card style={cardStyle}>
-        <CardHeader title="Per-Car Forecast" subtitle="Each car's monthly receipt is editable — search, sort, and bulk-edit for large fleets" />
+        <CardHeader
+          title="Per-Car Forecast"
+          subtitle={isCagr
+            ? "Each car uses its saved CAGR target (read-only) — nudge the whole forecast with the adjustment %"
+            : "Each car's monthly receipt is editable — search, sort, and bulk-edit for large fleets"}
+        />
 
         {/* Controls */}
         <div style={{ padding: "12px 16px", borderBottom: "1px solid #F0F0F0", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-          <input placeholder="🔍 Search plate…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ ...selectStyle, width: 160 }} />
+          <input placeholder="🔍 Search plate / model…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ ...selectStyle, width: 180 }} />
           <select value={`${sortKey}:${sortDir}`} onChange={(e) => { const [k, d] = e.target.value.split(":"); setSortKey(k); setSortDir(d); }} style={selectStyle}>
             <option value="receipt:desc">Sort: Receipt ↓ (highest first)</option>
             <option value="receipt:asc">Sort: Receipt ↑ (lowest first)</option>
@@ -285,10 +364,23 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
 
           <div style={{ flex: 1, minWidth: 12 }} />
 
-          {/* Bulk actions — scoped to the filtered rows */}
-          <input type="number" placeholder="% uplift" value={uplift} onChange={(e) => setUplift(e.target.value)} style={{ ...selectStyle, width: 92 }} />
-          <button type="button" onClick={applyUplift} style={bulkBtn}>Apply to {perCarRows.length}</button>
-          <button type="button" onClick={resetAllToTarget} style={{ ...bulkBtn, color: C.textSec }}>↺ Reset to target</button>
+          {isCagr ? (
+            /* CAGR: global forecast adjustment (doesn't touch saved targets) */
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.textSec, fontWeight: 600 }}>
+              Forecast adjustment
+              <input type="number" value={adjustmentPct} onChange={(e) => setAdjustmentPct(e.target.value)} style={{ ...selectStyle, width: 78 }} />%
+              {Number(adjustmentPct) !== 0 && (
+                <button type="button" onClick={() => setAdjustmentPct(0)} style={{ ...bulkBtn, padding: "5px 8px" }}>Reset</button>
+              )}
+            </label>
+          ) : (
+            /* Manual: bulk edits scoped to the filtered rows */
+            <>
+              <input type="number" placeholder="% uplift" value={uplift} onChange={(e) => setUplift(e.target.value)} style={{ ...selectStyle, width: 92 }} />
+              <button type="button" onClick={applyUplift} style={bulkBtn}>Apply to {perCarRows.length}</button>
+              <button type="button" onClick={resetAllToTarget} style={{ ...bulkBtn, color: C.textSec }}>↺ Reset to target</button>
+            </>
+          )}
 
           {/* View toggle */}
           <div style={{ display: "flex", border: "1px solid #E0E0E0", borderRadius: 8, overflow: "hidden" }}>
@@ -301,10 +393,40 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
 
         {effectiveView === "cards" ? (
           <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, maxHeight: 520, overflowY: "auto" }}>
-            {perCarRows.map((r) => renderCard(r.car))}
+            {perCarRows.map((r) => renderCard(r))}
             {perCarRows.length === 0 && <div style={{ color: C.textMuted, fontSize: 12, padding: 20 }}>No matching vehicles</div>}
           </div>
+        ) : isCagr ? (
+          /* CAGR table — read-only, CAGR target + basis columns */
+          <div style={{ maxHeight: 520, overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {[["Plate", "plate", "left"], ["Make / Model", null, "left"], ["CAGR Target (saved)", null, "left"], ["Monthly Target Receipt", "receipt", "right"], [`${horizon}-mo Target Receipt`, "twelveMo", "right"], ["COE Remaining", "coe", "right"], ["Target Basis", null, "left"]].map(([label, key, align]) => (
+                    <th key={label} onClick={key ? () => toggleSort(key) : undefined} style={{ ...th, textAlign: align, cursor: key ? "pointer" : "default", userSelect: "none" }}>
+                      {label}{key && sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {perCarRows.map((r) => (
+                  <tr key={r.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                    <td style={{ padding: "8px 12px" }}><PlateBadge plate={r.plate} small /></td>
+                    <td style={{ padding: "8px 12px", fontSize: 11.5, color: C.textPri, whiteSpace: "nowrap" }}>{r.model}</td>
+                    <td style={{ padding: "8px 12px" }}><TierBadge tier={r.tier} /></td>
+                    <td style={{ ...numCell, fontWeight: 700, color: r.receipt > 0 ? VIZ.blue : C.textMuted }}>{r.receipt > 0 ? fmt(r.receipt) : "—"}</td>
+                    <td style={{ ...numCell, fontWeight: 700, color: C.navy }}>{fmt(Math.round(r.twelveMo))}</td>
+                    <td style={{ ...numCell, color: r.moToCoe != null && r.moToCoe <= 6 ? VIZ.red : C.textSec }}>{r.moToCoe != null ? `${r.moToCoe} mo` : "—"}</td>
+                    <td style={{ padding: "8px 12px", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{r.hasCagr ? "CAGR + COE" : "—"}</td>
+                  </tr>
+                ))}
+                {perCarRows.length === 0 && <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No matching vehicles</td></tr>}
+              </tbody>
+            </table>
+          </div>
         ) : (
+          /* Manual table — editable receipt column */
           <div style={{ maxHeight: 520, overflowY: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -343,10 +465,10 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
 
       {/* Monthly projection — full-width slim table */}
       <Card style={cardStyle}>
-        <CardHeader title="Monthly Projection" subtitle={`${horizon}-month cash flow · Ledger balance + rental receipts`} />
+        <CardHeader title="Monthly Projection" subtitle={`${horizon}-month cash flow · Ledger balance + ${isCagr ? "CAGR target" : "rental"} receipts`} />
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>{["Month", "Cash on hand (beginning)", "+ Rental Receipts", "= Total Cash Available"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Month", "Cash on hand (beginning)", `+ ${isCagr ? "Target " : ""}Receipts`, "= Total Cash Available"].map((h) => <th key={h} style={{ ...th, textAlign: h === "Month" ? "left" : "right" }}>{h}</th>)}</tr></thead>
             <tbody>
               {projection.map((r) => (
                 <tr key={r.ym} style={{ borderBottom: "1px solid #F3F3F3" }}>
