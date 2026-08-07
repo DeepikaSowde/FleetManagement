@@ -183,7 +183,7 @@ const Ledger = ({
       </Card>
 
       {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14, marginBottom: 16 }}>
         {summary.map((s) => (
           <Card key={s.label}>
             <div style={{ padding: 16 }}>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
+import { useViewport } from "./useViewport";
 import { useAuth } from "./context/AuthContext";
 import api from "./services/api";
 
@@ -312,6 +313,8 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
 
 export default function FleetOpzApp() {
   const [active, setActive] = useState("dashboard");
+  const { isMobile } = useViewport();
+  const [drawerOpen, setDrawerOpen] = useState(false); // mobile sidebar drawer
   const [showNewBooking, setShowNewBooking] = useState(false);
   const [showNewFleet, setShowNewFleet] = useState(false);
   const [showNewUser, setShowNewUser] = useState(false);
@@ -1127,8 +1130,20 @@ export default function FleetOpzApp() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13, color: C.textPri }}>
 
-      {/* SIDEBAR */}
-      <aside style={{ width: 220, background: C.navy, minHeight: "100vh", display: "flex", flexDirection: "column", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100 }}>
+      {/* Backdrop behind the mobile drawer */}
+      {isMobile && drawerOpen && (
+        <div onClick={() => setDrawerOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 150 }} />
+      )}
+
+      {/* SIDEBAR — fixed on tablet/desktop, off-canvas drawer on mobile */}
+      <aside style={{
+        width: 220, background: C.navy, minHeight: "100vh", display: "flex", flexDirection: "column",
+        position: "fixed", top: 0, left: 0, bottom: 0,
+        zIndex: isMobile ? 200 : 100,
+        transform: isMobile && !drawerOpen ? "translateX(-100%)" : "translateX(0)",
+        transition: "transform 0.22s ease",
+        boxShadow: isMobile && drawerOpen ? "0 0 40px rgba(0,0,0,0.4)" : "none",
+      }}>
         {/* Logo */}
         <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1144,7 +1159,7 @@ export default function FleetOpzApp() {
         <nav style={{ flex: 1, overflowY: "auto", paddingBottom: 10, marginTop: 6 }}>
           <div style={{ padding: "10px 20px 4px", fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Operations</div>
           {NAV.slice(0, 5).map(n => (
-            <div key={n.id} onClick={() => setActive(n.id)}
+            <div key={n.id} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
               {n.label}
@@ -1153,7 +1168,7 @@ export default function FleetOpzApp() {
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
           {NAV.slice(5, 10).map(n => (
-            <div key={n.id} onClick={() => setActive(n.id)}
+            <div key={n.id} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
               {n.label}
@@ -1162,7 +1177,7 @@ export default function FleetOpzApp() {
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
           {NAV.slice(10).map(n => (
-            <div key={n.id} onClick={() => setActive(n.id)}
+            <div key={n.id} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
               <span style={{ flex: 1 }}>{n.label}</span>
@@ -1193,9 +1208,18 @@ export default function FleetOpzApp() {
           own content straight from the top. The car/month filters that lived in
           that bar went with it: the Dashboard now shows the current month and
           Bookings shows all cars / all months (its own status filters remain). */}
-      <main style={{ marginLeft: 220, flex: 1, display: "flex", flexDirection: "column" }}>
-        {/* Content */}
-        <div style={{ flex: 1, overflow: "auto", padding: "24px" }}>
+      <main style={{ marginLeft: isMobile ? 0 : 220, flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Mobile top bar with hamburger — opens the sidebar drawer */}
+        {isMobile && (
+          <div style={{ position: "sticky", top: 0, zIndex: 90, display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: C.navy, color: "#fff" }}>
+            <button onClick={() => setDrawerOpen(true)} aria-label="Open menu"
+              style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: 18, lineHeight: 1, padding: "3px 10px", borderRadius: 8, cursor: "pointer" }}>☰</button>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>FleetOpz</div>
+          </div>
+        )}
+        {/* Content — never scrolls horizontally (wide tables scroll in their
+            own containers); prevents any stray element forcing a sideways page. */}
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "16px" : "24px", minWidth: 0 }}>
           {TAB_CONTENT[active]}
         </div>
       </main>

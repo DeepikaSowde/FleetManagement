@@ -125,7 +125,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {kpis.map((k) => (
           <Card key={k.label} style={cardStyle}>
             <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 12 }}>
@@ -144,7 +144,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
       {upcoming.length > 0 && (
         <Card style={cardStyle}>
           <div style={{ padding: "12px 16px 4px", fontSize: 13, fontWeight: 700, color: C.navy }}>🕐 Upcoming in Next 2 Hours</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, padding: "6px 16px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, padding: "6px 16px 16px" }}>
             {upcoming.map((o) => (
               <div key={o.key} style={{ border: "1px solid #EEE", borderRadius: 10, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>

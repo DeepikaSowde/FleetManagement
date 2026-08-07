@@ -159,7 +159,7 @@ const LedgerDashboard = ({
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
         {kpis.map((k) => (
           <Card key={k.label} style={cardStyle}>
             <div style={{ padding: 16 }}>

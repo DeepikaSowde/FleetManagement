@@ -49,7 +49,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
         <KpiCard 
           label="Total Earned" 
           value={fmt(total)} 

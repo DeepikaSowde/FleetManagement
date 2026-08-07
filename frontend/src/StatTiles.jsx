@@ -19,7 +19,7 @@ export default function StatTiles({ totalVehicles = 0, onRent = 0, available = 0
   ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
       {tiles.map((t) => (
         <Card key={t.label} style={cardStyle}>
           <div style={{ padding: 14, display: "flex", alignItems: "center", gap: 10 }}>

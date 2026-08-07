@@ -211,7 +211,7 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
       </div>
 
       {/* KPI strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 14 }}>
         {kpis.map((k) => (
           <div key={k.label} style={{ background: C.surface, border: `1px solid ${k.alert ? C.red : C.border}`, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>

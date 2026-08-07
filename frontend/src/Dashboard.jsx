@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { fmt } from "./theme";
+import { useViewport } from "./useViewport";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, PieChart, Pie, Cell,
@@ -109,6 +110,7 @@ const Dashboard = ({
   getExpensesByCategory, onNewBooking, onNavigate,
 }) => {
   const [revPeriod, setRevPeriod] = useState("Month");
+  const { isMobile, isDesktop } = useViewport();
 
   const metrics = calculateMetrics();
   const isAll = month === "all";
@@ -287,10 +289,10 @@ const Dashboard = ({
   return (
     // Negative margin lets the dashboard own its lighter background inside the
     // shell's 24px-padded content area, without changing the shell itself.
-    <div style={{ margin: -24, padding: 24, background: D.page, minHeight: "100%", fontFamily: "'Inter','Segoe UI',sans-serif", color: D.body }}>
+    <div style={{ margin: isMobile ? -16 : -24, padding: isMobile ? 16 : 24, background: D.page, minHeight: "100%", fontFamily: "'Inter','Segoe UI',sans-serif", color: D.body }}>
 
       {/* ── KPI STRIP ─────────────────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 20 }}>
         <KpiTile icon="🚗" iconColor={D.blue} iconBg={D.blueSoft} label="Total Fleet" value={metrics.totalFleet} sub="Cars" link="View Fleet" onLink={() => onNavigate?.("fleet")} />
         <KpiTile icon="✅" iconColor={D.green} iconBg={D.greenSoft} label="Available" value={metrics.availableCount} sub={`Cars (${pct(metrics.availableCount)}%)`} link="View Fleet" onLink={() => onNavigate?.("fleet")} />
         <KpiTile icon="🚘" iconColor={D.teal} iconBg={D.tealSoft} label="On Rent" value={metrics.onRentalCount} sub={`Cars (${pct(metrics.onRentalCount)}%)`} link="View Bookings" onLink={() => onNavigate?.("bookings")} />
@@ -305,7 +307,7 @@ const Dashboard = ({
       </div>
 
       {/* ── ROW 1: Revenue Overview · Fleet Status · Today's Operations ────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "2fr minmax(0,1fr) minmax(0,1fr)" : "minmax(0, 1fr)", gap: 16, marginBottom: 16 }}>
 
         {/* Revenue Overview */}
         <Card style={{ padding: 18 }}>
@@ -322,7 +324,7 @@ const Dashboard = ({
               ))}
             </div>
           } />
-          <div style={{ display: "grid", gridTemplateColumns: "170px 1fr", gap: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "170px minmax(0, 1fr)", gap: 18 }}>
             <div>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: D.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>Monthly Target</div>
               <div style={{ fontSize: 19, fontWeight: 800, color: D.ink, marginBottom: 12 }}>{fmt(Math.round(monthlyTarget))}</div>
@@ -336,7 +338,7 @@ const Dashboard = ({
                 <div style={{ width: `${Math.min(100, achievedPct)}%`, height: "100%", background: D.green, borderRadius: 5 }} />
               </div>
             </div>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ height: 210 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={revData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -396,7 +398,7 @@ const Dashboard = ({
         {/* Today's Operations */}
         <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
           <SectionHead title="Today's Operations" right={<LinkBtn onClick={() => onNavigate?.("today-ops")}>View Details</LinkBtn>} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0 18px", alignItems: "center" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: "0 18px", alignItems: "center" }}>
             <div />
             <div style={{ fontSize: 10, fontWeight: 700, color: D.faint, textTransform: "uppercase", textAlign: "center", width: 64 }}>Completed</div>
             <div style={{ fontSize: 10, fontWeight: 700, color: D.faint, textTransform: "uppercase", textAlign: "center", width: 52 }}>Pending</div>
@@ -415,12 +417,12 @@ const Dashboard = ({
       </div>
 
       {/* ── ROW 2: P&L · Expense Overview · Vehicle Performance ────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr)" : "minmax(0, 1fr)", gap: 16, marginBottom: 16 }}>
 
         {/* P&L Summary */}
         <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
           <SectionHead title="P&L Summary" note={`(${refMonthLabel})`} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 16 }}>
             {plStats.map((s) => {
               const good = s.delta == null ? null : (s.goodUp ? s.delta >= 0 : s.delta <= 0);
               return (
@@ -487,8 +489,8 @@ const Dashboard = ({
         {/* Vehicle Performance */}
         <Card style={{ padding: 18 }}>
           <SectionHead title="Vehicle Performance" note={`(${refMonthLabel})`} right={<LinkBtn onClick={() => onNavigate?.("fleet")}>View All Vehicles</LinkBtn>} />
-          <div style={{ maxHeight: 300, overflowY: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div style={{ maxHeight: 300, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
               <thead>
                 <tr>
                   {["Vehicle", "Target Days", "Rented Days", "Utilization", "Status"].map((h, i) => (
@@ -530,7 +532,7 @@ const Dashboard = ({
       {/* ── QUICK ACTIONS ─────────────────────────────────────────────────── */}
       <Card style={{ padding: 18 }}>
         <div style={{ fontSize: 15.5, fontWeight: 700, color: D.ink, marginBottom: 14 }}>Quick Actions</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
           {quickActions.map((a) => (
             <button key={a.label} onClick={a.onClick} style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
