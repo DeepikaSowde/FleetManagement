@@ -28,7 +28,7 @@ export const StatusTag = ({ status }) => {
 };
 
 export const PlateBadge = ({ plate, small }) => (
-  <span style={{ fontFamily: mono.fontFamily, fontSize: small ? 11 : 12, fontWeight: 700, background: C.navyMid, color: "#fff", padding: small ? "2px 6px" : "4px 8px", borderRadius: 6 }}>
+  <span style={{ display: "inline-block", whiteSpace: "nowrap", fontFamily: mono.fontFamily, fontSize: small ? 11 : 12, fontWeight: 700, background: C.navyMid, color: "#fff", padding: small ? "2px 6px" : "4px 8px", borderRadius: 6 }}>
     {plate}
   </span>
 );
