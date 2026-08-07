@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { computeBookingInvoice } from "./useFleetData";
 
 // ---------- formatting helpers ----------
 const fmtDate = (v) => {
@@ -164,17 +165,20 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   y += 8;
 
   // ---- Rental Fees ----
-  const days = booking.start && booking.end
-    ? Math.max(1, Math.round((new Date(booking.end) - new Date(booking.start)) / 86400000))
-    : 0;
-  const rentalCharge = (Number(booking.rate) || 0) * days;
-  const vatAmount = rentalCharge * ((Number(booking.vatRate) || 0) / 100);
-  const additionalDriverCharge = Number(booking.additionalDriverCharge) || 0;
-  const deliveryCharge = Number(booking.deliveryCharge) || 0;
-  const collectionCharge = Number(booking.collectionCharge) || 0;
-  const otherCharges = Number(booking.otherCharges) || 0;
-  const total = rentalCharge + vatAmount + additionalDriverCharge + deliveryCharge + collectionCharge + otherCharges;
-  const deductible = Number(booking.deductible) || 0;
+  // Use the SAME invoice math as the Booking Overview (Pricing & Payment) so the
+  // VAT amount and Total on this agreement always match what the app shows —
+  // computeBookingInvoice is the single source of truth. VAT applies to the full
+  // signed base (rental + delivery + collection + additional-driver + other +
+  // taxable booking-time charges), not just the rental charge.
+  const inv = computeBookingInvoice(booking);
+  const rentalCharge = inv.rateCharge;
+  const vatAmount = inv.agreementVatAmount;
+  const additionalDriverCharge = inv.additionalDriverCharge;
+  const deliveryCharge = inv.deliveryCharge;
+  const collectionCharge = inv.collectionCharge;
+  const otherCharges = inv.otherCharges;
+  const total = inv.agreementTotal;
+  const deductible = inv.deposit;
 
   y = sectionHeading(doc, margin, y, "Rental Fees", { underline: true });
   y = bodyText(doc, margin, y, "The Renter agrees to pay the rental charges and any applicable fees as outlined below:");
@@ -187,6 +191,10 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
     [`Delivery Charge (Location: ${booking.pickup || "-"})`, deliveryCharge ? fmtMoney(deliveryCharge) : "Free"],
     [`Collection Charge (Location: ${booking.drop || "-"})`, collectionCharge ? fmtMoney(collectionCharge) : "Free"],
     ["Others", otherCharges ? fmtMoney(otherCharges) : "—"],
+    // Itemized booking-time charges (added in the wizard's Pricing & Charges
+    // step) are part of the signed total and are already inside inv.agreementTotal,
+    // so list each one here too — that keeps the fee table footing to Total.
+    ...(inv.bookingCharges || []).map((c) => [c.label || "Charge", fmtMoney(Number(c.amount) || 0)]),
   ];
 
   const feeRowH = 8;
