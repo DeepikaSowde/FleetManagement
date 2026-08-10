@@ -441,22 +441,6 @@ export default function Login() {
                 {busy ? "Please wait…" : "Sign In"}
               </button>
             </form>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0 16px" }}>
-              <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
-              <span style={{ fontSize: 12, color: C.textMuted }}>or</span>
-              <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-              </svg>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: C.textPri }}>Enterprise Secure</div>
-                <div style={{ fontSize: 12, color: C.textMuted }}>256-bit Encryption</div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
