@@ -296,8 +296,7 @@ export default function Login() {
           style={{
             flex: "1 1 55%",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            overflowY: "auto",
             padding: "3%",
             boxSizing: "border-box",
             background: "#fff",
@@ -309,23 +308,22 @@ export default function Login() {
             style={{
               width: 440,
               maxWidth: "100%",
-              maxHeight: "94vh",
-              overflowY: "auto",
+              margin: "auto",
               boxSizing: "border-box",
               background: "#ffffff",
               borderRadius: 24,
               border: "1px solid rgba(15, 23, 42, 0.06)",
               boxShadow:
                 "0 1px 2px rgba(15,23,42,0.04), 0 24px 48px -12px rgba(15,23,42,0.12), 0 8px 24px -8px rgba(15,23,42,0.08)",
-              padding: "44px 44px",
+              padding: "36px 40px",
             }}
           >
             {/* Logo placeholder — replace src with your logo file */}
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
               <img
                 src="/logo.png"
                 alt="FleetOPZ logo"
-                style={{ width: 56, height: 56, objectFit: "contain" }}
+                style={{ width: 52, height: 52, objectFit: "contain" }}
               />
             </div>
 
@@ -341,7 +339,7 @@ export default function Login() {
             >
               Welcome Back
             </h1>
-            <p style={{ fontSize: 13.5, color: C.textMuted, margin: "0 0 30px", textAlign: "center" }}>
+            <p style={{ fontSize: 13.5, color: C.textMuted, margin: "0 0 22px", textAlign: "center" }}>
               Sign in to access your account
             </p>
 
@@ -444,7 +442,7 @@ export default function Login() {
               </button>
             </form>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "26px 0 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0 16px" }}>
               <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
               <span style={{ fontSize: 12, color: C.textMuted }}>or</span>
               <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
