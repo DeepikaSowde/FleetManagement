@@ -381,6 +381,10 @@ export const useFleetData = () => {
   const [restrictedLicenses, setRestrictedLicenses] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [employees, setEmployees] = useState([]);
+  // User Management module data (admin users, role permission grid, audit log).
+  const [users, setUsers] = useState([]);
+  const [rolePermissions, setRolePermissions] = useState(null); // null → module uses its built-in default until loaded
+  const [auditLogs, setAuditLogs] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -409,6 +413,21 @@ export const useFleetData = () => {
       console.error("FleetOpz: failed to load data from server", err);
     } finally {
       setLoaded(true);
+    }
+
+    // User Management data is fetched separately so a missing/older backend
+    // (endpoints not deployed yet) can never break the core app load above.
+    try {
+      const [u, rp, al] = await Promise.all([
+        api.get("/users"),
+        api.get("/role-permissions"),
+        api.get("/audit-logs"),
+      ]);
+      setUsers(u);
+      setRolePermissions(rp);
+      setAuditLogs(al);
+    } catch (err) {
+      console.warn("FleetOpz: User Management data unavailable:", err.message);
     }
   };
 
@@ -669,6 +688,36 @@ export const useFleetData = () => {
   const deleteCustomer = (id) => {
     setCustomers(prev => prev.filter(c => c.id !== id));
     api.del(`/customers/${id}`).catch(onWriteError);
+  };
+
+  // ── USER MANAGEMENT OPERATIONS ────────────────────────────────────────────
+  // The server assigns the id and returns the fully-shaped user (role/status/
+  // lastLogin), so create/update use the response rather than an optimistic
+  // guess. It also appends an audit-log entry — pull the fresh log after writes.
+  const refreshAuditLogs = () => api.get("/audit-logs").then(setAuditLogs).catch(() => {});
+
+  const addUser = (u) =>
+    api.post("/users", u)
+      .then(created => { setUsers(prev => [...prev, created]); refreshAuditLogs(); })
+      .catch(onWriteError);
+
+  const updateUser = (id, updates) =>
+    api.put(`/users/${id}`, updates)
+      .then(updated => { setUsers(prev => prev.map(x => x.id === id ? updated : x)); refreshAuditLogs(); })
+      .catch(onWriteError);
+
+  const deleteUser = (id) => {
+    setUsers(prev => prev.filter(u => u.id !== id)); // optimistic
+    api.del(`/users/${id}`).then(refreshAuditLogs).catch(onWriteError);
+  };
+
+  // Optimistically flip the permission cell (snappy checkbox), then persist.
+  const toggleRolePermission = (role, module, action) => {
+    setRolePermissions(prev => ({
+      ...prev,
+      [role]: { ...prev?.[role], [module]: { ...prev?.[role]?.[module], [action]: !prev?.[role]?.[module]?.[action] } },
+    }));
+    api.put("/role-permissions/toggle", { role, module, action }).then(refreshAuditLogs).catch(onWriteError);
   };
 
   // ── CALCULATIONS ──────────────────────────────────────────────────────────
@@ -950,6 +999,15 @@ export const useFleetData = () => {
     saveCustomer,
     updateCustomer,
     deleteCustomer,
+
+    // User Management (users, role permissions, audit logs)
+    users,
+    addUser,
+    updateUser,
+    deleteUser,
+    rolePermissions,
+    toggleRolePermission,
+    auditLogs,
 
     // Calculations
     calculateMetrics,

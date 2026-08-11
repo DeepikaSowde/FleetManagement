@@ -143,6 +143,9 @@ const UserManagement = ({
   // role's permissions here immediately applies to every user with that role.
   rolePermissions = DEFAULT_ROLE_PERMISSIONS,
   onToggleRolePermission = () => {},
+  // Real audit trail from the backend; falls back to the built-in sample when
+  // rendered standalone without the prop wired in.
+  auditLogs = DEFAULT_AUDIT_LOGS,
 }) => {
   const [tab, setTab] = useState("users");
   const [selectedRole, setSelectedRole] = useState("Admin");
@@ -215,11 +218,11 @@ const UserManagement = ({
   );
 
   // ── Audit Logs: filter dropdown options, derived from the log data itself ──
-  const logUserOptions = ["All Users", ...Array.from(new Set(DEFAULT_AUDIT_LOGS.map(l => l.user)))];
-  const logModuleOptions = ["All Modules", ...Array.from(new Set(DEFAULT_AUDIT_LOGS.map(l => l.module)))];
-  const logActionOptions = ["All Actions", ...Array.from(new Set(DEFAULT_AUDIT_LOGS.map(l => l.action)))];
+  const logUserOptions = ["All Users", ...Array.from(new Set(auditLogs.map(l => l.user)))];
+  const logModuleOptions = ["All Modules", ...Array.from(new Set(auditLogs.map(l => l.module)))];
+  const logActionOptions = ["All Actions", ...Array.from(new Set(auditLogs.map(l => l.action)))];
 
-  const filteredLogs = DEFAULT_AUDIT_LOGS.filter(log => {
+  const filteredLogs = auditLogs.filter(log => {
     if (logUserFilter !== "All Users" && log.user !== logUserFilter) return false;
     if (logModuleFilter !== "All Modules" && log.module !== logModuleFilter) return false;
     if (logActionFilter !== "All Actions" && log.action !== logActionFilter) return false;
@@ -280,7 +283,7 @@ const UserManagement = ({
         <StatCard
           icon="📄" iconBg="#EEF2FF" iconColor="#4F46E5"
           title="Audit Logs" subtitle="View system activity logs"
-          value={DEFAULT_AUDIT_LOGS.length} valueLabel="Recent Activity Entries"
+          value={auditLogs.length} valueLabel="Recent Activity Entries"
           linkText="View all logs" onLinkClick={() => setTab("logs")}
         />
       </div>

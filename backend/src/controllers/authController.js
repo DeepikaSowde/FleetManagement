@@ -3,6 +3,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/userModel");
+const audit = require("../models/auditLogModel");
 
 function signToken(user) {
   return jwt.sign(
@@ -42,6 +43,11 @@ async function login(req, res, next) {
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
+
+    // Stamp last login + record a login audit entry (both best-effort).
+    User.touchLastLogin(user.id).catch(() => {});
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+    audit.add({ userName: user.name, module: "Login", action: "Login", description: "User logged in", ip }).catch(() => {});
 
     const safeUser = { id: user.id, name: user.name, username: user.username, role: user.role };
     const token = signToken(safeUser);

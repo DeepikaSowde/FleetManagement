@@ -341,31 +341,6 @@ export default function FleetOpzApp() {
   const { user, logout } = useAuth();
   const currentUserRole = user?.role === "admin" ? "Admin" : "Staff";
 
-  // ── User Management module state (ported from the team repo) ──────────────
-  // Self-contained module (no backend yet): users, plus role-based permission
-  // grids. currentUserRole above (from real auth) gates Admin-only actions.
-  const [users, setUsers] = useState([
-    { id: 1, name: "Administrator", email: "admin@fleetopz.com", role: "Admin", status: "Active", lastLogin: "15/08/2026 10:30 AM", isYou: true },
-    { id: 2, name: "Ramesh Kumar", email: "ramesh@fleetopz.com", role: "Staff", status: "Active", lastLogin: "15/08/2026 09:15 AM" },
-    { id: 3, name: "Sunitha", email: "sunitha@fleetopz.com", role: "Staff", status: "Inactive", lastLogin: "12/08/2026 04:45 PM" },
-    { id: 4, name: "Manoj", email: "manoj@fleetopz.com", role: "Staff", status: "Active", lastLogin: "15/08/2026 08:20 AM" },
-  ]);
-  const addUser = (u) => setUsers(prev => [...prev, { id: Date.now(), status: "Active", lastLogin: "—", ...u }]);
-  const updateUser = (id, updates) => setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
-  const deleteUser = (id) => setUsers(prev => prev.filter(u => u.id !== id));
-
-  // Role-based permissions — one shared grid per role (not per user).
-  const [rolePermissions, setRolePermissions] = useState({
-    Admin: { Dashboard: { view: true, create: true, edit: true, delete: true }, Fleet: { view: true, create: true, edit: true, delete: true }, Bookings: { view: true, create: true, edit: true, delete: true }, Earnings: { view: true, create: true, edit: true, delete: true }, Expenses: { view: true, create: true, edit: true, delete: true }, "P&L": { view: true, create: true, edit: true, delete: true }, Alerts: { view: true, create: true, edit: true, delete: true } },
-    Staff: { Dashboard: { view: true, create: false, edit: false, delete: false }, Fleet: { view: true, create: false, edit: false, delete: false }, Bookings: { view: true, create: true, edit: true, delete: false }, Earnings: { view: false, create: false, edit: false, delete: false }, Expenses: { view: true, create: true, edit: false, delete: false }, "P&L": { view: false, create: false, edit: false, delete: false }, Alerts: { view: true, create: false, edit: false, delete: false } },
-  });
-  const toggleRolePermission = (role, module, action) => {
-    setRolePermissions(prev => ({
-      ...prev,
-      [role]: { ...prev[role], [module]: { ...prev[role]?.[module], [action]: !prev[role]?.[module]?.[action] } },
-    }));
-  };
-
   // Initialize fleet data management hook
   const fleetData = useFleetData();
 
@@ -847,13 +822,14 @@ export default function FleetOpzApp() {
     ),
     usermgmt: (
       <UserManagement
-        users={users}
-        onAddUser={addUser}
-        onUpdateUser={updateUser}
-        onDeleteUser={deleteUser}
+        users={fleetData.users}
+        onAddUser={fleetData.addUser}
+        onUpdateUser={fleetData.updateUser}
+        onDeleteUser={fleetData.deleteUser}
         currentUserRole={currentUserRole}
-        rolePermissions={rolePermissions}
-        onToggleRolePermission={toggleRolePermission}
+        rolePermissions={fleetData.rolePermissions || undefined}
+        onToggleRolePermission={fleetData.toggleRolePermission}
+        auditLogs={fleetData.auditLogs}
       />
     ),
   };

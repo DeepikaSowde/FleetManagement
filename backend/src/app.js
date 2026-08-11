@@ -12,6 +12,9 @@ const expenseRoutes = require("./routes/expenseRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const employeeRoutes = require("./routes/employeeRoutes");
 const restrictedLicenseRoutes = require("./routes/restrictedLicenseRoutes");
+const userRoutes = require("./routes/userRoutes");
+const rolePermissionRoutes = require("./routes/rolePermissionRoutes");
+const auditLogRoutes = require("./routes/auditLogRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
 const app = express();
@@ -30,6 +33,9 @@ app.use("/api/expenses", expenseRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/restricted-licenses", restrictedLicenseRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/role-permissions", rolePermissionRoutes);
+app.use("/api/audit-logs", auditLogRoutes);
 
 // ── Fallbacks (must be last) ────────────────────────────────────────────────
 app.use(notFound);

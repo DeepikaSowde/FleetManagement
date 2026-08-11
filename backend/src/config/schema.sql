@@ -160,6 +160,58 @@ CREATE TABLE IF NOT EXISTS restricted_licenses (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ── USER MANAGEMENT: extra user fields, role permissions, audit logs ────────
+-- Managed users are the SAME rows used for login (the users table above), just
+-- with a few extra profile fields. Idempotent so existing DBs pick them up.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email      VARCHAR(160);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status     VARCHAR(20) DEFAULT 'Active';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
+
+-- Role-based permission grid — one shared row per (role, module). Editing a
+-- role here applies to every user with that role. Roles/modules are stored in
+-- the UI's canonical form ("Admin"/"Staff"; "Dashboard","Fleet",...).
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role       VARCHAR(20)  NOT NULL,
+  module     VARCHAR(40)  NOT NULL,
+  can_view   BOOLEAN NOT NULL DEFAULT false,
+  can_create BOOLEAN NOT NULL DEFAULT false,
+  can_edit   BOOLEAN NOT NULL DEFAULT false,
+  can_delete BOOLEAN NOT NULL DEFAULT false,
+  PRIMARY KEY (role, module)
+);
+
+-- Seed the default grid (Admin = full, Staff = daily-ops subset). Safe to
+-- re-run; existing edits are preserved by ON CONFLICT DO NOTHING.
+INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_delete) VALUES
+  ('Admin','Dashboard',true,true,true,true),
+  ('Admin','Fleet',    true,true,true,true),
+  ('Admin','Bookings', true,true,true,true),
+  ('Admin','Earnings', true,true,true,true),
+  ('Admin','Expenses', true,true,true,true),
+  ('Admin','P&L',      true,true,true,true),
+  ('Admin','Alerts',   true,true,true,true),
+  ('Staff','Dashboard',true,false,false,false),
+  ('Staff','Fleet',    true,false,false,false),
+  ('Staff','Bookings', true,true,true,false),
+  ('Staff','Earnings', false,false,false,false),
+  ('Staff','Expenses', true,true,false,false),
+  ('Staff','P&L',      false,false,false,false),
+  ('Staff','Alerts',   true,false,false,false)
+ON CONFLICT (role, module) DO NOTHING;
+
+-- Audit trail — one row per recorded action (user CRUD, permission changes,
+-- logins). Newest-first when listed.
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id          SERIAL PRIMARY KEY,
+  user_name   VARCHAR(160),
+  module      VARCHAR(60),
+  action      VARCHAR(40),
+  description TEXT,
+  ip          VARCHAR(60),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at DESC);
+
 -- ── SEED: sample fleet ──────────────────────────────────────────────────────
 -- The original frontend shipped with these 8 demo cars (bookings/earnings/
 -- expenses started empty). Seeded here so a fresh install isn't blank. Status
