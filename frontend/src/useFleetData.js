@@ -224,6 +224,13 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
   // return time shown to the user matches what was entered (no UTC shift).
   const timeOf = (v) => (typeof v === "string" && v.includes("T") ? v.slice(11, 16) : "");
 
+  // Real "today" — used to tell a genuinely-overdue booking (its end date has
+  // already passed and no return was recorded, so the car is still out) apart
+  // from a booking that simply hasn't reached its scheduled end yet. Both make
+  // computeBookingStatus report "Ending Today" for days past the end date, but
+  // only the overdue one should keep future days blocked.
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   const timeline = [];
   for (let i = 0; i < days; i++) {
     const dateStr = new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10);
@@ -241,15 +248,19 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
         if (st === "Active") {
           occupied = true;
         } else if (st === "Ending Today") {
-          // Only the booking's REAL end date is a same-day turnover — the car
-          // comes back at b.end time and is free for the rest of that day. A
-          // LATER day still reading "Ending Today" means the rental is overdue
-          // and hasn't actually been returned, so the car is genuinely still
-          // out — keep that day blocked rather than falsely showing it free.
+          // The booking's REAL end date is a same-day turnover — the car comes
+          // back at b.end time and is free for the rest of that day.
           if (dateStr === toDateStr(b.end)) {
             const t = timeOf(b.end);
             if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
-          } else {
+          } else if (toDateStr(b.end) < todayStr) {
+            // A LATER day still reading "Ending Today" only means the car is
+            // still out when the booking is genuinely overdue — its end date
+            // has already passed in real time and no return was recorded. For a
+            // booking that still ends today or in the future, every day AFTER
+            // its scheduled end is free (the car returns on schedule), so we
+            // must not block those — that's what was hiding post-return
+            // availability for an active, not-yet-returned rental.
             occupied = true;
           }
         }
