@@ -207,7 +207,7 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
       {/* Action row (page title/subtitle live in the top bar) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: C.textMuted }}>Dashboard <span style={{ margin: "0 6px" }}>›</span> <span style={{ color: C.teal, fontWeight: 600 }}>Customers</span></div>
-        <Btn primary onClick={openAdd}>＋ Add New Customer</Btn>
+        <Btn primary id="customers-add" onClick={openAdd}>＋ Add New Customer</Btn>
       </div>
 
       {/* KPI strip */}
@@ -252,6 +252,7 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
                 <input
+                  id="customers-search"
                   style={{ ...controlStyle, width: "100%", paddingRight: 30 }}
                   placeholder="Search by name, IC number, phone, email…"
                   value={search}
@@ -266,7 +267,7 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
               >
                 ⚲ Filters{repeatOnly ? " •" : ""}
               </button>
-              <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); resetPage(); }} style={{ ...controlStyle, cursor: "pointer" }}>
+              <select id="customers-filter-status" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); resetPage(); }} style={{ ...controlStyle, cursor: "pointer" }}>
                 <option value="all">Status: All</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
@@ -427,6 +428,7 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
 
       {/* Add / Edit modal */}
       <Modal
+        testId="customer-modal"
         open={mode === "add" || mode === "edit"}
         title={mode === "edit" ? "Edit Customer" : "Add New Customer"}
         onClose={close}
@@ -434,19 +436,19 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
         submitText={mode === "edit" ? "Save Changes" : "Add Customer"}
       >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="IC / ID Number *" value={form.ic} onChange={(e) => setForm({ ...form, ic: e.target.value })} placeholder="e.g. S8901234A" />
-          <Input label="Customer Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Ravi Kumar" />
-          <Input label="Phone Number" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="e.g. 9123 4567" />
-          <Input label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="e.g. ravi.kumar@email.com" />
-          <Input label="Date of Birth" type="date" value={form.dob || ""} onChange={(e) => setForm({ ...form, dob: e.target.value })} />
-          <Input label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} placeholder="e.g. Singaporean" />
-          <Select label="Customer Type" value={form.customerType} onChange={(e) => setForm({ ...form, customerType: e.target.value })} options={CUSTOMER_TYPES} />
-          <Input label="Age" type="number" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="e.g. 32" />
-          <Input label="Driving License Number" value={form.license} onChange={(e) => setForm({ ...form, license: e.target.value })} placeholder="e.g. S1234567A" />
-          <Input label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
-          <Input label="Driving Experience (years)" type="number" value={form.drivingExperience} onChange={(e) => setForm({ ...form, drivingExperience: e.target.value })} placeholder="e.g. 5" />
+          <Input id="customer-ic" label="IC / ID Number *" value={form.ic} onChange={(e) => setForm({ ...form, ic: e.target.value })} placeholder="e.g. S8901234A" />
+          <Input id="customer-name" label="Customer Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Ravi Kumar" />
+          <Input id="customer-contact" label="Phone Number" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="e.g. 9123 4567" />
+          <Input id="customer-email" label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="e.g. ravi.kumar@email.com" />
+          <Input id="customer-dob" label="Date of Birth" type="date" value={form.dob || ""} onChange={(e) => setForm({ ...form, dob: e.target.value })} />
+          <Input id="customer-nationality" label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} placeholder="e.g. Singaporean" />
+          <Select id="customer-type" label="Customer Type" value={form.customerType} onChange={(e) => setForm({ ...form, customerType: e.target.value })} options={CUSTOMER_TYPES} />
+          <Input id="customer-age" label="Age" type="number" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="e.g. 32" />
+          <Input id="customer-license" label="Driving License Number" value={form.license} onChange={(e) => setForm({ ...form, license: e.target.value })} placeholder="e.g. S1234567A" />
+          <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
+          <Input id="customer-driving-experience" label="Driving Experience (years)" type="number" value={form.drivingExperience} onChange={(e) => setForm({ ...form, drivingExperience: e.target.value })} placeholder="e.g. 5" />
         </div>
-        <Input label="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="e.g. 12, Jalan Bukit Merah, #04-15, Singapore 150012" />
+        <Input id="customer-address" label="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="e.g. 12, Jalan Bukit Merah, #04-15, Singapore 150012" />
         {error && <div style={{ background: C.redFaint, color: C.red, fontSize: 12, padding: "9px 12px", borderRadius: 8 }}>{error}</div>}
       </Modal>
 

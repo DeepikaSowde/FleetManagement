@@ -1151,7 +1151,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
     <div>
       {/* New Booking button (page title is shown by the app top bar) */}
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
-        <Btn primary onClick={onNewBooking}>＋ New Booking</Btn>
+        <Btn primary id="booking-new" onClick={onNewBooking}>＋ New Booking</Btn>
       </div>
 
       {/* Status filter pills — click a status to show only that status, click All to reset.
@@ -1161,7 +1161,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
           const isActive = filter === label;
           const dotColor = label === "All" ? C.navy : getBookingStatusPillColor(label);
           return (
-            <button key={label} onClick={() => setFilter(label)} style={{
+            <button key={label} data-testid="booking-filter" data-filter={label} onClick={() => setFilter(label)} style={{
               display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 999,
               border: `1.5px solid ${isActive ? dotColor : C.border}`,
               background: isActive ? `${dotColor}14` : C.surface,
@@ -1194,7 +1194,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
             {filtered.map(b => {
               const { days, agreementTotal: total } = computeBookingInvoice(b);
               return (
-                <tr key={b.id}
+                <tr key={b.id} data-testid="booking-row" data-booking-id={b.id}
                   onClick={() => setTimelinePlate(b.plate)}
                   onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
@@ -1221,15 +1221,15 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                     </div>
                   </td>
                   <td style={{ padding: "11px 12px", display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
+                    <button data-testid="booking-row-view" onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
                       style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
                       View
                     </button>
-                    <button onClick={() => onEditBooking?.(b)}
+                    <button data-testid="booking-row-edit" onClick={() => onEditBooking?.(b)}
                       style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
                       Edit
                     </button>
-                    <button onClick={() => handleDelete(b.id)}
+                    <button data-testid="booking-row-delete" onClick={() => handleDelete(b.id)}
                       style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.red, cursor: "pointer", fontWeight: 600 }}>
                       Delete
                     </button>

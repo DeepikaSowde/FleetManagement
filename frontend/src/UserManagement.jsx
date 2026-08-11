@@ -71,8 +71,9 @@ const ActionBadge = ({ action }) => {
   return <Badge color={style.color} bg={style.bg}>{action}</Badge>;
 };
 
-const TabButton = ({ label, icon, active, onClick }) => (
+const TabButton = ({ label, icon, active, onClick, id }) => (
   <div
+    id={id}
     onClick={onClick}
     style={{
       display: "flex", alignItems: "center", gap: 8, padding: "11px 16px", fontSize: 13, fontWeight: 600,
@@ -290,16 +291,16 @@ const UserManagement = ({
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
-        <TabButton label="Users" icon="👥" active={tab === "users"} onClick={() => setTab("users")} />
-        <TabButton label="Role & Permission" icon="🛡️" active={tab === "permissions"} onClick={() => setTab("permissions")} />
-        <TabButton label="Audit Logs" icon="📄" active={tab === "logs"} onClick={() => setTab("logs")} />
+        <TabButton id="usermgmt-tab-users" label="Users" icon="👥" active={tab === "users"} onClick={() => setTab("users")} />
+        <TabButton id="usermgmt-tab-permissions" label="Role & Permission" icon="🛡️" active={tab === "permissions"} onClick={() => setTab("permissions")} />
+        <TabButton id="usermgmt-tab-logs" label="Audit Logs" icon="📄" active={tab === "logs"} onClick={() => setTab("logs")} />
       </div>
 
       {/* USERS TAB */}
       {tab === "users" && (
         <Card style={{ marginBottom: 20 }}>
           <CardHeader title="Users" subtitle="View and manage system users"
-            right={<Btn primary onClick={openAddUser}>＋ Add New User</Btn>} />
+            right={<Btn primary id="user-add" onClick={openAddUser}>＋ Add New User</Btn>} />
           <div style={{ padding: "4px 18px 4px" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -556,17 +557,18 @@ const UserManagement = ({
       {/* ADD / EDIT USER MODAL — permissions aren't set here anymore; the
           user just gets a role, and that role's permissions (edited in the
           Role & Permission tab) apply automatically. */}
-      <Modal open={showUserModal} title={editingId ? "Edit User" : "Add New User"} onClose={closeUserModal} onSubmit={submitUserModal} submitText={editingId ? "Save Changes" : "Add User"}>
-        <Input label="Full Name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g., Nur Aisyah" />
-        <Input label="Email" type="email" value={draft.email} onChange={e => setDraft(d => ({ ...d, email: e.target.value }))} placeholder="e.g., aisyah@fleetopz.com" />
+      <Modal testId="user-modal" open={showUserModal} title={editingId ? "Edit User" : "Add New User"} onClose={closeUserModal} onSubmit={submitUserModal} submitText={editingId ? "Save Changes" : "Add User"}>
+        <Input id="user-name" label="Full Name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g., Nur Aisyah" />
+        <Input id="user-email" label="Email" type="email" value={draft.email} onChange={e => setDraft(d => ({ ...d, email: e.target.value }))} placeholder="e.g., aisyah@fleetopz.com" />
         <Input
+          id="user-password"
           label={editingId ? "Password" : "Password *"}
           type="password"
           value={draft.password}
           onChange={e => setDraft(d => ({ ...d, password: e.target.value }))}
           placeholder={editingId ? "Leave blank to keep current password" : "Set a password"}
         />
-        <Select label="Role" value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}
+        <Select id="user-role" label="Role" value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}
           options={ROLE_META.map(r => ({ value: r.id, label: r.name }))} />
         <div style={{ marginTop: 6, marginBottom: 4 }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 8, color: C.textPri }}>Permissions</label>

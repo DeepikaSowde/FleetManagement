@@ -343,7 +343,7 @@ export default function Login() {
               Sign in to access your account
             </p>
 
-            <form onSubmit={handleSubmit}>
+            <form id="login-form" onSubmit={handleSubmit}>
               <label style={{ display: "block", marginBottom: 18 }}>
                 <span style={labelStyle}>Username</span>
                 <div className="fo-input-wrap" style={inputWrapStyle}>
@@ -352,6 +352,8 @@ export default function Login() {
                     <circle cx="12" cy="7" r="4" />
                   </svg>
                   <input
+                    id="login-username"
+                    name="username"
                     style={inputStyle}
                     type="text"
                     value={username}
@@ -372,6 +374,8 @@ export default function Login() {
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
                   <input
+                    id="login-password"
+                    name="password"
                     style={inputStyle}
                     type={showPassword ? "text" : "password"}
                     value={password}
@@ -379,7 +383,7 @@ export default function Login() {
                     placeholder="Enter your password"
                     required
                   />
-                  <span onClick={() => setShowPassword((s) => !s)} style={{ cursor: "pointer", display: "flex" }}>
+                  <span id="login-toggle-password" onClick={() => setShowPassword((s) => !s)} style={{ cursor: "pointer", display: "flex" }}>
                     {showPassword ? (
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
@@ -397,16 +401,17 @@ export default function Login() {
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "10px 0 24px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: C.textSec, cursor: "pointer" }}>
-                  <input type="checkbox" style={{ margin: 0, width: 15, height: 15, accentColor: "#16a34a" }} />
+                  <input id="login-remember" name="remember" type="checkbox" style={{ margin: 0, width: 15, height: 15, accentColor: "#16a34a" }} />
                   Remember Me
                 </label>
-                <a href="#" className="fo-link" style={{ fontSize: 13.5, color: "#16a34a", fontWeight: 600, textDecoration: "none" }}>
+                <a id="login-forgot-password" href="#" className="fo-link" style={{ fontSize: 13.5, color: "#16a34a", fontWeight: 600, textDecoration: "none" }}>
                   Forgot Password?
                 </a>
               </div>
 
               {error && (
                 <div
+                  id="login-error"
                   style={{
                     background: C.redFaint,
                     color: C.red,
@@ -421,6 +426,7 @@ export default function Login() {
               )}
 
               <button
+                id="login-submit"
                 type="submit"
                 disabled={busy}
                 className="fo-signin-btn"

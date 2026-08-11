@@ -46,7 +46,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
           <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Expense Management</div>
           <div style={{ fontSize: 11, color: C.textMuted }}>Log running costs, maintenance, and repairs per car</div>
         </div>
-        <Btn primary onClick={() => setShowForm(!showForm)}>＋ Log Expense</Btn>
+        <Btn primary id="expenses-log" onClick={() => setShowForm(!showForm)}>＋ Log Expense</Btn>
       </div>
 
       {showForm && (
@@ -56,18 +56,18 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Car (Plate)</div>
-                <select value={newExpense.plate} onChange={e => setNewExpense({ ...newExpense, plate: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none" }}>
+                <select id="expense-plate" value={newExpense.plate} onChange={e => setNewExpense({ ...newExpense, plate: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none" }}>
                   <option value="">-- Select --</option>
                   {fleet.map(c => <option key={c.plate} value={c.plate}>{c.plate}</option>)}
                 </select>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Date</div>
-                <input type="date" value={newExpense.date} onChange={e => setNewExpense({ ...newExpense, date: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, outline: "none" }} />
+                <input id="expense-date" type="date" value={newExpense.date} onChange={e => setNewExpense({ ...newExpense, date: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, outline: "none" }} />
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Category</div>
-                <select value={newExpense.category} onChange={e => setNewExpense({ ...newExpense, category: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none" }}>
+                <select id="expense-category" value={newExpense.category} onChange={e => setNewExpense({ ...newExpense, category: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none" }}>
                   <option value="">-- Select --</option>
                   {/* Categories derived from RDK Trading's real ledger (RDK_Car Rental_Database.xlsx) */}
                   <option value="Vehicle Purchase">Vehicle Purchase</option>
@@ -91,16 +91,16 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Description</div>
-                <input type="text" placeholder="e.g. 60,000 km oil change and filter" value={newExpense.desc} onChange={e => setNewExpense({ ...newExpense, desc: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, outline: "none" }} />
+                <input id="expense-desc" type="text" placeholder="e.g. 60,000 km oil change and filter" value={newExpense.desc} onChange={e => setNewExpense({ ...newExpense, desc: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, outline: "none" }} />
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 }}>Amount (SGD)</div>
-                <input type="number" placeholder="0.00" value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "'Courier New',monospace", fontSize: 12, outline: "none" }} />
+                <input id="expense-amount" type="number" placeholder="0.00" value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "'Courier New',monospace", fontSize: 12, outline: "none" }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn primary small onClick={handleAddExpense}>Save Expense</Btn>
-              <Btn small onClick={() => setShowForm(false)}>Cancel</Btn>
+              <Btn primary small id="expense-save" onClick={handleAddExpense}>Save Expense</Btn>
+              <Btn small id="expense-cancel" onClick={() => setShowForm(false)}>Cancel</Btn>
             </div>
           </div>
         </Card>

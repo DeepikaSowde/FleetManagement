@@ -45,7 +45,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
           <div style={{ fontSize: 11, color: C.textMuted }}>Auto-fed from completed bookings · Locked records are non-editable</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn small>⬇ Export</Btn>
+          <Btn small id="earnings-export">⬇ Export</Btn>
         </div>
       </div>
 

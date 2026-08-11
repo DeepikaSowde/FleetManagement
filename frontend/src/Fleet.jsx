@@ -722,7 +722,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
       {/* Add New Car button (page title is shown by the app top bar) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: C.textMuted }}>Click a row to view details</div>
-        <Btn primary onClick={() => setWizardOpen(true)}>+ Add New Car</Btn>
+        <Btn primary id="fleet-add-car" onClick={() => setWizardOpen(true)}>+ Add New Car</Btn>
       </div>
 
       {/* Status filter pills — click a status to show only that status, click All to reset */}
@@ -766,6 +766,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                 Search Vehicles
               </label>
               <input
+                id="fleet-search"
                 type="text"
                 placeholder="Search by plate, make, model, year, colour, or status..."
                 value={searchTerm}
@@ -792,6 +793,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                 Filter by Plate
               </label>
               <select
+                id="fleet-filter-plate"
                 value={selectedPlate}
                 onChange={(e) => setSelectedPlate(e.target.value)}
                 style={{
@@ -822,6 +824,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                 Filter by  Status
               </label>
               <select
+                id="fleet-filter-status"
                 value={coeFilter}
                 onChange={(e) => setCoeFilter(e.target.value)}
                 style={{
@@ -857,7 +860,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                 {selectedPlate !== "All Plates" && <span> • Plate: {selectedPlate}</span>}
                 {coeFilter !== "All Registration" && <span> • Registration: {coeFilter}</span>}
               </div>
-              <Btn small onClick={() => { setSearchTerm(""); setSelectedPlate("All Plates"); setCoeFilter("All Registration"); }} style={{ flexShrink: 0 }}>
+              <Btn small id="fleet-clear-filters" onClick={() => { setSearchTerm(""); setSelectedPlate("All Plates"); setCoeFilter("All Registration"); }} style={{ flexShrink: 0 }}>
                 Clear All
               </Btn>
             </div>
@@ -907,7 +910,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
               const inv = totalInv(c);
               const d = daysUntil(c.coe);
               return (
-                <tr key={c.plate} onClick={() => { setEditOnOpen(false); setSelected(i); }}
+                <tr key={c.plate} data-testid="fleet-row" data-plate={c.plate} onClick={() => { setEditOnOpen(false); setSelected(i); }}
                   onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                   style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: "transparent", transition: "background 0.12s" }}>
@@ -931,11 +934,11 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                   <td style={{ padding: "11px 12px" }}><StatusTag status={toFleetPageStatus(c.status)} /></td>
                   <td style={{ padding: "11px 12px" }} onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: 10 }}>
-                      <span onClick={() => { setEditOnOpen(false); setSelected(i); }}
+                      <span data-testid="fleet-row-details" onClick={() => { setEditOnOpen(false); setSelected(i); }}
                         style={{ fontSize: 11, color: C.teal, fontWeight: 600, cursor: "pointer" }}>
                         Details →
                       </span>
-                      <span onClick={() => { setEditOnOpen(true); setSelected(i); }}
+                      <span data-testid="fleet-row-edit" onClick={() => { setEditOnOpen(true); setSelected(i); }}
                         style={{ fontSize: 11, color: C.navy, fontWeight: 600, cursor: "pointer" }}>
                         Edit
                       </span>
