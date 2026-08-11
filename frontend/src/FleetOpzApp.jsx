@@ -208,7 +208,10 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
       return;
     }
     setDayError("");
-    onSelect(iso);
+    // Pass the day's turnover time (if the car returns this day) so the caller
+    // can default the pickup time to it — picking up before the car is back
+    // would otherwise conflict with the returning rental.
+    onSelect(iso, availableFromByDate[iso] || null);
   };
 
   return (
@@ -1494,16 +1497,24 @@ export default function FleetOpzApp() {
                         car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
                         bookings={calendarBookings}
                         selectedDate={newBookingData.pickupDate}
-                        onSelect={(iso) => {
+                        onSelect={(iso, availableFrom) => {
                           setNewBookingData(prev => {
                             // If the existing return date is now before the new
                             // pickup date, clear it — it's no longer valid.
                             const returnDate = prev.returnDate && prev.returnDate < iso ? "" : prev.returnDate;
+                            // On a turnover pickup day the car only frees up at
+                            // availableFrom (e.g. 10:00) — default the pickup time
+                            // to that so the booking doesn't overlap the returning
+                            // rental. Leave a time the user already set that's at
+                            // or after the return time untouched.
+                            let pickupTime = prev.pickupTime;
+                            if (availableFrom && (!pickupTime || pickupTime < availableFrom)) pickupTime = availableFrom;
                             return {
                               ...prev,
                               pickupDate: iso,
                               returnDate,
-                              start: combineDateTime(iso, prev.pickupTime),
+                              pickupTime,
+                              start: combineDateTime(iso, pickupTime),
                               end: combineDateTime(returnDate, prev.returnTime),
                             };
                           });
