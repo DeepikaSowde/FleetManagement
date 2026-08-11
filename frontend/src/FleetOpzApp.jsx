@@ -11,6 +11,7 @@ import { generateRentalAgreementPdf } from "./rentalAgreement";
 
 import Dashboard from "./Dashboard";
 import Fleet from "./Fleet";
+import CarAvailability from "./CarAvailability";
 import Booking, { CHARGE_TYPES } from "./Booking";
 import Customers from "./Customers";
 import TodayOperations from "./TodayOperations";
@@ -567,6 +568,24 @@ export default function FleetOpzApp() {
     setShowNewBooking(true);
   };
 
+  // From Car Availability: open the New Booking wizard prefilled with the
+  // chosen car and (optionally) the searched pickup/return window.
+  const openBookingForCar = (plate, start, end) => {
+    setEditingBookingId(null);
+    setNewBookingData(prev => ({
+      ...prev,
+      plate: plate || "",
+      start: start || "",
+      end: end || "",
+      pickupDate: start ? start.slice(0, 10) : "",
+      pickupTime: start ? start.slice(11, 16) : "",
+      returnDate: end ? end.slice(0, 10) : "",
+      returnTime: end ? end.slice(11, 16) : "",
+    }));
+    setBookingStep(1);
+    setShowNewBooking(true);
+  };
+
   // Finds the given car's most recent returned booking (any booking with a
   // Mileage In on file, excluding the one currently being edited) and hands
   // back its Mileage In / Fuel In — used to auto-fill the next booking's
@@ -670,6 +689,7 @@ export default function FleetOpzApp() {
     // Operations
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "fleet", label: "Fleet", icon: "🚗" },
+    { id: "car-availability", label: "Car Availability", icon: "🚙" },
     { id: "bookings", label: "Bookings", icon: "📅" },
     { id: "customers", label: "Customers", icon: "👥" },
     { id: "today-ops", label: "Today's Operations", icon: "🗓️" },
@@ -715,6 +735,14 @@ export default function FleetOpzApp() {
         expenses={fleetData.expenses}
         onAddExpense={fleetData.addExpense}
         customers={fleetData.customers}
+      />
+    ),
+    "car-availability": (
+      <CarAvailability
+        fleet={fleetData.fleet}
+        bookings={fleetData.bookings}
+        checkBookingConflict={fleetData.checkBookingConflict}
+        onBookCar={openBookingForCar}
       />
     ),
     bookings: (
@@ -1175,7 +1203,7 @@ export default function FleetOpzApp() {
         {/* Nav */}
         <nav style={{ flex: 1, overflowY: "auto", paddingBottom: 10, marginTop: 6 }}>
           <div style={{ padding: "10px 20px 4px", fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Operations</div>
-          {NAV.slice(0, 5).map(n => (
+          {NAV.slice(0, 6).map(n => (
             <div key={n.id} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1184,7 +1212,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(5, 10).map(n => (
+          {NAV.slice(6, 11).map(n => (
             <div key={n.id} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1193,7 +1221,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
-          {NAV.slice(10).map(n => (
+          {NAV.slice(11).map(n => (
             <div key={n.id} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
