@@ -103,7 +103,7 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
         ))}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, boxShadow: `0 0 0 2px ${C.amber}33` }} />
-          <span style={{ fontSize: 10, color: C.textMuted }}>Returns midday (free after)</span>
+          <span style={{ fontSize: 10, color: C.textMuted }}>Available after return time</span>
         </div>
       </div>
     </div>

@@ -236,7 +236,7 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
         ))}
         <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
-          Returns midday
+          Available after return time
         </div>
       </div>
 
