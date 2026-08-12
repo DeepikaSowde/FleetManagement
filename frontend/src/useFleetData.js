@@ -646,16 +646,21 @@ export const useFleetData = () => {
   const nextSeqId = (prefix, list) =>
     `${prefix}-${String(list.reduce((mx, r) => Math.max(mx, parseInt(r.id.slice(prefix.length + 1)) || 0), 0) + 1).padStart(3, "0")}`;
 
+  // Build a transaction object (id + derived flow) without persisting it. Used
+  // both to post immediately (existing investor) and to defer the post until a
+  // brand-new investor row exists (see createInvestor).
+  const buildInvestorTx = (investorId, list, data) => ({
+    id: nextSeqId("ITX", list),
+    investorId,
+    type: data.type,
+    date: data.date,
+    flow: flowForType(data.type),
+    amount: parseFloat(data.amount) || 0,
+    description: data.description || "",
+  });
+
   const persistInvestorTx = (investorId, list, data) => {
-    const tx = {
-      id: nextSeqId("ITX", list),
-      investorId,
-      type: data.type,
-      date: data.date,
-      flow: flowForType(data.type),
-      amount: parseFloat(data.amount) || 0,
-      description: data.description || "",
-    };
+    const tx = buildInvestorTx(investorId, list, data);
     api.post("/investor-transactions", tx).catch(onWriteError);
     return tx;
   };
@@ -671,15 +676,27 @@ export const useFleetData = () => {
       investorCode: data.investorId || null,
     };
     setInvestors(prev => [...prev, investor]);
-    api.post("/investors", investor).catch(onWriteError);
 
+    // Build the first transactions locally (ids + optimistic state) but DON'T
+    // post them yet: investor_transactions has a foreign key to investors(id),
+    // so posting concurrently with the investor can lose the race and be
+    // rejected ("Related record not found"), which would trip onWriteError and
+    // wipe the just-added investor on the resync. Post them only after the
+    // investor row is confirmed to exist.
     let txList = investorTx;
     const newTxs = (data.transactions || []).map((t) => {
-      const tx = persistInvestorTx(investor.id, txList, t);
+      const tx = buildInvestorTx(investor.id, txList, t);
       txList = [...txList, tx];
       return tx;
     });
     if (newTxs.length) setInvestorTx(prev => [...prev, ...newTxs]);
+
+    api.post("/investors", investor)
+      .then(() => {
+        newTxs.forEach((tx) => api.post("/investor-transactions", tx).catch(onWriteError));
+      })
+      .catch(onWriteError);
+
     return investor;
   };
 
