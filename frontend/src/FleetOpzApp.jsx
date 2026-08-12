@@ -767,6 +767,11 @@ export default function FleetOpzApp() {
         onSaveCustomer={fleetData.saveCustomer}
         onUpdateCustomer={fleetData.updateCustomer}
         onDeleteCustomer={fleetData.deleteCustomer}
+        currentUserRole={currentUserRole}
+        restrictedLicenses={restrictedLicenses}
+        onAddRestrictedLicense={addRestrictedLicense}
+        onUpdateRestrictedLicense={updateRestrictedLicense}
+        onDeleteRestrictedLicense={deleteRestrictedLicense}
       />
     ),
     "today-ops": (
@@ -855,10 +860,6 @@ export default function FleetOpzApp() {
       <Settings
         onAddUser={() => setShowNewUser(true)}
         currentUserRole={currentUserRole}
-        restrictedLicenses={restrictedLicenses}
-        onAddRestrictedLicense={addRestrictedLicense}
-        onUpdateRestrictedLicense={updateRestrictedLicense}
-        onDeleteRestrictedLicense={deleteRestrictedLicense}
       />
     ),
     usermgmt: (

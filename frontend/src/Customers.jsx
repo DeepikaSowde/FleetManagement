@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { C, mono, fmt, daysUntil } from "./theme";
 import { Card, Badge, Btn, Modal, Input, Select } from "./components";
 import { computeBookingInvoice } from "./useFleetData";
+import RestrictedLicenses from "./RestrictedLicenses";
 
 // Customer Management — master customer directory with live, booking-derived
 // stats (pending amount, pending bookings, last booking/payment) joined in from
@@ -43,7 +44,11 @@ const avatarColor = (s) => {
 const initials = (name) =>
   (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("") || "?";
 
-const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCustomer, onDeleteCustomer }) => {
+const Customers = ({
+  customers = [], bookings = [], onSaveCustomer, onUpdateCustomer, onDeleteCustomer,
+  currentUserRole = "Staff",
+  restrictedLicenses = [], onAddRestrictedLicense, onUpdateRestrictedLicense, onDeleteRestrictedLicense,
+}) => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // all | active | inactive | pending
   const [repeatOnly, setRepeatOnly] = useState(false);
@@ -425,6 +430,20 @@ const Customers = ({ customers = [], bookings = [], onSaveCustomer, onUpdateCust
           )}
         </Card>
       </div>
+
+      {/* Restricted Driving Licenses — admin only (moved here from Settings).
+          Staff never see this panel mounted; booking creation still reads the
+          blocklist regardless of role via a separate, open path. */}
+      {currentUserRole === "Admin" && (
+        <div style={{ marginTop: 16 }}>
+          <RestrictedLicenses
+            licenses={restrictedLicenses}
+            onAdd={onAddRestrictedLicense}
+            onUpdate={onUpdateRestrictedLicense}
+            onDelete={onDeleteRestrictedLicense}
+          />
+        </div>
+      )}
 
       {/* Add / Edit modal */}
       <Modal
