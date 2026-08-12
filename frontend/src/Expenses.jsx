@@ -239,8 +239,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
         </Card>
       </div>
 
-      {/* Records + top cars */}
-      <div style={{ display: "grid", gridTemplateColumns: "2.4fr 1fr", gap: 16 }}>
+      {/* Records + top cars — stacked full-width, one after the other */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
         <Card>
           <CardHeader
             title="Expense Records"
