@@ -1,6 +1,21 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import {
+  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
+} from "recharts";
 import { C, mono, fmt, totalInv } from "./theme";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, KpiCard, MiniBar, PLRow } from "./components";
+
+const PL_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
+const shortMonth = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString("en-US", { month: "short" });
+const plYTick = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
+
+const EmptyViz = ({ icon, text }) => (
+  <div style={{ height: "100%", minHeight: 160, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: C.textMuted }}>
+    <div style={{ fontSize: 32, opacity: 0.5 }}>{icon}</div>
+    <div style={{ fontSize: 12 }}>{text}</div>
+  </div>
+);
 
 const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics }) => {
   const [view, setView] = useState("fleet");
@@ -31,6 +46,29 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
     expenses: expenses.reduce((s, e) => s + (e.amount || 0), 0),
     get profit() { return this.income - this.expenses; },
   };
+
+  // ── Pictorial data ────────────────────────────────────────────────────────
+  // Month-by-month income / expenses / net profit across 2026 for the trend chart.
+  const monthlySeries = useMemo(() => PL_MONTHS.map((m) => {
+    const mm = calculateMonthlyMetrics(m);
+    return { label: shortMonth(m), income: mm.monthlyEarnings || 0, expenses: mm.monthlyExpenses || 0, profit: mm.monthlyProfit || 0 };
+  }), [earnings, expenses, bookings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Net P&L per car for the selected month (profit vs loss), biggest first.
+  const perCarNet = useMemo(() => fleet.map((c) => {
+    const inc = earnings.filter((e) => e.plate === c.plate && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0);
+    const exp = expenses.filter((e) => e.plate === c.plate && e.date?.startsWith(month)).reduce((s, e) => s + (e.amount || 0), 0);
+    return { plate: c.plate, net: inc - exp };
+  }).filter((x) => x.net !== 0).sort((a, b) => b.net - a.net), [fleet, earnings, expenses, month]);
+
+  // Target vs actual running days per car (only cars with a target), for the
+  // utilization chart.
+  const utilData = useMemo(() => fleet.filter((c) => c.runningDaysTarget).map((c) => {
+    const actual = bookings
+      .filter((b) => b.plate === c.plate && b.start?.startsWith(month))
+      .reduce((sum, b) => sum + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0);
+    return { plate: c.plate, target: c.runningDaysTarget || 0, actual };
+  }), [fleet, bookings, month]);
 
   const MonthSelect = (
     <select value={month} onChange={e => setMonth(e.target.value)}
@@ -103,6 +141,55 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
             />
           </div>
 
+          {/* ── Pictorial representation ──────────────────────────────────── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 16, marginBottom: 16 }}>
+            <Card style={{ overflow: "hidden" }}>
+              <div style={{ padding: "16px 18px 8px", background: `linear-gradient(120deg, ${C.tealFaint} 0%, ${C.greenFaint} 55%, transparent 100%)`, borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 17 }}>📊</span> Income vs Expenses &amp; Net Profit
+                </div>
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Monthly trend across 2026</div>
+              </div>
+              <div style={{ padding: "12px 10px 10px", height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={monthlySeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} />
+                    <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={plYTick} />
+                    <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={9} />
+                    <ReferenceLine y={0} stroke={C.border} />
+                    <Bar name="Income" dataKey="income" fill={C.teal} radius={[3, 3, 0, 0]} barSize={12} />
+                    <Bar name="Expenses" dataKey="expenses" fill={C.red} radius={[3, 3, 0, 0]} barSize={12} />
+                    <Line name="Net Profit" type="monotone" dataKey="profit" stroke={C.navy} strokeWidth={2.5} dot={{ r: 3, fill: C.navy }} activeDot={{ r: 5 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+
+            <Card>
+              <CardHeader title={`Net P&L by Car — ${monthLabel}`} subtitle="Profit (green) vs loss (red)" />
+              <div style={{ padding: "12px 10px 10px", height: 300 }}>
+                {perCarNet.length === 0 ? (
+                  <EmptyViz icon="📈" text={`No car P&L for ${monthLabel}.`} />
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={perCarNet} margin={{ top: 8, right: 10, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                      <XAxis dataKey="plate" interval={0} tick={{ fontSize: 9, fill: C.textSec }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} angle={-25} textAnchor="end" height={56} />
+                      <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={plYTick} />
+                      <Tooltip formatter={(v) => fmt(Math.round(v))} cursor={{ fill: C.bg }} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                      <ReferenceLine y={0} stroke={C.borderStrong || C.border} />
+                      <Bar dataKey="net" radius={[4, 4, 0, 0]} barSize={26}>
+                        {perCarNet.map((d, i) => <Cell key={i} fill={d.net >= 0 ? C.green : C.red} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Card>
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <Card>
               <CardHeader title={`Fleet P&L — ${monthLabel}`} />
@@ -140,7 +227,27 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
           </div>
         </div>
       ) : view === "utilization" ? (
-        <div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <Card>
+            <CardHeader title={`Target vs Actual Running Days — ${monthLabel}`} subtitle="Per car (cars with a running-days target)" />
+            <div style={{ padding: "12px 12px 10px", height: 300 }}>
+              {utilData.length === 0 ? (
+                <EmptyViz icon="🎯" text="No cars have a running-days target set." />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={utilData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                    <XAxis dataKey="plate" interval={0} tick={{ fontSize: 9, fill: C.textSec }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} angle={-25} textAnchor="end" height={56} />
+                    <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={36} tickFormatter={(v) => `${v}d`} />
+                    <Tooltip formatter={(v) => `${v} days`} cursor={{ fill: C.bg }} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={9} />
+                    <Bar name="Target" dataKey="target" fill={C.border} radius={[3, 3, 0, 0]} barSize={14} />
+                    <Bar name="Actual" dataKey="actual" fill={C.teal} radius={[3, 3, 0, 0]} barSize={14} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </Card>
           <Card>
             <CardHeader title={`Car Utilization — ${monthLabel}`} subtitle="Target vs actual running days per car" />
             <div style={{ padding: 16 }}>
@@ -199,8 +306,49 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
             const recovery = inv > 0 ? Math.round((totalCarEarnings / inv) * 100) : 0;
             const monthBookings = bookings.filter(b => b.plate === selectedCar && b.start?.startsWith(month));
 
+            // Selected car's month-by-month income & net across 2026.
+            const carMonthly = PL_MONTHS.map((m) => {
+              const inc = earnings.filter(e => e.plate === selectedCar && e.start?.startsWith(m)).reduce((s, e) => s + (e.total || 0), 0);
+              const exp = expenses.filter(e => e.plate === selectedCar && e.date?.startsWith(m)).reduce((s, e) => s + (e.amount || 0), 0);
+              return { label: shortMonth(m), income: inc, net: inc - exp };
+            });
+            const hasCarData = carMonthly.some((d) => d.income !== 0 || d.net !== 0);
+
             return (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <Card style={{ overflow: "hidden" }}>
+                  <div style={{ padding: "16px 18px 8px", background: `linear-gradient(120deg, ${C.tealFaint} 0%, ${C.greenFaint} 55%, transparent 100%)`, borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 17 }}>🚗</span> Monthly Performance — {car.make} {car.model}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{selectedCar} · income &amp; net across 2026</div>
+                  </div>
+                  <div style={{ padding: "12px 10px 10px", height: 260 }}>
+                    {!hasCarData ? (
+                      <EmptyViz icon="🚗" text="No income or expenses recorded for this car yet." />
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={carMonthly} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="carIncFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={C.teal} stopOpacity={0.5} />
+                              <stop offset="100%" stopColor={C.teal} stopOpacity={0.04} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} />
+                          <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={plYTick} />
+                          <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={9} />
+                          <ReferenceLine y={0} stroke={C.border} />
+                          <Bar name="Income" dataKey="income" fill="url(#carIncFill)" stroke={C.teal} strokeWidth={1.5} radius={[3, 3, 0, 0]} barSize={14} />
+                          <Line name="Net P&L" type="monotone" dataKey="net" stroke={C.green} strokeWidth={2.5} dot={{ r: 3, fill: C.green }} activeDot={{ r: 5 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </Card>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 <Card>
                   <CardHeader title={`P&L — ${car.make} ${car.model}`} subtitle={selectedCar}
                     right={<StatusTag status={car.status} />} />
@@ -242,6 +390,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
                     )}
                   </div>
                 </Card>
+                </div>
               </div>
             );
           })()}
