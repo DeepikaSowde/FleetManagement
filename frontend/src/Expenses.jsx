@@ -307,11 +307,12 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
               <EmptyViz icon="🚗" text="No car costs yet." />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topCars} layout="vertical" margin={{ top: 4, right: 18, left: 4, bottom: 4 }}>
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="plate" width={82} tick={{ fontSize: 10.5, fill: C.textSec }} tickLine={false} axisLine={false} />
+                <BarChart data={topCars} margin={{ top: 10, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                  <XAxis dataKey="plate" interval={0} tick={{ fontSize: 9, fill: C.textSec }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} angle={-25} textAnchor="end" height={56} />
+                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={40} tickFormatter={yTick} />
                   <Tooltip formatter={(v) => fmt(Math.round(v))} cursor={{ fill: C.bg }} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
-                  <Bar dataKey="total" radius={[0, 6, 6, 0]} barSize={16} fill={C.red} />
+                  <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={28} fill={C.red} />
                 </BarChart>
               </ResponsiveContainer>
             )}
