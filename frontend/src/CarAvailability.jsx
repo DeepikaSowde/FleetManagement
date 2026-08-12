@@ -1,42 +1,51 @@
 import { useState, useMemo, useEffect } from "react";
 
 // ============================================================================
-// Car Availability — customer-facing search + availability page. Green/olive
-// accent kept LOCAL to this page (palette G below); the rest of the app stays
-// navy/teal. Two flows:
-//   1) Location + Date/Time -> Available Brands -> Cars under a brand
-//   2) Search by Car (type-ahead) -> matching cars, live availability if the
-//      person already picked dates above
-// Availability is computed from the REAL bookings loaded from the backend
-// (same data useFleetData exposes), using the same half-open overlap rule as
-// useFleetData.rangesOverlap so this always agrees with checkBookingConflict.
+// Car Availability — stepped search UI (redesigned):
+//   1) Select Dates  → pick pickup + return date, Search Availability
+//   2) Available Car Brands → brand cards with per-brand available counts
+//   3) <Brand> – Available Cars → cards showing each car's CONTINUOUS
+//      availability window from the pickup date (Available From / Until / how
+//      many days), with Select Car + View Details (monthly calendar).
 //
-// Brand is derived from `model` (Fleet has no brand field yet). Location is a
-// single fixed field (only one location in the data today).
+// Availability is computed from the REAL bookings loaded from the backend (the
+// same data useFleetData exposes), using the same half-open overlap rule as
+// useFleetData.rangesOverlap so this always agrees with checkBookingConflict.
+// Brand is derived from `model` (Fleet has no brand field). Green accent is kept
+// LOCAL to this page; the rest of the app stays navy/teal.
 // ============================================================================
 
 const G = {
-  primary: "#4B6B3A",
-  primaryDark: "#3A5429",
-  primarySoft: "#E8F0E1",
-  primarySofter: "#F3F7EF",
-  ink: "#212B1C",
-  text: "#5B6456",
-  textMuted: "#8C9587",
-  border: "#E3E8DE",
-  surface: "#FFFFFF",
-  page: "#F5F7F2",
-  danger: "#B91C1C",
-  dangerSoft: "#FBE7E7",
+  primary: "#14513a",       // deep forest green — buttons, step badges
+  primaryHover: "#0f3f2d",
+  primaryDark: "#0e3b2a",
+  accent: "#1a7a4d",        // green accents / big numbers / links
+  primarySoft: "#e7f2ec",   // light green tint — days box, selected card
+  primarySofter: "#f1f7f3",
+  ink: "#18271f",
+  text: "#586b60",
+  textMuted: "#8a988f",
+  border: "#e4e9e4",
+  borderStrong: "#d1dad2",
+  surface: "#ffffff",
+  page: "#f4f7f4",
+  info: "#eef4ff",
+  infoText: "#3559a6",
+  infoBorder: "#d6e2f7",
+  danger: "#b91c1c",
+  dangerSoft: "#fbe7e7",
 };
 
-const BRAND_TINTS = ["#4B6B3A", "#3B6E8C", "#8C5A3B", "#6B4B8C", "#8C3B5E", "#3B8C6E"];
+const AVAIL = { bg: "#e3f4e8", text: "#1b7a3f", dot: "#2fa15a" };
+
+const BRAND_TINTS = ["#14513a", "#3B6E8C", "#8C5A3B", "#6B4B8C", "#8C3B5E", "#3B8C6E"];
 const brandTint = (name) => BRAND_TINTS[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % BRAND_TINTS.length];
 
 const KNOWN_BRANDS = [
   "Maruti Suzuki", "Tata", "Mahindra", "Hyundai", "Honda", "Toyota",
   "Kia", "Renault", "Nissan", "Volkswagen", "Skoda", "Ford", "MG",
   "BMW", "Mercedes-Benz", "Audi", "Jeep", "Isuzu", "Chevrolet", "Datsun",
+  "Mazda",
 ];
 const BRAND_MATCHERS = [...KNOWN_BRANDS].sort((a, b) => b.length - a.length);
 
@@ -47,15 +56,24 @@ export function deriveBrand(model) {
   return match || model.trim().split(/\s+/)[0];
 }
 
-const combineDateTime = (date, time) => (date ? `${date}T${time || "00:00"}` : "");
+const brandInitial = (b) => b.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+
+// ── Date helpers (dates handled as plain ISO strings, same as the backend) ──
 const pad2 = (n) => String(n).padStart(2, "0");
 const toISO = (y, m, d) => `${y}-${pad2(m + 1)}-${pad2(d)}`;
 const todayISO = () => { const n = new Date(); return toISO(n.getFullYear(), n.getMonth(), n.getDate()); };
-const nextDayISO = (iso) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + 1); return toISO(d.getFullYear(), d.getMonth(), d.getDate()); };
-const brandInitial = (b) => b.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+const addDaysISO = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return toISO(d.getFullYear(), d.getMonth(), d.getDate()); };
+const nextDayISO = (iso) => addDaysISO(iso, 1);
+const combineDateTime = (date, time) => (date ? `${date}T${time || "00:00"}` : "");
+const fmtNice = (iso) => { if (!iso) return "—"; const d = new Date(`${iso}T00:00:00`); if (isNaN(d)) return "—"; return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
-const minutesToHHMM = (min) => `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
-const hhmmToMinutes = (hhmm) => { if (!hhmm) return 720; const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+// Default pickup/return clock times used to build the booking range (the UI
+// only asks for dates, matching the mockup).
+const PICKUP_TIME = "10:00";
+const RETURN_TIME = "10:00";
+
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const hhmmToMinutes = (hhmm) => { if (!hhmm) return 600; const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 const minutesTo12h = (min) => {
   const h24 = Math.floor(min / 60), m = min % 60;
   const ampm = h24 >= 12 ? "PM" : "AM";
@@ -63,149 +81,7 @@ const minutesTo12h = (min) => {
   return `${pad2(h12)}:${pad2(m)} ${ampm}`;
 };
 
-const formatDuration = (startISO, endISO) => {
-  if (!startISO || !endISO) return "—";
-  const ms = new Date(endISO) - new Date(startISO);
-  if (isNaN(ms) || ms <= 0) return "—";
-  const totalHrs = Math.round(ms / (1000 * 60 * 60));
-  const days = Math.floor(totalHrs / 24), hrs = totalHrs % 24;
-  return `${days ? `${days}d ` : ""}${hrs}h`;
-};
-
-const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-// ---------------------------------------------------------------------------
-// Month calendar grid used inside the pickup/return popups
-// ---------------------------------------------------------------------------
-function MonthCalendar({ monthCursor, onPrev, onNext, selectedDate, onSelect, minDateISO }) {
-  const year = monthCursor.getFullYear(), month = monthCursor.getMonth();
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthLabel = monthCursor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const now = new Date();
-  const canGoPrev = !(year === now.getFullYear() && month <= now.getMonth());
-
-  const cells = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <button onClick={onPrev} disabled={!canGoPrev} style={{ background: "none", border: "none", cursor: canGoPrev ? "pointer" : "default", opacity: canGoPrev ? 1 : 0.3, fontSize: 18, color: G.ink, padding: 4 }}>‹</button>
-        <div style={{ fontSize: 13, fontWeight: 700, color: G.ink }}>{monthLabel}</div>
-        <button onClick={onNext} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: G.ink, padding: 4 }}>›</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 4 }}>
-        {WEEKDAYS.map(w => <div key={w} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 600, color: G.textMuted, padding: "4px 0" }}>{w}</div>)}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
-        {cells.map((d, i) => {
-          if (d === null) return <div key={i} />;
-          const iso = toISO(year, month, d);
-          const disabled = minDateISO ? iso < minDateISO : false;
-          const isSelected = iso === selectedDate;
-          return (
-            <button key={i} disabled={disabled} onClick={() => onSelect(iso)}
-              style={{
-                aspectRatio: "1", border: "none", borderRadius: "50%", cursor: disabled ? "default" : "pointer",
-                fontSize: 12.5, fontWeight: isSelected ? 700 : 500,
-                background: isSelected ? G.primary : "transparent",
-                color: disabled ? "#C7CCC3" : isSelected ? "#fff" : G.ink,
-              }}>
-              {d}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Time slider (Start Time / End Time rows in the popup)
-// ---------------------------------------------------------------------------
-function TimeSlider({ label, minutes, onChange }) {
-  const pct = (minutes / 1439) * 100;
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 12, color: G.text }}>🕐 {label}</span>
-        <div style={{ border: `1px solid ${G.border}`, borderRadius: 8, padding: "3px 10px", fontSize: 12, fontWeight: 700, color: G.ink }}>
-          {minutesTo12h(minutes)}
-        </div>
-      </div>
-      <input
-        type="range" min={0} max={1439} step={15} value={minutes}
-        onChange={(e) => onChange(Number(e.target.value))}
-        aria-label={label}
-        className="ca-range"
-        style={{ width: "100%", height: 4, borderRadius: 2, background: `linear-gradient(to right, ${G.primary} ${pct}%, ${G.border} ${pct}%)` }}
-      />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Pickup/Return popup: calendar + time slider + Cancel/Done
-// ---------------------------------------------------------------------------
-function DateTimeModal({ title, sliderLabel, open, onClose, dateISO, timeHHMM, onDone, minDateISO }) {
-  const [monthCursor, setMonthCursor] = useState(new Date());
-  const [localDate, setLocalDate] = useState(dateISO);
-  const [minutes, setMinutes] = useState(hhmmToMinutes(timeHHMM));
-
-  useEffect(() => {
-    if (!open) return;
-    setLocalDate(dateISO);
-    setMinutes(hhmmToMinutes(timeHHMM));
-    setMonthCursor(dateISO ? new Date(`${dateISO}T00:00:00`) : new Date());
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!open) return null;
-
-  const shiftMonth = (delta) => setMonthCursor(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
-
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,25,17,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: G.surface, borderRadius: 16, padding: 22, width: 340, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 700, color: G.ink }}>{title}</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: G.textMuted, lineHeight: 1 }}>×</button>
-        </div>
-        <MonthCalendar
-          monthCursor={monthCursor}
-          onPrev={() => shiftMonth(-1)}
-          onNext={() => shiftMonth(1)}
-          selectedDate={localDate}
-          onSelect={setLocalDate}
-          minDateISO={minDateISO}
-        />
-        <div style={{ marginTop: 16 }}>
-          <TimeSlider label={sliderLabel} minutes={minutes} onChange={setMinutes} />
-        </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: "10px 0", borderRadius: 9, border: `1px solid ${G.border}`, background: "#fff", color: G.ink, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
-          <button
-            onClick={() => onDone(localDate, minutesToHHMM(minutes))}
-            disabled={!localDate}
-            style={{ flex: 1, padding: "10px 0", borderRadius: 9, border: "none", background: localDate ? G.primary : "#B7C4AC", color: "#fff", fontSize: 13, fontWeight: 700, cursor: localDate ? "pointer" : "default" }}>
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Monthly availability status for a single day. With the real `bookings`
-// array (each with plate/start/end/cancelled), this is exact: "booked" if a
-// non-cancelled booking covers the whole day, "partial" if one overlaps only
-// part (pickup/return turnover), otherwise "available". Uses the same
-// half-open overlap convention as useFleetData.rangesOverlap. Falls back to
-// probing checkBookingConflict for the morning/afternoon halves when no
-// bookings array is passed.
-// ---------------------------------------------------------------------------
+// ── Availability primitives (shared convention with useFleetData) ──────────
 const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
 
 function dayAvailabilityStatus(plate, dateISO, { bookings, checkBookingConflict } = {}) {
@@ -233,6 +109,20 @@ function dayAvailabilityStatus(plate, dateISO, { bookings, checkBookingConflict 
   return (morningConflict && afternoonConflict) ? "booked" : "partial";
 }
 
+// Longest continuous run of available days starting at `fromISO`. Stops at the
+// first fully-booked day; `until` is that first unavailable day (the checkout
+// boundary). days === 0 means the car is already booked on the pickup date.
+function continuousAvailability(plate, fromISO, ctx, maxDays = 90) {
+  let days = 0;
+  let cur = fromISO;
+  while (days < maxDays) {
+    if (dayAvailabilityStatus(plate, cur, ctx) === "booked") break;
+    days++;
+    cur = nextDayISO(cur);
+  }
+  return { days, from: fromISO, until: cur };
+}
+
 const AVAILABILITY_COLORS = {
   available: { bg: "#DCEFD1", text: "#2F6B2F", dot: "#4B9B3F" },
   partial: { bg: "#FBE7C6", text: "#8A5A00", dot: "#E4A83B" },
@@ -240,9 +130,38 @@ const AVAILABILITY_COLORS = {
 };
 
 // ---------------------------------------------------------------------------
-// Monthly Availability modal: a full month calendar color-coded per day
-// (Available / Partially Available / Booked), month navigation, the selected
-// search period, an availability readout, and a Continue to Book CTA.
+// Small side-view car thumbnail, tinted to the car's paint colour.
+// ---------------------------------------------------------------------------
+const COLOR_HEX = {
+  Silver: "#C3C8CC", White: "#E9ECEA", Blue: "#4472C4", Black: "#353B40",
+  Red: "#D64045", Grey: "#8A8F94", Gray: "#8A8F94", Green: "#4B6B3A",
+  Yellow: "#E4B33B", Orange: "#DD7A34", Brown: "#8C6B4B",
+};
+function CarThumb({ color }) {
+  const paint = COLOR_HEX[color] || "#6C7A70";
+  return (
+    <svg viewBox="0 0 132 84" style={{ width: "100%", height: "100%", display: "block" }} aria-hidden="true">
+      <ellipse cx="66" cy="70" rx="52" ry="7" fill="#00000012" />
+      {/* body */}
+      <path d="M12 58 Q10 44 24 41 L40 40 Q50 28 66 27 Q86 27 96 40 L112 44 Q122 46 122 58 L120 64 Q118 66 112 66 L20 66 Q14 66 12 60 Z"
+        fill={paint} stroke="#00000022" strokeWidth="1.2" />
+      {/* cabin highlight */}
+      <path d="M44 40 Q52 30 66 29 Q82 29 92 41 Z" fill="#ffffff" opacity="0.22" />
+      {/* windows */}
+      <path d="M50 39 Q56 33 65 33 L65 39 Z" fill="#2b3a42" opacity="0.55" />
+      <path d="M69 33 Q80 34 86 39 L69 39 Z" fill="#2b3a42" opacity="0.55" />
+      {/* wheels */}
+      <circle cx="38" cy="65" r="12" fill="#23282b" />
+      <circle cx="38" cy="65" r="5.2" fill="#c7cdd0" />
+      <circle cx="96" cy="65" r="12" fill="#23282b" />
+      <circle cx="96" cy="65" r="5.2" fill="#c7cdd0" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Monthly Availability modal (opened by "View Details") — a colour-coded month
+// calendar, the selected search period, and a Continue to Book CTA.
 // ---------------------------------------------------------------------------
 function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConflict, onClose, onContinue, onSelectDate }) {
   const [monthCursor, setMonthCursor] = useState(new Date());
@@ -258,7 +177,6 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
   if (!open || !car) return null;
 
   const shiftMonth = (delta) => setMonthCursor(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
-
   const year = monthCursor.getFullYear(), month = monthCursor.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -271,7 +189,6 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
   const periodAvailable = range ? !checkBookingConflict?.(car.plate, range.start, range.end) : null;
-
   const fmtPeriod = (iso) => {
     if (!iso) return "—";
     const [datePart, timePart] = iso.split("T");
@@ -288,7 +205,6 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
         </div>
         <div style={{ fontSize: 12.5, color: G.text, marginBottom: 16 }}>{car.model} · {car.plate}</div>
 
-        {/* legend */}
         <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
           {[["available", "Available"], ["partial", "Partially Available"], ["booked", "Booked / Unavailable"]].map(([key, label]) => (
             <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: G.text, fontWeight: 600 }}>
@@ -299,7 +215,6 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 18 }}>
-          {/* calendar */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <button onClick={() => shiftMonth(-1)} disabled={!canGoPrev} style={{ background: "none", border: "none", cursor: canGoPrev ? "pointer" : "default", opacity: canGoPrev ? 1 : 0.3, fontSize: 18, color: G.ink, padding: 4 }}>‹</button>
@@ -319,24 +234,13 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
                 const isSelected = iso === selectedISO;
                 const selectable = !isPast && status !== "booked";
                 return (
-                  <button
-                    key={i}
-                    type="button"
-                    title={status}
-                    disabled={!selectable}
-                    onClick={() => {
-                      if (!selectable) return;
-                      setSelectedISO(iso);
-                      onSelectDate && onSelectDate(iso);
-                    }}
+                  <button key={i} type="button" title={status} disabled={!selectable}
+                    onClick={() => { if (!selectable) return; setSelectedISO(iso); onSelectDate && onSelectDate(iso); }}
                     style={{
                       aspectRatio: "1", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12, fontWeight: isSelected ? 700 : 600,
-                      background: colors.bg, color: colors.text,
-                      border: isSelected ? `2px solid ${colors.text}` : "none",
-                      cursor: selectable ? "pointer" : "default",
-                      opacity: isPast ? 0.5 : 1,
-                      padding: 0,
+                      fontSize: 12, fontWeight: isSelected ? 700 : 600, background: colors.bg, color: colors.text,
+                      border: isSelected ? `2px solid ${colors.text}` : "none", cursor: selectable ? "pointer" : "default",
+                      opacity: isPast ? 0.5 : 1, padding: 0,
                     }}>
                     {d}
                   </button>
@@ -345,7 +249,6 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
             </div>
           </div>
 
-          {/* selected period + status */}
           <div>
             <div style={{ fontSize: 11.5, fontWeight: 700, color: G.ink, marginBottom: 6 }}>Selected Period</div>
             {range ? (
@@ -381,195 +284,123 @@ function MonthlyAvailabilityModal({ open, car, range, bookings, checkBookingConf
 }
 
 // ---------------------------------------------------------------------------
-// Hero illustration — original SVG (dusk skyline + a black front-view car with
-// a "FleetOpz" plate). Built from plain shapes/gradients.
+// Shared bits
 // ---------------------------------------------------------------------------
-function HeroIllustration() {
+const sectionCard = { background: G.surface, border: `1px solid ${G.border}`, borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,32,24,0.04)" };
+
+function StepHead({ n, title, right }) {
   return (
-    <svg viewBox="0 0 620 430" style={{ width: "100%", height: "auto", maxWidth: 460 }}>
-      <defs>
-        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#9FB4C9" />
-          <stop offset="45%" stopColor="#D9C3AE" />
-          <stop offset="100%" stopColor="#F1DEC4" />
-        </linearGradient>
-        <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#FFE7BE" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#FFE7BE" stopOpacity="0" />
-        </radialGradient>
-        <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#4A4E52" />
-          <stop offset="55%" stopColor="#26282B" />
-          <stop offset="100%" stopColor="#111214" />
-        </linearGradient>
-        <linearGradient id="hoodGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#5C6166" />
-          <stop offset="100%" stopColor="#2B2E31" />
-        </linearGradient>
-        <linearGradient id="glassGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#7C8B92" />
-          <stop offset="100%" stopColor="#3A444A" />
-        </linearGradient>
-        <radialGradient id="chromeGrad" cx="35%" cy="30%" r="75%">
-          <stop offset="0%" stopColor="#E7EAEA" />
-          <stop offset="100%" stopColor="#7C8688" />
-        </radialGradient>
-        <linearGradient id="tireGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3A3F3F" />
-          <stop offset="100%" stopColor="#161919" />
-        </linearGradient>
-        <linearGradient id="towerGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#CBB79C" />
-          <stop offset="100%" stopColor="#AF9A7E" />
-        </linearGradient>
-      </defs>
-
-      <rect x="0" y="0" width="620" height="300" rx="18" fill="url(#skyGrad)" />
-      <circle cx="470" cy="70" r="70" fill="url(#sunGlow)" />
-
-      <g opacity="0.9">
-        <rect x="30" y="150" width="26" height="130" fill="url(#towerGrad)" />
-        <rect x="60" y="120" width="20" height="160" fill="url(#towerGrad)" opacity="0.9" />
-        <rect x="150" y="90" width="24" height="190" fill="url(#towerGrad)" />
-        <polygon points="162,60 174,90 150,90" fill="url(#towerGrad)" />
-        <rect x="190" y="140" width="16" height="140" fill="url(#towerGrad)" opacity="0.85" />
-        <rect x="330" y="70" width="18" height="210" fill="url(#towerGrad)" />
-        <polygon points="339,30 349,70 329,70" fill="url(#towerGrad)" />
-        <rect x="360" y="110" width="22" height="170" fill="url(#towerGrad)" opacity="0.9" />
-        <rect x="480" y="130" width="20" height="150" fill="url(#towerGrad)" opacity="0.85" />
-        <rect x="510" y="95" width="24" height="185" fill="url(#towerGrad)" />
-        <rect x="545" y="150" width="18" height="130" fill="url(#towerGrad)" opacity="0.8" />
-        {[0, 1, 2, 3, 4, 5].map(i => (
-          <rect key={i} x={335 + (i % 2) * 8} y={80 + i * 22} width="4" height="4" fill="#FFEFC8" opacity="0.7" />
-        ))}
-      </g>
-
-      <rect x="0" y="255" width="620" height="45" fill="#E8D3B8" opacity="0.35" />
-
-      <path d="M0 292 L620 292 L620 360 Q310 340 0 360 Z" fill="#C9BCA8" />
-      <path d="M0 292 L620 292 L620 306 Q310 300 0 306 Z" fill="#B7A98F" opacity="0.6" />
-      {[70, 190, 430, 550].map(x => (
-        <rect key={x} x={x} y="330" width="34" height="5" fill="#fff" opacity="0.5" transform={`skewX(-8)`} />
-      ))}
-
-      <g transform="translate(46,120)">
-        <rect x="-3" y="0" width="7" height="80" rx="3.5" fill="#7A5C3C" />
-        <path d="M0 0 Q-32 -14 -48 8 Q-22 2 0 12 Z" fill="#5C8A4A" />
-        <path d="M0 0 Q32 -16 50 4 Q24 0 0 12 Z" fill="#6B9C57" />
-        <path d="M0 0 Q-8 -28 12 -38 Q6 -14 0 8 Z" fill="#6B9C57" />
-        <path d="M0 0 Q6 -30 -14 -36 Q-6 -12 0 8 Z" fill="#5C8A4A" />
-      </g>
-
-      <ellipse cx="310" cy="330" rx="200" ry="16" fill="#00000022" />
-
-      <g transform="translate(90,110)">
-        <path d="M4 88 Q-14 84 -14 96 Q-14 106 4 104 Z" fill="url(#bodyGrad)" stroke="#000" strokeWidth="1" />
-        <path d="M366 88 Q384 84 384 96 Q384 106 366 104 Z" fill="url(#bodyGrad)" stroke="#000" strokeWidth="1" />
-
-        <path d="M60 8 Q100 -14 185 -16 Q270 -14 310 8 L296 30 L74 30 Z" fill="url(#hoodGrad)" stroke="#000" strokeWidth="1" />
-
-        <path d="M78 32 Q100 14 185 12 Q270 14 292 32 L278 58 L92 58 Z" fill="url(#glassGrad)" />
-        <line x1="185" y1="13" x2="185" y2="58" stroke="#111" strokeWidth="3" />
-        <path d="M96 34 L150 34 L140 50 L90 50 Z" fill="#fff" opacity="0.15" />
-
-        <path d="M14 220 Q4 140 40 96 Q58 62 92 58 L278 58 Q312 62 330 96 Q366 140 356 220 Z" fill="url(#bodyGrad)" stroke="#000" strokeWidth="1.5" />
-        <path d="M60 78 Q185 60 310 78 L300 110 Q185 96 70 110 Z" fill="url(#hoodGrad)" opacity="0.85" />
-        <path d="M50 118 Q185 104 320 118" fill="none" stroke="#000" strokeWidth="1.2" opacity="0.4" />
-        <path d="M46 150 Q185 138 324 150" fill="none" stroke="#000" strokeWidth="1.2" opacity="0.35" />
-
-        <g>
-          <path d="M32 108 Q26 96 46 90 Q78 86 92 98 Q94 116 76 122 Q46 126 32 108 Z" fill="url(#chromeGrad)" stroke="#000" strokeWidth="1" />
-          <path d="M40 104 Q54 98 74 100 Q80 108 70 114 Q50 118 40 104 Z" fill="#FFF6D8" />
-          <path d="M338 108 Q344 96 324 90 Q292 86 278 98 Q276 116 294 122 Q324 126 338 108 Z" fill="url(#chromeGrad)" stroke="#000" strokeWidth="1" />
-          <path d="M330 104 Q316 98 296 100 Q290 108 300 114 Q320 118 330 104 Z" fill="#FFF6D8" />
-        </g>
-
-        <rect x="140" y="104" width="90" height="42" rx="6" fill="#15171A" stroke="#000" strokeWidth="1.2" />
-        {Array.from({ length: 4 }).map((_, r) => (
-          Array.from({ length: 6 }).map((__, c) => (
-            <circle key={`${r}-${c}`} cx={148 + c * 13} cy={112 + r * 9} r="2.6" fill="url(#chromeGrad)" />
-          ))
-        ))}
-        <circle cx="185" cy="125" r="13" fill="#0E0F11" stroke="url(#chromeGrad)" strokeWidth="2.5" />
-        <path d="M178 125 L183 130 L193 118" fill="none" stroke="#E7EAEA" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-
-        <path d="M20 178 Q185 160 350 178 L346 214 Q185 198 24 214 Z" fill="#000" opacity="0.35" />
-        <circle cx="66" cy="192" r="9" fill="#0E0F11" stroke="#000" strokeWidth="1" /><circle cx="66" cy="192" r="4" fill="#FFE9A8" />
-        <circle cx="304" cy="192" r="9" fill="#0E0F11" stroke="#000" strokeWidth="1" /><circle cx="304" cy="192" r="4" fill="#FFE9A8" />
-
-        <rect x="140" y="200" width="90" height="26" rx="4" fill="#fff" stroke="#C7CCC3" strokeWidth="1" />
-        <circle cx="156" cy="213" r="8" fill="#4B6B3A" />
-        <path d="M152 213 Q156 207 161 210 M152 213 Q156 219 161 216" fill="none" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" />
-        <text x="196" y="217" textAnchor="middle" fontSize="12" fontWeight="800" fill="#3A5429" fontFamily="Arial, sans-serif">FLEETOPZ</text>
-
-        <g>
-          <ellipse cx="70" cy="230" rx="30" ry="10" fill="#00000033" />
-          <circle cx="70" cy="220" r="30" fill="url(#tireGrad)" />
-          <circle cx="70" cy="220" r="17" fill="url(#chromeGrad)" />
-          <circle cx="70" cy="220" r="6" fill="#3A3F3F" />
-          {[0, 60, 120, 180, 240, 300].map(a => (
-            <line key={a} x1="70" y1="220" x2={70 + 15 * Math.cos((a * Math.PI) / 180)} y2={220 + 15 * Math.sin((a * Math.PI) / 180)} stroke="#7C8688" strokeWidth="2.4" />
-          ))}
-        </g>
-        <g>
-          <ellipse cx="300" cy="230" rx="30" ry="10" fill="#00000033" />
-          <circle cx="300" cy="220" r="30" fill="url(#tireGrad)" />
-          <circle cx="300" cy="220" r="17" fill="url(#chromeGrad)" />
-          <circle cx="300" cy="220" r="6" fill="#3A3F3F" />
-          {[0, 60, 120, 180, 240, 300].map(a => (
-            <line key={a} x1="300" y1="220" x2={300 + 15 * Math.cos((a * Math.PI) / 180)} y2={220 + 15 * Math.sin((a * Math.PI) / 180)} stroke="#7C8688" strokeWidth="2.4" />
-          ))}
-        </g>
-
-        <rect x="4" y="70" width="16" height="8" rx="2" fill="#EED9A0" />
-      </g>
-    </svg>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+      <span style={{ width: 26, height: 26, borderRadius: "50%", background: G.primary, color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</span>
+      <div style={{ fontSize: 16, fontWeight: 700, color: G.ink, flex: 1 }}>{title}</div>
+      {right}
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Shared bits
-// ---------------------------------------------------------------------------
-const sectionCard = { background: G.surface, border: `1px solid ${G.border}`, borderRadius: 16, padding: 22 };
-const fieldBoxStyle = { border: `1px solid ${G.border}`, borderRadius: 10, padding: "9px 12px", background: "#fff", cursor: "pointer", minWidth: 0 };
-const fieldLabelStyle = { fontSize: 10, fontWeight: 600, color: G.textMuted, marginBottom: 3, display: "flex", alignItems: "center", gap: 5 };
-const fieldValueStyle = { fontSize: 12.5, fontWeight: 600, color: G.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-
-function GreenButton({ children, onClick, disabled, full, small }) {
+function GreenButton({ children, onClick, disabled, full, small, id, dataTestid, dataPlate }) {
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button onClick={onClick} disabled={disabled} id={id} data-testid={dataTestid} data-plate={dataPlate}
       style={{
-        padding: small ? "8px 14px" : "13px 0", width: full ? "100%" : undefined,
+        padding: small ? "8px 16px" : "11px 22px", width: full ? "100%" : undefined,
         borderRadius: 10, border: "none", cursor: disabled ? "default" : "pointer",
-        background: disabled ? "#B7C4AC" : G.primary, color: "#fff",
-        fontSize: small ? 12 : 13.5, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-      }}>
+        background: disabled ? "#aab8ae" : G.primary, color: "#fff",
+        fontSize: small ? 12.5 : 13.5, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
+        transition: "background 0.15s",
+      }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = G.primaryHover; }}
+      onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.background = G.primary; }}>
       {children}
     </button>
   );
 }
 
-function CarRow({ car, available, onBook, onCheckAvailability }) {
-  const brand = deriveBrand(car.model);
+const InfoPill = ({ children }) => (
+  <div style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, fontWeight: 600, color: G.infoText, background: G.info, border: `1px solid ${G.infoBorder}`, borderRadius: 20, padding: "6px 12px" }}>
+    <span>ⓘ</span>{children}
+  </div>
+);
+
+// ---------------------------------------------------------------------------
+// Brand card (Step 2)
+// ---------------------------------------------------------------------------
+function BrandCard({ brand, count, selected, onSelect }) {
+  const tint = brandTint(brand);
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", border: `1px solid ${G.border}`, borderRadius: 12, marginBottom: 8, background: "#fff", flexWrap: "wrap" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 10, background: brandTint(brand) + "22", color: brandTint(brand), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>🚗</div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: G.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{car.model || "—"}</div>
-          <div style={{ fontSize: 11.5, color: G.textMuted }}>{car.plate}{car.color ? ` · ${car.color}` : ""}</div>
+    <button
+      type="button"
+      data-testid="ca-brand"
+      data-brand={brand}
+      onClick={onSelect}
+      style={{
+        position: "relative", cursor: "pointer", textAlign: "center",
+        border: `1.5px solid ${selected ? G.primary : G.border}`,
+        background: selected ? G.primarySofter : "#fff",
+        borderRadius: 14, padding: "20px 12px 16px", minWidth: 0,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
+        boxShadow: selected ? "0 2px 10px rgba(20,81,58,0.12)" : "none", transition: "all 0.15s",
+      }}>
+      {selected && (
+        <span style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", background: G.primary, color: "#fff", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
+      )}
+      <div style={{ width: 54, height: 54, borderRadius: 12, background: tint + "16", color: tint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, letterSpacing: 0.5 }}>
+        {brandInitial(brand)}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: G.ink, lineHeight: 1.2 }}>{brand}</div>
+      <div style={{ fontSize: 11.5, color: G.accent, fontWeight: 600 }}>{count} Car{count === 1 ? "" : "s"} Available</div>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Available car card (Step 3)
+// ---------------------------------------------------------------------------
+function AvailableCarCard({ car, avail, onSelect, onViewDetails }) {
+  const meta = [car.fuelType, car.transmission, car.year].filter(Boolean);
+  return (
+    <div data-testid="ca-car" data-plate={car.plate}
+      style={{ display: "flex", alignItems: "center", gap: 18, padding: 16, border: `1px solid ${G.border}`, borderRadius: 14, background: "#fff", marginBottom: 12, flexWrap: "wrap" }}>
+      {/* thumbnail */}
+      <div style={{ width: 108, height: 74, borderRadius: 10, background: G.primarySofter, border: `1px solid ${G.border}`, flexShrink: 0, padding: 6, boxSizing: "border-box" }}>
+        <CarThumb color={car.color} />
+      </div>
+
+      {/* name + meta */}
+      <div style={{ minWidth: 150, flex: "1 1 180px" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: G.ink, marginBottom: 7 }}>{car.model || car.plate}</div>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: AVAIL.bg, color: AVAIL.text }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: AVAIL.dot }} /> Available
+        </span>
+        <div style={{ fontSize: 11.5, color: G.textMuted, marginTop: 9, display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+          {meta.map((m, i) => (
+            <span key={i} style={{ display: "inline-flex", gap: 7, alignItems: "center" }}>
+              {i > 0 && <span style={{ color: G.borderStrong }}>·</span>}{m}
+            </span>
+          ))}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        {available === true && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: G.primarySoft, color: G.primaryDark }}>Available</span>}
-        {available === false && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: G.dangerSoft, color: G.danger }}>Booked</span>}
-        {onCheckAvailability && (
-          <button onClick={() => onCheckAvailability(car)}
-            style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${G.primary}`, background: "#fff", color: G.primaryDark, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            📅 Monthly Availability
-          </button>
-        )}
-        <GreenButton small disabled={available === false} onClick={() => onBook(car.plate)}>Book Now</GreenButton>
+
+      {/* availability window */}
+      <div style={{ fontSize: 11.5, color: G.text, flex: "1 1 150px", minWidth: 130 }}>
+        <div style={{ color: G.textMuted, marginBottom: 2 }}>Available From</div>
+        <div style={{ fontWeight: 700, color: G.ink, marginBottom: 8 }}>📅 {fmtNice(avail.from)}</div>
+        <div style={{ color: G.textMuted, marginBottom: 2 }}>Available Until</div>
+        <div style={{ fontWeight: 700, color: G.ink }}>📅 {fmtNice(avail.until)}</div>
+      </div>
+
+      {/* days continuous */}
+      <div style={{ textAlign: "center", background: G.primarySoft, borderRadius: 12, padding: "12px 16px", minWidth: 96, flexShrink: 0 }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: G.primary, lineHeight: 1 }}>{avail.days}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: G.text, marginTop: 4, lineHeight: 1.3 }}>Days Available<br />(Continuous)</div>
+      </div>
+
+      {/* actions */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <GreenButton small dataTestid="ca-select-car" dataPlate={car.plate} onClick={() => onSelect(car.plate)}>Select Car</GreenButton>
+        <button data-testid="ca-view-details" onClick={() => onViewDetails(car)}
+          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, color: G.accent, display: "inline-flex", alignItems: "center", gap: 4 }}>
+          View Details ›
+        </button>
       </div>
     </div>
   );
@@ -579,231 +410,121 @@ function CarRow({ car, available, onBook, onCheckAvailability }) {
 // CarAvailability
 // ---------------------------------------------------------------------------
 export default function CarAvailability({ fleet = [], bookings, checkBookingConflict, onBookCar }) {
-  const [rentalMode, setRentalMode] = useState("daily"); // visual toggle only
-
   const [pickupDate, setPickupDate] = useState(todayISO());
-  const [pickupTime, setPickupTime] = useState("12:00");
-  const [returnDate, setReturnDate] = useState(todayISO());
-  const [returnTime, setReturnTime] = useState("15:00");
-  const [pickupModalOpen, setPickupModalOpen] = useState(false);
-  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [returnDate, setReturnDate] = useState(addDaysISO(todayISO(), 3));
+  const [error, setError] = useState("");
 
   const [searched, setSearched] = useState(false);
   const [range, setRange] = useState(null);
+  const [searchedPickup, setSearchedPickup] = useState(null); // pickup date the results were computed from
   const [selectedBrand, setSelectedBrand] = useState(null);
 
-  const [carQuery, setCarQuery] = useState("");
   const [availabilityCar, setAvailabilityCar] = useState(null);
   const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
 
-  const isCarAvailable = (plate, start, end) => {
-    if (!checkBookingConflict || !start || !end) return null;
-    return !checkBookingConflict(plate, start, end);
-  };
+  const ctx = { bookings, checkBookingConflict };
 
   const handleSearch = () => {
-    if (!pickupDate || !returnDate) { alert("Please select both a pick-up and return date."); return; }
-    const start = combineDateTime(pickupDate, pickupTime);
-    const end = combineDateTime(returnDate, returnTime);
-    if (new Date(end) <= new Date(start)) { alert("Return date & time must be after pick-up date & time."); return; }
-    setRange({ start, end });
-    setSelectedBrand(null);
+    if (!pickupDate || !returnDate) { setError("Please select both a pickup and return date."); return; }
+    if (returnDate < pickupDate) { setError("Return date must be on or after the pickup date."); return; }
+    setError("");
+    setRange({ start: combineDateTime(pickupDate, PICKUP_TIME), end: combineDateTime(returnDate, RETURN_TIME) });
+    setSearchedPickup(pickupDate);
     setSearched(true);
   };
 
+  // Cars available (continuous run ≥ 1 day) from the searched pickup date, with
+  // their continuous-availability window, grouped/counted by brand.
+  const availableCars = useMemo(() => {
+    if (!searched || !searchedPickup) return [];
+    return fleet
+      .map(car => ({ car, avail: continuousAvailability(car.plate, searchedPickup, ctx) }))
+      .filter(x => x.avail.days >= 1)
+      .map(x => ({ ...x, brand: deriveBrand(x.car.model) }));
+  }, [searched, searchedPickup, fleet, bookings]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const availableBrands = useMemo(() => {
-    if (!searched || !range) return [];
     const counts = {};
-    fleet.forEach(car => {
-      if (isCarAvailable(car.plate, range.start, range.end)) {
-        const brand = deriveBrand(car.model);
-        counts[brand] = (counts[brand] || 0) + 1;
-      }
-    });
+    availableCars.forEach(({ brand }) => { counts[brand] = (counts[brand] || 0) + 1; });
     return Object.entries(counts).map(([brand, count]) => ({ brand, count })).sort((a, b) => b.count - a.count);
-  }, [searched, range, fleet]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [availableCars]);
 
-  const carsForSelectedBrand = useMemo(() => {
-    if (!selectedBrand || !range) return [];
-    return fleet.filter(car => deriveBrand(car.model) === selectedBrand && isCarAvailable(car.plate, range.start, range.end));
-  }, [selectedBrand, range, fleet]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-select the top brand after a search (and keep selection valid).
+  useEffect(() => {
+    if (!searched) return;
+    if (availableBrands.length === 0) { setSelectedBrand(null); return; }
+    if (!selectedBrand || !availableBrands.some(b => b.brand === selectedBrand)) {
+      setSelectedBrand(availableBrands[0].brand);
+    }
+  }, [searched, availableBrands]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const carSearchGroups = useMemo(() => {
-    const q = carQuery.trim().toLowerCase();
-    if (!q) return [];
-    const matches = fleet.filter(car => (car.model || "").toLowerCase().includes(q));
-    const groups = {};
-    matches.forEach(car => {
-      const key = car.model || "Unknown model";
-      if (!groups[key]) groups[key] = { model: key, cars: [] };
-      groups[key].cars.push(car);
-    });
-    return Object.values(groups).map(g => {
-      const withStatus = range
-        ? g.cars.map(c => ({ ...c, available: isCarAvailable(c.plate, range.start, range.end) }))
-        : g.cars.map(c => ({ ...c, available: null }));
-      return { ...g, cars: withStatus, availableCount: withStatus.filter(c => c.available).length, totalCount: withStatus.length };
-    });
-  }, [carQuery, fleet, range]); // eslint-disable-line react-hooks/exhaustive-deps
+  const carsForSelectedBrand = useMemo(
+    () => availableCars.filter(x => x.brand === selectedBrand).sort((a, b) => b.avail.days - a.avail.days),
+    [availableCars, selectedBrand]
+  );
 
   const bookCar = (plate) => onBookCar && onBookCar(plate, range?.start || "", range?.end || "");
-
   const openAvailability = (car) => { setAvailabilityCar(car); setAvailabilityModalOpen(true); };
 
+  const dateField = (label, id, value, setValue, min) => (
+    <div style={{ flex: "1 1 180px", minWidth: 160 }}>
+      <label htmlFor={id} style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: G.text, marginBottom: 6 }}>{label}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${G.border}`, borderRadius: 10, padding: "0 12px", background: "#fff" }}>
+        <span style={{ color: G.textMuted, fontSize: 14 }}>📅</span>
+        <input id={id} type="date" value={value} min={min}
+          onChange={(e) => setValue(e.target.value)}
+          style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13.5, fontWeight: 600, color: G.ink, padding: "11px 0", fontFamily: "inherit" }} />
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{ background: G.page, borderRadius: 20, padding: 20, display: "flex", flexDirection: "column", gap: 22 }}>
-      <style>{`
-        .ca-range { -webkit-appearance: none; appearance: none; outline: none; cursor: pointer; }
-        .ca-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: ${G.primary}; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-        .ca-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: ${G.primary}; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer; }
-      `}</style>
-
-      {/* HERO */}
-      <div style={{ ...sectionCard, background: `linear-gradient(135deg, #EAF6FF 0%, #FBF3DD 100%)`, padding: 26 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 24, alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: G.ink, marginBottom: 6, letterSpacing: -0.3 }}>Find the perfect car for your journey</div>
-            <div style={{ fontSize: 13, color: G.text, marginBottom: 16 }}>Choose your dates, time and find the best fleet for you</div>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-              {[{ id: "daily", label: "Daily Rentals" }, { id: "weekend", label: "Weekend" }].map(m => (
-                <button key={m.id} onClick={() => setRentalMode(m.id)}
-                  style={{
-                    padding: "7px 16px", borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    border: rentalMode === m.id ? "none" : `1px solid ${G.border}`,
-                    background: rentalMode === m.id ? G.primary : "#fff",
-                    color: rentalMode === m.id ? "#fff" : G.text,
-                  }}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr 1fr 0.8fr", gap: 10, marginBottom: 10 }}>
-              <div style={fieldBoxStyle}>
-                <div style={fieldLabelStyle}>📍 Location</div>
-                <div style={fieldValueStyle}>Chennai, Tamil Nadu</div>
-              </div>
-              <div style={fieldBoxStyle} onClick={() => setPickupModalOpen(true)}>
-                <div style={fieldLabelStyle}>📅 Pick-Up Date & Time</div>
-                <div style={fieldValueStyle}>{pickupDate ? `${pickupDate} · ${minutesTo12h(hhmmToMinutes(pickupTime))}` : "Select date & time"}</div>
-              </div>
-              <div style={fieldBoxStyle} onClick={() => setReturnModalOpen(true)}>
-                <div style={fieldLabelStyle}>📅 Return Date & Time</div>
-                <div style={fieldValueStyle}>{returnDate ? `${returnDate} · ${minutesTo12h(hhmmToMinutes(returnTime))}` : "Select date & time"}</div>
-              </div>
-              <div style={fieldBoxStyle}>
-                <div style={fieldLabelStyle}>⏱️ Duration</div>
-                <div style={fieldValueStyle}>{formatDuration(combineDateTime(pickupDate, pickupTime), combineDateTime(returnDate, returnTime))}</div>
-              </div>
-            </div>
-
-            <div style={{ ...fieldBoxStyle, cursor: "text", marginBottom: 14 }}>
-              <div style={fieldLabelStyle}>🔍 Search by Car</div>
-              <input
-                value={carQuery}
-                onChange={(e) => setCarQuery(e.target.value)}
-                placeholder="e.g. maruti, toyota innova, fortuner"
-                style={{ ...fieldValueStyle, width: "100%", border: "none", outline: "none", padding: 0, background: "transparent", fontFamily: "inherit" }}
-              />
-            </div>
-
-            <GreenButton full onClick={handleSearch}>🔍 Search</GreenButton>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            <HeroIllustration />
+    <div style={{ background: G.page, borderRadius: 20, padding: 20, display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* STEP 1 — SELECT DATES */}
+      <div style={sectionCard}>
+        <StepHead n={1} title="Select Dates" />
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
+          {dateField("Pickup Date", "ca-pickup-date", pickupDate, (v) => { setPickupDate(v); if (returnDate < v) setReturnDate(v); }, todayISO())}
+          {dateField("Return Date", "ca-return-date", returnDate, setReturnDate, pickupDate || todayISO())}
+          <div style={{ flex: "0 0 auto" }}>
+            <GreenButton id="ca-search-availability" onClick={handleSearch}>🔍 Search Availability</GreenButton>
           </div>
         </div>
+        {error && <div style={{ marginTop: 12, fontSize: 12.5, color: G.danger, background: G.dangerSoft, borderRadius: 8, padding: "8px 12px" }}>{error}</div>}
       </div>
 
-      {/* TRUST ROW */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-        {[
-          { icon: "🏷️", label: "Best Prices Guaranteed" },
-          { icon: "🚗", label: "Wide Range of Vehicles" },
-          { icon: "✅", label: "Easy Booking Process" },
-          { icon: "☎️", label: "24/7 Customer Support" },
-        ].map(t => (
-          <div key={t.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: G.text, fontWeight: 600 }}>
-            <span style={{ fontSize: 16 }}>{t.icon}</span>{t.label}
-          </div>
-        ))}
-      </div>
-
-      {/* SEARCH BY CAR — results */}
-      {carQuery.trim() && (
+      {/* STEP 2 — AVAILABLE CAR BRANDS */}
+      {searched && (
         <div style={sectionCard}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: G.ink, marginBottom: 4 }}>Search by Car</div>
-          <div style={{ fontSize: 12.5, color: G.text, marginBottom: 14 }}>
-            Results for "{carQuery}".{range ? " Availability below uses the dates you picked above." : " Add dates above to see live availability here too."}
-          </div>
-          <div>
-            {carSearchGroups.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: G.textMuted, padding: "10px 2px" }}>No cars match "{carQuery}".</div>
-            ) : (
-              carSearchGroups.map(g => (
-                <div key={g.model} style={{ marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: G.ink }}>{g.model}</div>
-                    <div style={{ fontSize: 11, color: G.text }}>
-                      {range ? `${g.availableCount} of ${g.totalCount} available` : `${g.totalCount} car${g.totalCount === 1 ? "" : "s"}`}
-                    </div>
-                  </div>
-                  {g.cars.map(c => <CarRow key={c.plate} car={c} available={c.available} onBook={bookCar} onCheckAvailability={openAvailability} />)}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* AVAILABLE BRANDS */}
-      {searched && !selectedBrand && (
-        <div style={sectionCard}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: G.ink, marginBottom: 4 }}>Available Brands</div>
-          <div style={{ fontSize: 12.5, color: G.text, marginBottom: 16 }}>
-            Brands with available cars for {pickupDate} {minutesTo12h(hhmmToMinutes(pickupTime))} — {returnDate} {minutesTo12h(hhmmToMinutes(returnTime))}
-          </div>
+          <StepHead n={2} title="Available Car Brands" />
           {availableBrands.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: G.textMuted }}>No cars are available for this date range. Try different dates.</div>
+            <div style={{ fontSize: 13, color: G.textMuted }}>No cars are available from {fmtNice(searchedPickup)}. Try a different pickup date.</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
               {availableBrands.map(({ brand, count }) => (
-                <div key={brand} onClick={() => setSelectedBrand(brand)}
-                  style={{ cursor: "pointer", border: `1px solid ${G.border}`, borderRadius: 12, padding: "18px 12px", textAlign: "center" }}>
-                  <div style={{ width: 46, height: 46, borderRadius: "50%", background: brandTint(brand) + "1E", color: brandTint(brand), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, margin: "0 auto 10px" }}>
-                    {brandInitial(brand)}
-                  </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: G.ink }}>{brand}</div>
-                  <div style={{ fontSize: 11, color: G.primaryDark, fontWeight: 600 }}>{count} car{count === 1 ? "" : "s"} available</div>
-                </div>
+                <BrandCard key={brand} brand={brand} count={count} selected={brand === selectedBrand} onSelect={() => setSelectedBrand(brand)} />
               ))}
             </div>
           )}
         </div>
       )}
 
-      {/* CARS UNDER SELECTED BRAND */}
-      {searched && selectedBrand && (
+      {/* STEP 3 — CARS UNDER SELECTED BRAND */}
+      {searched && selectedBrand && carsForSelectedBrand.length > 0 && (
         <div style={sectionCard}>
-          <button onClick={() => setSelectedBrand(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: G.primaryDark, fontWeight: 700, padding: 0, marginBottom: 10 }}>← Back to brands</button>
-          <div style={{ fontSize: 15, fontWeight: 700, color: G.ink, marginBottom: 4 }}>{selectedBrand} — Available Cars</div>
-          <div style={{ fontSize: 12.5, color: G.text, marginBottom: 14 }}>{carsForSelectedBrand.length} car{carsForSelectedBrand.length === 1 ? "" : "s"} available for your selected period</div>
-          {carsForSelectedBrand.map(car => <CarRow key={car.plate} car={car} available={true} onBook={bookCar} onCheckAvailability={openAvailability} />)}
+          <StepHead
+            n={3}
+            title={`${selectedBrand} – Available Cars`}
+            right={<InfoPill>Availability shown from {fmtNice(searchedPickup)} onwards</InfoPill>}
+          />
+          {carsForSelectedBrand.map(({ car, avail }) => (
+            <AvailableCarCard key={car.plate} car={car} avail={avail} onSelect={bookCar} onViewDetails={openAvailability} />
+          ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: G.infoText, background: G.info, border: `1px solid ${G.infoBorder}`, borderRadius: 10, padding: "10px 14px", marginTop: 4 }}>
+            <span>ⓘ</span> Cars are shown based on continuous availability for the selected date range.
+          </div>
         </div>
       )}
-
-      <DateTimeModal
-        title="Pick-Up Date & Time" sliderLabel="Start Time" open={pickupModalOpen} onClose={() => setPickupModalOpen(false)}
-        dateISO={pickupDate} timeHHMM={pickupTime} minDateISO={todayISO()}
-        onDone={(date, time) => { setPickupDate(date); setPickupTime(time); setPickupModalOpen(false); if (returnDate && returnDate < date) setReturnDate(date); }}
-      />
-      <DateTimeModal
-        title="Return Date & Time" sliderLabel="End Time" open={returnModalOpen} onClose={() => setReturnModalOpen(false)}
-        dateISO={returnDate} timeHHMM={returnTime} minDateISO={pickupDate || todayISO()}
-        onDone={(date, time) => { setReturnDate(date); setReturnTime(time); setReturnModalOpen(false); }}
-      />
 
       <MonthlyAvailabilityModal
         open={availabilityModalOpen}
@@ -814,15 +535,10 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
         onClose={() => setAvailabilityModalOpen(false)}
         onContinue={(plate) => { setAvailabilityModalOpen(false); bookCar(plate); }}
         onSelectDate={(iso) => {
-          // Picking a day in the availability calendar makes it the new pick-up
-          // date, pushing the return date to the next day if it's no longer
-          // after pickup. We also update `range` so the modal's status readout
-          // and "Continue to Book" reflect the newly chosen day (not the last
-          // searched period).
           const newReturn = returnDate && returnDate > iso ? returnDate : nextDayISO(iso);
           setPickupDate(iso);
           setReturnDate(newReturn);
-          setRange({ start: combineDateTime(iso, pickupTime), end: combineDateTime(newReturn, returnTime) });
+          setRange({ start: combineDateTime(iso, PICKUP_TIME), end: combineDateTime(newReturn, RETURN_TIME) });
         }}
       />
     </div>
