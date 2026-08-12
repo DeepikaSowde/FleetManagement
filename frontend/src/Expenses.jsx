@@ -13,10 +13,14 @@ const CATEGORIES = [
   "Parking Fee", "Repairs & Maintenance", "PR Payment", "Advertisement", "Other / Miscellaneous",
 ];
 
-// Deterministic colour per category — stable across the donut, legend, and the
-// coloured badges in the table so a category always reads the same everywhere.
-const PALETTE = ["#2563EB", "#0EA5A0", "#F59E0B", "#DB2777", "#7C3AED", "#16A34A", "#EF4444", "#0891B2", "#CA8A04", "#65A30D", "#9333EA", "#E11D48", "#0D9488", "#F97316", "#4F46E5"];
-const catColor = (cat) => PALETTE[[...(cat || "?")].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
+// Validated categorical hues (dataviz reference palette; red dropped so it
+// doesn't clash with the expense-red theme). Assigned in fixed order by spend
+// rank — NEVER hashed/cycled, which is what made the old palette a wall of reds.
+// Anything past the top 7 folds into a neutral "Other". Colourblind-safe and
+// mutually distinct (validator: all hard gates pass on a white surface; the
+// small slices carry visible % labels as the low-contrast relief).
+const CAT_HUES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"];
+const OTHER_HUE = "#9a9992";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const monthKey = (iso) => (iso ? String(iso).slice(0, 7) : null);
@@ -48,6 +52,24 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
     expenses.forEach((e) => { const k = e.category || "Uncategorised"; map[k] = (map[k] || 0) + (e.amount || 0); });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [expenses]);
+
+  // Stable colour per category, assigned by spend rank (top 7 get the validated
+  // hues, the rest grey). Recomputed only when the underlying data changes — the
+  // category filter never repaints it, so a category always reads one colour.
+  const catColorMap = useMemo(() => {
+    const map = {};
+    byCategory.forEach((d, i) => { map[d.name] = i < CAT_HUES.length ? CAT_HUES[i] : OTHER_HUE; });
+    return map;
+  }, [byCategory]);
+  const catColor = (cat) => (cat === "Other" ? OTHER_HUE : (catColorMap[cat] || OTHER_HUE));
+
+  // Donut folds everything past the top 7 into a single "Other" slice, so the
+  // chart never shows a wall of tiny, indistinguishable wedges.
+  const donutData = useMemo(() => {
+    const top = byCategory.slice(0, CAT_HUES.length);
+    const otherTotal = byCategory.slice(CAT_HUES.length).reduce((s, d) => s + d.value, 0);
+    return otherTotal > 0 ? [...top, { name: "Other", value: otherTotal }] : top;
+  }, [byCategory]);
 
   const monthly = useMemo(() => {
     const map = {};
@@ -164,15 +186,15 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                 <div style={{ width: 150, height: 150, flexShrink: 0 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={byCategory} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={44} outerRadius={72} paddingAngle={2}>
-                        {byCategory.map((d, i) => <Cell key={i} fill={catColor(d.name)} />)}
+                      <Pie data={donutData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={44} outerRadius={72} paddingAngle={2} stroke="#fff" strokeWidth={2}>
+                        {donutData.map((d, i) => <Cell key={i} fill={catColor(d.name)} />)}
                       </Pie>
                       <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div style={{ flex: 1, minWidth: 160, maxHeight: 170, overflowY: "auto" }}>
-                  {byCategory.map((d) => (
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  {donutData.map((d) => (
                     <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
                       <span style={{ width: 9, height: 9, borderRadius: 2, background: catColor(d.name), flexShrink: 0 }} />
                       <span style={{ fontSize: 11, color: C.textSec, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
