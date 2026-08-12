@@ -12,6 +12,7 @@ import { generateRentalAgreementPdf } from "./rentalAgreement";
 import Dashboard from "./Dashboard";
 import Fleet from "./Fleet";
 import CarAvailability from "./CarAvailability";
+import Investors from "./Investors";
 import Booking, { CHARGE_TYPES } from "./Booking";
 import Customers from "./Customers";
 import TodayOperations from "./TodayOperations";
@@ -695,6 +696,7 @@ export default function FleetOpzApp() {
     { id: "today-ops", label: "Today's Operations", icon: "🗓️" },
     // Finance
     { id: "ledger", label: "Ledger", icon: "📒" },
+    { id: "investors", label: "Investors", icon: "💼" },
     { id: "earnings", label: "Earnings", icon: "💰" },
     { id: "expenses", label: "Expenses", icon: "📝" },
     { id: "pl", label: "P&L", icon: "📈" },
@@ -808,6 +810,17 @@ export default function FleetOpzApp() {
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
         getExpensesByCategory={fleetData.getExpensesByCategory}
+      />
+    ),
+    investors: (
+      <Investors
+        investors={fleetData.investors}
+        transactions={fleetData.investorTx}
+        onAddInvestor={fleetData.addInvestor}
+        onUpdateInvestor={fleetData.updateInvestor}
+        onDeleteInvestor={fleetData.deleteInvestor}
+        onAddTx={fleetData.addInvestorTx}
+        onDeleteTx={fleetData.deleteInvestorTx}
       />
     ),
     "cash-flow": (
@@ -1212,7 +1225,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(6, 11).map(n => (
+          {NAV.slice(6, 12).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
@@ -1221,7 +1234,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
-          {NAV.slice(11).map(n => (
+          {NAV.slice(12).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { totalInv } from "./theme";
+import { flowForType } from "./investorUtils";
 import api from "./services/api";
 
 // Desired profit margin layered on top of breakeven costs when deriving the monthly target.
@@ -385,6 +386,9 @@ export const useFleetData = () => {
   const [users, setUsers] = useState([]);
   const [rolePermissions, setRolePermissions] = useState(null); // null → module uses its built-in default until loaded
   const [auditLogs, setAuditLogs] = useState([]);
+  // Investors module data (investor profiles + their unified money ledger).
+  const [investors, setInvestors] = useState([]);
+  const [investorTx, setInvestorTx] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -428,6 +432,19 @@ export const useFleetData = () => {
       setAuditLogs(al);
     } catch (err) {
       console.warn("FleetOpz: User Management data unavailable:", err.message);
+    }
+
+    // Investors module — fetched separately for the same reason: a backend that
+    // hasn't picked up the new endpoints yet must not break the core app load.
+    try {
+      const [inv, itx] = await Promise.all([
+        api.get("/investors"),
+        api.get("/investor-transactions"),
+      ]);
+      setInvestors(inv);
+      setInvestorTx(itx);
+    } catch (err) {
+      console.warn("FleetOpz: Investors data unavailable:", err.message);
     }
   };
 
@@ -617,6 +634,52 @@ export const useFleetData = () => {
   const deleteExpense = (expenseId) => {
     setExpenses(prev => prev.filter(e => e.id !== expenseId));
     api.del(`/expenses/${expenseId}`).catch(onWriteError);
+  };
+
+  // ── INVESTOR OPERATIONS ───────────────────────────────────────────────────
+  // Same optimistic pattern as the rest: the frontend generates the id (INV-nnn
+  // / ITX-nnn), updates local state immediately, then persists. A failed write
+  // resyncs from the server via onWriteError. `flow` (IN/OUT) is derived from
+  // the transaction type so callers only pass a type.
+  const nextSeqId = (prefix, list) =>
+    `${prefix}-${String(list.reduce((mx, r) => Math.max(mx, parseInt(r.id.slice(prefix.length + 1)) || 0), 0) + 1).padStart(3, "0")}`;
+
+  const addInvestor = (investor) => {
+    const newInvestor = { ...investor, id: nextSeqId("INV", investors) };
+    setInvestors(prev => [...prev, newInvestor]);
+    api.post("/investors", newInvestor).catch(onWriteError);
+    return newInvestor;
+  };
+
+  const updateInvestor = (investorId, updates) => {
+    setInvestors(prev => prev.map(i => i.id === investorId ? { ...i, ...updates } : i));
+    api.put(`/investors/${investorId}`, updates).catch(onWriteError);
+  };
+
+  const deleteInvestor = (investorId) => {
+    // The server cascade-deletes this investor's transactions; mirror that locally.
+    setInvestors(prev => prev.filter(i => i.id !== investorId));
+    setInvestorTx(prev => prev.filter(t => t.investorId !== investorId));
+    api.del(`/investors/${investorId}`).catch(onWriteError);
+  };
+
+  const addInvestorTx = (tx) => {
+    const flow = flowForType(tx.type);
+    const newTx = { ...tx, id: nextSeqId("ITX", investorTx), flow, amount: parseFloat(tx.amount) || 0 };
+    setInvestorTx(prev => [...prev, newTx]);
+    api.post("/investor-transactions", newTx).catch(onWriteError);
+    return newTx;
+  };
+
+  const updateInvestorTx = (txId, updates) => {
+    const merged = updates.type ? { ...updates, flow: flowForType(updates.type) } : updates;
+    setInvestorTx(prev => prev.map(t => t.id === txId ? { ...t, ...merged } : t));
+    api.put(`/investor-transactions/${txId}`, merged).catch(onWriteError);
+  };
+
+  const deleteInvestorTx = (txId) => {
+    setInvestorTx(prev => prev.filter(t => t.id !== txId));
+    api.del(`/investor-transactions/${txId}`).catch(onWriteError);
   };
 
   // ── RESTRICTED LICENSE (blocklist) OPERATIONS ─────────────────────────────
@@ -984,6 +1047,16 @@ export const useFleetData = () => {
     addExpense,
     updateExpense,
     deleteExpense,
+
+    // Investor operations (profiles + unified money ledger)
+    investors,
+    investorTx,
+    addInvestor,
+    updateInvestor,
+    deleteInvestor,
+    addInvestorTx,
+    updateInvestorTx,
+    deleteInvestorTx,
 
     // Restricted-license (blocklist) operations
     restrictedLicenses,
