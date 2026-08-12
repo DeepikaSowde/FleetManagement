@@ -9,6 +9,7 @@ function toInvestor(r) {
     name: r.name,
     status: r.status,
     investorSince: r.investor_since,
+    investorCode: r.investor_code,
     pan: r.pan,
     email: r.email,
     phone: r.phone,
@@ -28,11 +29,11 @@ async function getById(id) {
 
 async function create(i) {
   const { rows } = await db.query(
-    `INSERT INTO investors (id, name, status, investor_since, pan, email, phone, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO investors (id, name, status, investor_since, investor_code, pan, email, phone, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING *`,
     [
-      i.id, i.name, i.status ?? "Active", i.investorSince ?? null,
+      i.id, i.name, i.status ?? "Active", i.investorSince ?? null, i.investorCode ?? null,
       i.pan ?? null, i.email ?? null, i.phone ?? null, i.notes ?? null,
     ]
   );
@@ -46,12 +47,12 @@ async function update(id, updates) {
   const i = { ...current, ...updates };
   const { rows } = await db.query(
     `UPDATE investors SET
-       name = $2, status = $3, investor_since = $4, pan = $5,
-       email = $6, phone = $7, notes = $8
+       name = $2, status = $3, investor_since = $4, investor_code = $5,
+       pan = $6, email = $7, phone = $8, notes = $9
      WHERE id = $1
      RETURNING *`,
     [
-      id, i.name, i.status ?? "Active", i.investorSince ?? null,
+      id, i.name, i.status ?? "Active", i.investorSince ?? null, i.investorCode ?? null,
       i.pan ?? null, i.email ?? null, i.phone ?? null, i.notes ?? null,
     ]
   );

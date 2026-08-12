@@ -819,13 +819,10 @@ export default function FleetOpzApp() {
     ),
     investors: (
       <Investors
-        investors={fleetData.investors}
-        transactions={fleetData.investorTx}
-        onAddInvestor={fleetData.addInvestor}
+        investors={fleetData.investorsWithTx}
+        onCreateInvestor={fleetData.createInvestor}
         onUpdateInvestor={fleetData.updateInvestor}
-        onDeleteInvestor={fleetData.deleteInvestor}
-        onAddTx={fleetData.addInvestorTx}
-        onDeleteTx={fleetData.deleteInvestorTx}
+        onCreateTransaction={fleetData.createInvestorTransaction}
       />
     ),
     "cash-flow": (

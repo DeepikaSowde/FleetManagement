@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { totalInv } from "./theme";
-import { flowForType } from "./investorUtils";
+import { flowForType } from "./Investors";
 import api from "./services/api";
 
 // Desired profit margin layered on top of breakeven costs when deriving the monthly target.
@@ -637,23 +637,59 @@ export const useFleetData = () => {
   };
 
   // ── INVESTOR OPERATIONS ───────────────────────────────────────────────────
-  // Same optimistic pattern as the rest: the frontend generates the id (INV-nnn
-  // / ITX-nnn), updates local state immediately, then persists. A failed write
-  // resyncs from the server via onWriteError. `flow` (IN/OUT) is derived from
-  // the transaction type so callers only pass a type.
+  // Optimistic like the rest: the frontend generates the id (INV-nnn / ITX-nnn),
+  // updates local state immediately, then persists; a failed write resyncs via
+  // onWriteError. The Investors page works in an investor-with-embedded-
+  // transactions shape (see investorsWithTx below); these handlers translate
+  // that shape to the two flat backend resources. `flow` (IN/OUT) is derived
+  // from the transaction type, and the UI's display id maps to investor_code.
   const nextSeqId = (prefix, list) =>
     `${prefix}-${String(list.reduce((mx, r) => Math.max(mx, parseInt(r.id.slice(prefix.length + 1)) || 0), 0) + 1).padStart(3, "0")}`;
 
-  const addInvestor = (investor) => {
-    const newInvestor = { ...investor, id: nextSeqId("INV", investors) };
-    setInvestors(prev => [...prev, newInvestor]);
-    api.post("/investors", newInvestor).catch(onWriteError);
-    return newInvestor;
+  const persistInvestorTx = (investorId, list, data) => {
+    const tx = {
+      id: nextSeqId("ITX", list),
+      investorId,
+      type: data.type,
+      date: data.date,
+      flow: flowForType(data.type),
+      amount: parseFloat(data.amount) || 0,
+      description: data.description || "",
+    };
+    api.post("/investor-transactions", tx).catch(onWriteError);
+    return tx;
   };
 
-  const updateInvestor = (investorId, updates) => {
-    setInvestors(prev => prev.map(i => i.id === investorId ? { ...i, ...updates } : i));
-    api.put(`/investors/${investorId}`, updates).catch(onWriteError);
+  // Create an investor (+ its initial/first transactions) from the page's shape:
+  // { name, investorId, status, since, transactions:[{type,date,amount,description}] }.
+  const createInvestor = (data) => {
+    const investor = {
+      id: nextSeqId("INV", investors),
+      name: data.name,
+      status: data.status || "Active",
+      investorSince: data.since || null,
+      investorCode: data.investorId || null,
+    };
+    setInvestors(prev => [...prev, investor]);
+    api.post("/investors", investor).catch(onWriteError);
+
+    let txList = investorTx;
+    const newTxs = (data.transactions || []).map((t) => {
+      const tx = persistInvestorTx(investor.id, txList, t);
+      txList = [...txList, tx];
+      return tx;
+    });
+    if (newTxs.length) setInvestorTx(prev => [...prev, ...newTxs]);
+    return investor;
+  };
+
+  // Partial update from the edit modal: { name, investorId, status }.
+  const updateInvestor = (investorId, fields) => {
+    const mapped = { ...fields };
+    if ("investorId" in mapped) { mapped.investorCode = mapped.investorId; delete mapped.investorId; }
+    if ("since" in mapped) { mapped.investorSince = mapped.since; delete mapped.since; }
+    setInvestors(prev => prev.map(i => i.id === investorId ? { ...i, ...mapped } : i));
+    api.put(`/investors/${investorId}`, mapped).catch(onWriteError);
   };
 
   const deleteInvestor = (investorId) => {
@@ -663,24 +699,24 @@ export const useFleetData = () => {
     api.del(`/investors/${investorId}`).catch(onWriteError);
   };
 
-  const addInvestorTx = (tx) => {
-    const flow = flowForType(tx.type);
-    const newTx = { ...tx, id: nextSeqId("ITX", investorTx), flow, amount: parseFloat(tx.amount) || 0 };
-    setInvestorTx(prev => [...prev, newTx]);
-    api.post("/investor-transactions", newTx).catch(onWriteError);
-    return newTx;
+  // Add one transaction to an existing investor: (investorId, {type,date,amount,description}).
+  const createInvestorTransaction = (investorId, data) => {
+    const tx = persistInvestorTx(investorId, investorTx, data);
+    setInvestorTx(prev => [...prev, tx]);
+    return tx;
   };
 
-  const updateInvestorTx = (txId, updates) => {
-    const merged = updates.type ? { ...updates, flow: flowForType(updates.type) } : updates;
-    setInvestorTx(prev => prev.map(t => t.id === txId ? { ...t, ...merged } : t));
-    api.put(`/investor-transactions/${txId}`, merged).catch(onWriteError);
-  };
-
-  const deleteInvestorTx = (txId) => {
-    setInvestorTx(prev => prev.filter(t => t.id !== txId));
-    api.del(`/investor-transactions/${txId}`).catch(onWriteError);
-  };
+  // Investors reshaped for the Investors page: display id + since + embedded txns.
+  const investorsWithTx = investors.map((inv) => ({
+    id: inv.id,
+    name: inv.name,
+    status: inv.status,
+    investorId: inv.investorCode || "",
+    since: inv.investorSince || "",
+    transactions: investorTx
+      .filter((t) => t.investorId === inv.id)
+      .map((t) => ({ id: t.id, type: t.type, date: t.date, amount: Number(t.amount) || 0, description: t.description || "" })),
+  }));
 
   // ── RESTRICTED LICENSE (blocklist) OPERATIONS ─────────────────────────────
   // Same optimistic pattern. Writes are admin-only on the server; a non-admin's
@@ -1048,15 +1084,12 @@ export const useFleetData = () => {
     updateExpense,
     deleteExpense,
 
-    // Investor operations (profiles + unified money ledger)
-    investors,
-    investorTx,
-    addInvestor,
+    // Investor operations (persisted profiles + money ledger, reshaped for the page)
+    investorsWithTx,
+    createInvestor,
     updateInvestor,
     deleteInvestor,
-    addInvestorTx,
-    updateInvestorTx,
-    deleteInvestorTx,
+    createInvestorTransaction,
 
     // Restricted-license (blocklist) operations
     restrictedLicenses,

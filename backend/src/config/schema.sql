@@ -218,14 +218,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at DESC
 CREATE TABLE IF NOT EXISTS investors (
   id             VARCHAR(20) PRIMARY KEY,
   name           VARCHAR(160) NOT NULL,
-  status         VARCHAR(20) DEFAULT 'Active',   -- Active | Exited
+  status         VARCHAR(20) DEFAULT 'Active',   -- Active | Inactive
   investor_since TEXT,                            -- ISO date
+  investor_code  VARCHAR(40),                     -- user-entered display id (e.g. INV-001)
   pan            VARCHAR(40),                     -- tax / ID number
   email          VARCHAR(160),
   phone          VARCHAR(40),
   notes          TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Idempotent so an existing investors table picks up the display-id column.
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS investor_code VARCHAR(40);
 
 -- ── INVESTOR TRANSACTIONS — the unified dated money ledger ───────────────────
 -- One row per money movement. `type` is Investment | Reinvestment | Dividend |
