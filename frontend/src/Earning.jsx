@@ -1,11 +1,57 @@
+import { useMemo } from "react";
+import {
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+} from "recharts";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Btn, Badge, PlateBadge, KpiCard } from "./components";
+
+// Palette for the per-car bars — distinct, readable in both the chart and the
+// rest of the app's teal/green language.
+const BARS = ["#0EA5A0", "#16A34A", "#2563EB", "#7C3AED", "#F59E0B", "#DB2777"];
+const monthKey = (iso) => (iso ? String(iso).slice(0, 7) : null); // "YYYY-MM"
+const monthLabel = (key) => {
+  const [y, m] = key.split("-");
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+};
+
+// Friendly placeholder shown in a chart slot when there's no data yet.
+const EmptyViz = ({ icon, text }) => (
+  <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: C.textMuted }}>
+    <div style={{ fontSize: 34, opacity: 0.5 }}>{icon}</div>
+    <div style={{ fontSize: 12 }}>{text}</div>
+  </div>
+);
 
 const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpdateEarning, onDeleteEarning, onLockEarning }) => {
   // Calculate metrics for current data
   const total = earnings.reduce((s, e) => s + (e.total || 0), 0);
   const locked = earnings.filter(e => e.locked).reduce((s, e) => s + (e.total || 0), 0);
   const pending = total - locked;
+
+  // ── Pictorial data ────────────────────────────────────────────────────────
+  // Monthly earnings trend (bucketed by the completion/end month), split into
+  // locked vs pending so the stacked area mirrors the KPI cards above.
+  const monthly = useMemo(() => {
+    const map = {};
+    earnings.forEach((e) => {
+      const k = monthKey(e.end || e.start);
+      if (!k) return;
+      if (!map[k]) map[k] = { key: k, total: 0, locked: 0, pending: 0 };
+      map[k].total += e.total || 0;
+      if (e.locked) map[k].locked += e.total || 0; else map[k].pending += e.total || 0;
+    });
+    return Object.values(map).sort((a, b) => a.key.localeCompare(b.key)).map((r) => ({ ...r, label: monthLabel(r.key) }));
+  }, [earnings]);
+
+  // Top earning cars by total revenue.
+  const topCars = useMemo(() => {
+    const map = {};
+    earnings.forEach((e) => { const p = e.plate || "—"; map[p] = (map[p] || 0) + (e.total || 0); });
+    return Object.entries(map).map(([plate, amt]) => ({ plate, total: amt })).sort((a, b) => b.total - a.total).slice(0, 6);
+  }, [earnings]);
+
+  const yTick = (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
 
   // When a booking completes, automatically create an earning record
   const handleCompleteBooking = (bookingId) => {
@@ -77,6 +123,66 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
           badgeColor={C.amber} 
           badgeBg={C.amberFaint} 
         />
+      </div>
+
+      {/* ── Pictorial representation ──────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 16 }}>
+        {/* Earnings trend — gradient stacked area (locked vs pending) */}
+        <Card style={{ overflow: "hidden" }}>
+          <div style={{ position: "relative", padding: "16px 18px 8px", background: `linear-gradient(120deg, ${C.tealFaint} 0%, ${C.greenFaint} 55%, transparent 100%)`, borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 17 }}>📈</span> Earnings Trend
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Monthly revenue · locked vs pending lock</div>
+          </div>
+          <div style={{ padding: "14px 10px 10px", height: 260 }}>
+            {monthly.length === 0 ? (
+              <EmptyViz icon="📈" text="Earnings appear here as bookings complete." />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={monthly} margin={{ top: 8, right: 14, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="earnLocked" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={C.green} stopOpacity={0.5} />
+                      <stop offset="100%" stopColor={C.green} stopOpacity={0.03} />
+                    </linearGradient>
+                    <linearGradient id="earnPending" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={C.amber} stopOpacity={0.45} />
+                      <stop offset="100%" stopColor={C.amber} stopOpacity={0.03} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} />
+                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={yTick} />
+                  <Tooltip formatter={(v, n) => [fmt(Math.round(v)), n === "locked" ? "Locked" : "Pending"]} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                  <Area type="monotone" dataKey="locked" stackId="1" stroke={C.green} strokeWidth={2} fill="url(#earnLocked)" />
+                  <Area type="monotone" dataKey="pending" stackId="1" stroke={C.amber} strokeWidth={2} fill="url(#earnPending)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        {/* Top earning cars — horizontal bars */}
+        <Card>
+          <CardHeader title="Top Earning Cars" subtitle="Revenue by vehicle" />
+          <div style={{ padding: "12px 10px 10px", height: 260 }}>
+            {topCars.length === 0 ? (
+              <EmptyViz icon="🚗" text="No car revenue yet." />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topCars} layout="vertical" margin={{ top: 4, right: 18, left: 4, bottom: 4 }}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="plate" width={82} tick={{ fontSize: 10.5, fill: C.textSec }} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(v) => fmt(Math.round(v))} cursor={{ fill: C.bg }} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                  <Bar dataKey="total" radius={[0, 6, 6, 0]} barSize={16}>
+                    {topCars.map((_, i) => <Cell key={i} fill={BARS[i % BARS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
       </div>
 
       <Card>
