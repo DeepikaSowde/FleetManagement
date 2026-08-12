@@ -1,14 +1,16 @@
-import { INVESTMENTS } from "./data"; // TEMP: seeded investor capital from the RDK Excel
+import { flowForType } from "./Investors";
 
 // Builds the unified, date-sorted ledger transaction list with a running
 // balance from the data the app already tracks:
 //   • Earnings          -> "Rental Income" credits
 //   • Expenses          -> "Expense" debits
 //   • Booking deposits  -> "Deposit IN" at pickup / "Deposit OUT" when refunded
-//   • Investments       -> "Investment" credits (temp seed from the Excel)
+//   • Investor capital  -> "Investment" credits, taken LIVE from the Investors
+//                          module (every investor's First Investment +
+//                          Reinvestment, i.e. their IN transactions).
 // Shared by the Ledger page and the Ledger Dashboard so both show identical
 // balances instead of each re-deriving them and drifting.
-export const buildLedgerRows = (earnings = [], expenses = [], bookings = []) => {
+export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], investors = []) => {
   const rows = [];
 
   earnings.forEach((e) => {
@@ -68,16 +70,23 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = []) => 
     }
   });
 
-  INVESTMENTS.forEach((iv) => {
-    rows.push({
-      key: `IV-${iv.id}`,
-      date: (iv.date || "").slice(0, 10),
-      plate: "",
-      type: "Investment",
-      description: `Investment (${iv.investor})`,
-      remarks: iv.investor,
-      credit: iv.amount || 0,
-      debit: 0,
+  // Real investor capital: each investor's IN transactions (First Investment +
+  // Reinvestment) become "Investment" credits. Dividends / exits (OUT) are the
+  // investor module's own concern and are intentionally NOT posted here, so the
+  // ledger's investment total stays the gross capital brought in.
+  investors.forEach((inv) => {
+    (inv.transactions || []).forEach((t) => {
+      if (flowForType(t.type) !== "IN") return;
+      rows.push({
+        key: `IV-${t.id}`,
+        date: (t.date || "").slice(0, 10),
+        plate: "",
+        type: "Investment",
+        description: `${t.type} (${inv.name})`,
+        remarks: inv.name,
+        credit: Number(t.amount) || 0,
+        debit: 0,
+      });
     });
   });
 

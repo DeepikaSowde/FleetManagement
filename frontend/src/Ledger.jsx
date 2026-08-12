@@ -34,7 +34,7 @@ const selectStyle = {
 };
 
 const Ledger = ({
-  earnings = [], expenses = [], bookings = [], fleet = [], customers = [],
+  earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
 }) => {
   const [view, setView] = useState("dashboard"); // "dashboard" | "ledger"
@@ -49,7 +49,7 @@ const Ledger = ({
   };
 
   // Unified, date-sorted transaction list with a running balance (shared helper).
-  const allTx = useMemo(() => buildLedgerRows(earnings, expenses, bookings), [earnings, expenses, bookings]);
+  const allTx = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
 
   // Month options derived from the data present.
   const months = useMemo(
@@ -91,7 +91,6 @@ const Ledger = ({
   const periodText = period === "all" ? "All time" : monthLabel(period);
 
   const summary = [
-    { label: "Opening Balance", value: openingBalance, color: C.navy, icon: "📗", sub: period === "all" ? "Start of records" : `As on 01 ${monthLabel(period)}` },
     { label: "Total Credit", value: totalCredit, color: C.green, icon: "📈", sub: periodText },
     { label: "Total Debit", value: totalDebit, color: C.red, icon: "📉", sub: periodText },
     { label: "Closing Balance", value: closingBalance, color: C.teal, icon: "📘", sub: periodText },
@@ -140,6 +139,7 @@ const Ledger = ({
           bookings={bookings}
           fleet={fleet}
           customers={customers}
+          investors={investors}
           calculateMetrics={calculateMetrics}
           calculateMonthlyMetrics={calculateMonthlyMetrics}
           calculateCarMetrics={calculateCarMetrics}

@@ -38,7 +38,7 @@ const prevMonthOf = (ym) => {
 const pct = (cur, prev) => (!prev ? (cur > 0 ? 100 : 0) : ((cur - prev) / Math.abs(prev)) * 100);
 
 const LedgerDashboard = ({
-  earnings = [], expenses = [], bookings = [], fleet = [], customers = [],
+  earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
   calculateMetrics, calculateCarMetrics,
 }) => {
   // Months that actually have data (income and/or expenses).
@@ -66,13 +66,14 @@ const LedgerDashboard = ({
   const prevP = isAll ? null : prevMonthOf(period);
 
   // ── Balances (shared ledger helper) ───────────────────────────────────────
-  const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings), [earnings, expenses, bookings]);
+  // Current Balance = true cash position = every credit − every debit, i.e.
+  // Investment + Rental Income + Deposits − Expenses − Refunds. Investor capital
+  // now flows in via buildLedgerRows. Opening Balance is intentionally not shown.
+  const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
   const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
-  const openingBalance = isAll ? 0 : rows.filter((r) => r.date < `${period}-01`).reduce((s, r) => s + r.credit - r.debit, 0);
 
   const kpis = [
-    { label: "Opening Balance", value: openingBalance, sub: isAll ? "Start of records" : `As of 01 ${monthLabelOf(period)}`, color: VIZ.green, icon: "📗", delta: null },
-    { label: "Current Balance", value: currentBalance, sub: "Live cash position", color: VIZ.aqua, icon: "💵", delta: null },
+    { label: "Current Balance", value: currentBalance, sub: "Investment + Income − Expenses", color: VIZ.aqua, icon: "💵", delta: null },
     { label: "Total Income", value: income, sub: isAll ? "All time" : "Selected month", color: VIZ.blue, icon: "💲", delta: prevP ? pct(income, earnMonth(prevP)) : null },
     { label: "Total Expense", value: expenseTotal, sub: isAll ? "All time" : "Selected month", color: VIZ.red, icon: "📉", delta: prevP ? pct(expenseTotal, expMonth(prevP)) : null },
     { label: "Net Profit", value: profit, sub: isAll ? "All time" : "Selected month", color: VIZ.violet, icon: "📊", delta: prevP ? pct(profit, earnMonth(prevP) - expMonth(prevP)) : null },
