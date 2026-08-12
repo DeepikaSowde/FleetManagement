@@ -15,6 +15,8 @@ const restrictedLicenseRoutes = require("./routes/restrictedLicenseRoutes");
 const userRoutes = require("./routes/userRoutes");
 const rolePermissionRoutes = require("./routes/rolePermissionRoutes");
 const auditLogRoutes = require("./routes/auditLogRoutes");
+const investorRoutes = require("./routes/investorRoutes");
+const investorTxRoutes = require("./routes/investorTxRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
 const app = express();
@@ -36,6 +38,8 @@ app.use("/api/restricted-licenses", restrictedLicenseRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/role-permissions", rolePermissionRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
+app.use("/api/investors", investorRoutes);
+app.use("/api/investor-transactions", investorTxRoutes);
 
 // ── Fallbacks (must be last) ────────────────────────────────────────────────
 app.use(notFound);

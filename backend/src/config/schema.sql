@@ -212,6 +212,47 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at DESC);
 
+-- ── INVESTORS — one row per investor (profile) ──────────────────────────────
+-- Money movements live in investor_transactions below. App-generated string id
+-- (e.g. "INV-001"), same convention as bookings/earnings.
+CREATE TABLE IF NOT EXISTS investors (
+  id             VARCHAR(20) PRIMARY KEY,
+  name           VARCHAR(160) NOT NULL,
+  status         VARCHAR(20) DEFAULT 'Active',   -- Active | Exited
+  investor_since TEXT,                            -- ISO date
+  pan            VARCHAR(40),                     -- tax / ID number
+  email          VARCHAR(160),
+  phone          VARCHAR(40),
+  notes          TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── INVESTOR TRANSACTIONS — the unified dated money ledger ───────────────────
+-- One row per money movement. `type` is Investment | Reinvestment | Dividend |
+-- Exit | Withdrawal; `flow` (IN|OUT) is derived from type and stored for cheap
+-- filtering. The `date` is the cash-flow date that feeds XIRR on the frontend.
+-- `status` is used for dividends (Paid | Pending); null otherwise. The UI's six
+-- detail tabs are just filtered views of this one table.
+CREATE TABLE IF NOT EXISTS investor_transactions (
+  id           VARCHAR(20) PRIMARY KEY,
+  investor_id  VARCHAR(20) REFERENCES investors(id) ON DELETE CASCADE,
+  date         TEXT,
+  type         VARCHAR(30),
+  flow         VARCHAR(3),                        -- IN | OUT
+  amount       NUMERIC(14,2) DEFAULT 0,           -- always positive; flow carries the sign
+  description  TEXT,
+  status       VARCHAR(20),                       -- dividends: Paid | Pending
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_investor_tx_investor ON investor_transactions (investor_id);
+
+-- Investors permission grid (Admin full; Staff no access — finance data). Safe
+-- to re-run; existing edits preserved by ON CONFLICT DO NOTHING.
+INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_delete) VALUES
+  ('Admin','Investors',true,true,true,true),
+  ('Staff','Investors',false,false,false,false)
+ON CONFLICT (role, module) DO NOTHING;
+
 -- ── SEED: sample fleet ──────────────────────────────────────────────────────
 -- The original frontend shipped with these 8 demo cars (bookings/earnings/
 -- expenses started empty). Seeded here so a fresh install isn't blank. Status
