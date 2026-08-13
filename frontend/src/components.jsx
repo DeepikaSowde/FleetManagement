@@ -16,6 +16,7 @@ export const StatusTag = ({ status }) => {
     "Upcoming":      { bg: "#EEF2FF",    color: "#4F46E5" },
     "Completed":     { bg: C.greenFaint, color: C.green },
     "Ending Today":  { bg: C.amberFaint, color: C.amber },
+    "Overdue":       { bg: C.redFaint,   color: C.red },
     "Cancelled":     { bg: C.redFaint,   color: C.red },
   };
   const s = map[status] || { bg: C.bg, color: C.textMuted };

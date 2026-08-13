@@ -1707,6 +1707,14 @@ export default function FleetOpzApp() {
                               })}
                               style={bookingFieldInputStyle(false)}
                             />
+                            {/* Warn (non-blocking) if the license has already expired as of
+                                the real date. A date-string compare avoids timezone drift, since
+                                both sides are YYYY-MM-DD. */}
+                            {driver.licenseExpiry && driver.licenseExpiry < new Date().toLocaleDateString("en-CA") && (
+                              <div style={{ marginTop: 4, fontSize: 10.5, fontWeight: 600, color: C.red }}>
+                                ⚠️ This license has expired.
+                              </div>
+                            )}
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>Contact Number</label>

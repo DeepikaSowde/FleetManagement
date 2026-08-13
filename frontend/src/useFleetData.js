@@ -165,10 +165,11 @@ export const computeBookingStatus = (booking, todayStr) => {
   if (!booking.handoverAt) return "Upcoming";
 
   if (todayStr === endStr) return "Ending Today";
-  // Past the return date without an actual Vehicle Return recorded — stays
-  // visibly "Ending Today" (overdue) rather than completing itself off a
-  // date alone; Completed must be earned by a real return (see forceCompleted above).
-  if (todayStr > endStr) return "Ending Today";
+  // Past the return date without an actual Vehicle Return recorded — the car
+  // is genuinely late, so it reads "Overdue" (distinct from a booking that is
+  // legitimately ending today). It never completes itself off a date alone;
+  // Completed must be earned by a real return (see forceCompleted above).
+  if (todayStr > endStr) return "Overdue";
   return "Active"; // handed over, start <= today < end
 };
 
@@ -185,7 +186,9 @@ export const computeBookingStatus = (booking, todayStr) => {
 const computeFleetStatus = (car, bookingsWithStatus) => {
   if (car.status === "Maintenance") return "Maintenance";
   const carBookings = bookingsWithStatus.filter(b => b.plate === car.plate);
-  if (carBookings.some(b => b.status === "Ending Today")) return "Ending Today";
+  // An overdue booking (past its end date, not yet returned) still has the car
+  // physically out, so it counts the same as "Ending Today" at the fleet level.
+  if (carBookings.some(b => b.status === "Ending Today" || b.status === "Overdue")) return "Ending Today";
   if (carBookings.some(b => b.status === "Active")) return "On Rental";
   if (carBookings.some(b => b.status === "Upcoming")) return "Upcoming";
   return "Available";
@@ -250,20 +253,19 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
           occupied = true;
         } else if (st === "Ending Today") {
           // The booking's REAL end date is a same-day turnover — the car comes
-          // back at b.end time and is free for the rest of that day.
-          if (dateStr === toDateStr(b.end)) {
-            const t = timeOf(b.end);
-            if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
-          } else if (toDateStr(b.end) < todayStr) {
-            // A LATER day still reading "Ending Today" only means the car is
-            // still out when the booking is genuinely overdue — its end date
-            // has already passed in real time and no return was recorded. For a
-            // booking that still ends today or in the future, every day AFTER
-            // its scheduled end is free (the car returns on schedule), so we
-            // must not block those — that's what was hiding post-return
-            // availability for an active, not-yet-returned rental.
-            occupied = true;
-          }
+          // back at b.end time and is free for the rest of that day. (For this
+          // projected day, dateStr always equals the booking's end date.)
+          const t = timeOf(b.end);
+          if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
+        } else if (st === "Overdue") {
+          // Projected day is AFTER this booking's scheduled end. Only keep the
+          // car blocked when the booking is genuinely overdue — its end date
+          // has already passed in real time and no return was recorded. For a
+          // booking that still ends today or in the future, every day AFTER its
+          // scheduled end is free (the car returns on schedule), so we must not
+          // block those — that's what was hiding post-return availability for
+          // an active, not-yet-returned rental.
+          if (toDateStr(b.end) < todayStr) occupied = true;
         }
       }
       if (occupied) {
@@ -868,6 +870,7 @@ export const useFleetData = () => {
       Upcoming: bookingsWithStatus.filter(b => b.status === "Upcoming").length,
       Active: bookingsWithStatus.filter(b => b.status === "Active").length,
       "Ending Today": bookingsWithStatus.filter(b => b.status === "Ending Today").length,
+      Overdue: bookingsWithStatus.filter(b => b.status === "Overdue").length,
       Completed: bookingsWithStatus.filter(b => b.status === "Completed").length,
       Cancelled: bookingsWithStatus.filter(b => b.status === "Cancelled").length,
     };

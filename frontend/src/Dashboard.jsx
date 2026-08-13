@@ -139,7 +139,7 @@ const Dashboard = ({
 
   // ── Today's revenue (daily accrual from cars out on rent) ────────────────────
   const dayRevenue = (dayStr) => bookings
-    .filter((b) => b.start && b.end && b.start.slice(0, 10) <= dayStr && dayStr <= b.end.slice(0, 10) && (b.status === "Active" || b.status === "Ending Today"))
+    .filter((b) => b.start && b.end && b.start.slice(0, 10) <= dayStr && dayStr <= b.end.slice(0, 10) && (b.status === "Active" || b.status === "Ending Today" || b.status === "Overdue"))
     .reduce((s, b) => s + (Number(b.rate) || 0), 0);
   const todayRevenue = dayRevenue(todayStr);
   const yestRevenue = dayRevenue(yesterdayStr);
@@ -219,7 +219,7 @@ const Dashboard = ({
     {
       icon: "⏰", color: D.orange, bg: D.orangeSoft, label: "Pending Returns",
       done: null,
-      pending: bookings.filter((b) => (b.status === "Ending Today") || (b.end && b.end.slice(0, 10) < todayStr && !isReturned(b) && !b.cancelled)).length,
+      pending: bookings.filter((b) => (b.status === "Ending Today") || (b.status === "Overdue") || (b.end && b.end.slice(0, 10) < todayStr && !isReturned(b) && !b.cancelled)).length,
     },
   ];
 

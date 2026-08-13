@@ -6,7 +6,7 @@ import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
 // Booking-status colors for the status filter pills below — reuses Fleet's
 // STATUS_PILL_COLORS/STATUS_PILL_FAINT (Upcoming, Ending Today, etc. already
 // match 1:1) and adds the two booking-only statuses Fleet doesn't have.
-const BOOKING_STATUS_COLORS = { ...STATUS_PILL_COLORS, Active: C.teal, Completed: C.green, Closed: C.navy };
+const BOOKING_STATUS_COLORS = { ...STATUS_PILL_COLORS, Active: C.teal, Overdue: C.red, Completed: C.green, Closed: C.navy };
 const getBookingStatusPillColor = (status) => BOOKING_STATUS_COLORS[status] || C.navy;
 import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
 import { generateInvoicePdf } from "./invoicePdf";
@@ -439,6 +439,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const STAGES = ["Upcoming", "Handover", "On Rental", "Returned", "Closed"];
 
   const handleCompleteHandover = () => {
+    // Handover can't happen before the customer is due to collect the car —
+    // gate it on the scheduled pickup time (real clock, same basis as pickupArrived).
+    if (!pickupArrived) { alert(`Vehicle Handover is allowed only at the scheduled pickup time or later (${formatDateTime(booking.start)}).`); return; }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
     const updates = { startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active" };
@@ -706,9 +709,21 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ fontSize: 22 }}>🔑</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Next step: Complete Vehicle Handover</div>
-                      <div style={{ fontSize: 11.5, color: C.textMuted }}>Record starting mileage, fuel &amp; condition to activate the rental and generate the Rental Agreement.</div>
+                      <div style={{ fontSize: 11.5, color: C.textMuted }}>
+                        {pickupArrived
+                          ? "Record starting mileage, fuel & condition to activate the rental and generate the Rental Agreement."
+                          : `Handover opens at the scheduled pickup time — ${formatDateTime(booking.start)}.`}
+                      </div>
                     </div>
-                    <Btn primary onClick={() => setShowHandover(true)}>Complete Handover →</Btn>
+                    <Btn
+                      primary
+                      disabled={!pickupArrived}
+                      title={!pickupArrived ? `Available at the scheduled pickup time (${formatDateTime(booking.start)})` : undefined}
+                      style={!pickupArrived ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                      onClick={() => setShowHandover(true)}
+                    >
+                      Complete Handover →
+                    </Btn>
                   </div>
                 ))}
 
@@ -1094,7 +1109,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
     prevCountRef.current = bookings.length;
   }, [bookings.length]);
 
-  const statuses = ["All", "Active", "Upcoming", "Ending Today", "Completed", "Closed"];
+  const statuses = ["All", "Active", "Upcoming", "Ending Today", "Overdue", "Completed", "Closed"];
 
   // Topbar Car / Month filters (FleetOpzApp header) scope the whole page —
   // status pills and counts below are computed from this scoped set, so
@@ -1207,7 +1222,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                   <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec }}>{b.contact}</td>
                   <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{formatDateTime(b.start)} → {formatDateTime(b.end)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 11, textAlign: "center" }}>{days}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11 }}>AED {b.rate}/d</td>
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11 }}>SGD {b.rate}/d</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.teal }}>{fmt(total)}</td>
                   <td style={{ padding: "11px 12px", fontSize: 11, color: C.textMuted }}>{b.pickup}</td>
                   <td style={{ padding: "11px 12px" }}>
