@@ -1826,101 +1826,52 @@ export default function FleetOpzApp() {
                     <input type="text" readOnly value={formatSGD(bookingRateCharge)} style={bookingFieldInputStyle(true)} />
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                  {/* All the small numeric charge fields packed into one dense
+                      3-column grid — each only ever holds a short value, so giving
+                      them a full row apiece just wasted space. Additional Driver
+                      Charge only appears once a driver was added in Step 2. */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 6 }}>
                     <div>
                       <label style={bookingFieldLabelStyle}>Delivery Charge</label>
-                      <input
-                        type="number" min="0"
-                        value={newBookingData.deliveryCharge}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v !== "" && Number(v) < 0) return;
-                          setNewBookingData({ ...newBookingData, deliveryCharge: v });
-                        }}
-                        placeholder="0"
-                        style={bookingFieldInputStyle(false)}
-                      />
+                      <input type="number" min="0" value={newBookingData.deliveryCharge}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, deliveryCharge: v }); }}
+                        placeholder="0" style={bookingFieldInputStyle(false)} />
                     </div>
                     <div>
                       <label style={bookingFieldLabelStyle}>Collection Charge</label>
-                      <input
-                        type="number" min="0"
-                        value={newBookingData.collectionCharge}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v !== "" && Number(v) < 0) return;
-                          setNewBookingData({ ...newBookingData, collectionCharge: v });
-                        }}
-                        placeholder="0"
-                        style={bookingFieldInputStyle(false)}
-                      />
+                      <input type="number" min="0" value={newBookingData.collectionCharge}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, collectionCharge: v }); }}
+                        placeholder="0" style={bookingFieldInputStyle(false)} />
                     </div>
-                    {/* Only shown once at least one Additional Driver has been
-                        added in Step 2 — adding a driver is what surfaces
-                        this field, since there's no charge to enter otherwise. */}
+                    <div>
+                      <label style={bookingFieldLabelStyle}>Other Charges</label>
+                      <input type="number" min="0" value={newBookingData.otherCharges}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, otherCharges: v }); }}
+                        placeholder="0" style={bookingFieldInputStyle(false)} />
+                    </div>
+                    <div>
+                      <label style={bookingFieldLabelStyle}>Security Deposit</label>
+                      <input type="number" min="0" value={newBookingData.deductible}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, deductible: v }); }}
+                        placeholder="0" style={bookingFieldInputStyle(false)} />
+                    </div>
+                    <div>
+                      <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
+                      <input type="number" min="0" step="0.1" value={newBookingData.vatRate}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, vatRate: v }); }}
+                        placeholder="e.g., 9" style={bookingFieldInputStyle(false)} />
+                    </div>
                     {newBookingData.additionalDrivers.length > 0 && (
                       <div>
                         <label style={bookingFieldLabelStyle}>Additional Driver Charge</label>
-                        <input
-                          type="number" min="0"
-                          value={newBookingData.additionalDriverCharge}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v !== "" && Number(v) < 0) return;
-                            setNewBookingData({ ...newBookingData, additionalDriverCharge: v });
-                          }}
-                          placeholder="0"
-                          style={bookingFieldInputStyle(false)}
-                        />
+                        <input type="number" min="0" value={newBookingData.additionalDriverCharge}
+                          onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
+                          placeholder="0" style={bookingFieldInputStyle(false)} />
                       </div>
                     )}
-                    <div>
-                      <label style={bookingFieldLabelStyle}>Other Charges</label>
-                      <input
-                        type="number" min="0"
-                        value={newBookingData.otherCharges}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v !== "" && Number(v) < 0) return;
-                          setNewBookingData({ ...newBookingData, otherCharges: v });
-                        }}
-                        placeholder="0"
-                        style={bookingFieldInputStyle(false)}
-                      />
-                    </div>
                   </div>
-
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={bookingFieldLabelStyle}>Security Deposit (refundable — not a rental charge)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={newBookingData.deductible}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v !== "" && Number(v) < 0) return;
-                        setNewBookingData({ ...newBookingData, deductible: v });
-                      }}
-                      placeholder="0"
-                      style={bookingFieldInputStyle(false)}
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: 20 }}>
-                    <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      value={newBookingData.vatRate}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v !== "" && Number(v) < 0) return;
-                        setNewBookingData({ ...newBookingData, vatRate: v });
-                      }}
-                      placeholder="e.g., 9"
-                      style={bookingFieldInputStyle(false)}
-                    />
+                  <div style={{ marginBottom: 16, fontSize: 10.5, color: C.textMuted }}>
+                    Security Deposit is refundable — not part of the rental total.
                   </div>
 
                   {/* Calculated amount summary — Security Deposit intentionally
