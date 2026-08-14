@@ -342,6 +342,9 @@ export default function FleetOpzApp() {
   // already uses ("Admin"/"Staff").
   const { user, logout } = useAuth();
   const currentUserRole = user?.role === "admin" ? "Admin" : "Staff";
+  // Attribution for the per-booking audit log — the real logged-in user.
+  const actorName = `${user?.name || user?.username || "System"} (${currentUserRole})`;
+  const auditEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actorName, detail });
 
   // Initialize fleet data management hook
   const fleetData = useFleetData();
@@ -766,6 +769,7 @@ export default function FleetOpzApp() {
         detailBookingId={detailBookingId}
         onDetailBookingIdHandled={() => setDetailBookingId(null)}
         onEditBooking={openEditBookingModal}
+        actor={actorName}
       />
     ),
     customers: (
@@ -1005,9 +1009,19 @@ export default function FleetOpzApp() {
         }
       }
       const { amountCollected, paymentMethod, referenceCode, amountCollectedDate, amountCollectedTime, ...editableFields } = newBookingData;
+      // Summarize what actually changed for the audit log.
+      const changed = [];
+      if (original) {
+        if (original.plate !== newBookingData.plate) changed.push("car");
+        if (original.start !== newBookingData.start || original.end !== newBookingData.end) changed.push("dates");
+        if (String(original.rate) !== String(newBookingData.rate)) changed.push("rate");
+        if (original.customer !== newBookingData.customer) changed.push("customer");
+        if ((original.pickup || "") !== (newBookingData.pickup || "") || (original.drop || "") !== (newBookingData.drop || "")) changed.push("locations");
+      }
       fleetData.updateBooking(editingBookingId, {
         ...editableFields,
         ageGroup: getAgeGroup(newBookingData.age),
+        history: [...(original?.history || []), auditEntry("updated", changed.length ? `Changed: ${changed.join(", ")}` : "Details edited")],
       });
       closeNewBookingModal();
       setActive("bookings");
@@ -1044,6 +1058,7 @@ export default function FleetOpzApp() {
           method: newBookingData.paymentMethod,
           reference: newBookingData.referenceCode || "",
           addedAt: `${newBookingData.amountCollectedDate}T${newBookingData.amountCollectedTime}`,
+          by: actorName,
         }]
       : [];
     // Same-day pickup: if staff filled the Vehicle Handover fields (Kilometer
@@ -1064,6 +1079,13 @@ export default function FleetOpzApp() {
         return;
       }
     }
+    // Seed the audit log: always a "created" entry, plus a "handover" entry when
+    // the booking is created already handed over (same-day), and a "payment"
+    // entry is derived from initialPayments below.
+    const createHistory = [auditEntry("created", `${newBookingData.plate} · ${newBookingData.customer || "—"}`)];
+    if (wantsImmediateHandover) {
+      createHistory.push(auditEntry("handover", `Odometer ${newBookingData.startingMileage} km · Fuel ${newBookingData.fuelLevel}`));
+    }
     const createdBooking = fleetData.addBooking({
       ...newBookingData,
       ageGroup: getAgeGroup(newBookingData.age),
@@ -1073,6 +1095,7 @@ export default function FleetOpzApp() {
       status: wantsImmediateHandover ? "Active" : "Confirmed",
       handoverAt: wantsImmediateHandover ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString(),
+      history: createHistory,
       payments: initialPayments,
     });
     // A same-day handover generates the Rental Agreement right away (it needs

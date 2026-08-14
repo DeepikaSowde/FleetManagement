@@ -250,7 +250,7 @@ const paymentStatus = (paid, total) => {
   return { label: "Partial", color: "#d97706" };
 };
 
-const BOOKING_DETAIL_TABS = ["Overview", "Pricing & Payment", "Timeline"];
+const BOOKING_DETAIL_TABS = ["Overview", "Pricing & Payment", "History"];
 const FUEL_LEVELS = ["Full", "3/4", "1/2", "1/4", "Empty"];
 
 // Modal wrapper around AvailabilityTimeline — same backdrop + pop pattern used
@@ -302,10 +302,15 @@ const SectionHeading = ({ children, size = "md", style }) => (
 // Timeline tab. Keys match the `type` values built in buildBookingActivityLog.
 const ACTIVITY_META = {
   created: { icon: "🆕", label: "Booking Created", color: C.teal },
-  updated: { icon: "✏️", label: "Booking Updated", color: "#f59e0b" },
+  updated: { icon: "✏️", label: "Booking Edited", color: "#f59e0b" },
+  handover: { icon: "🔑", label: "Vehicle Handover", color: "#0ea5e9" },
   charge: { icon: "🧾", label: "Additional Charge Added", color: "#f97316" },
   payment: { icon: "💳", label: "Payment Recorded", color: "#16a34a" },
-  returned: { icon: "🔑", label: "Vehicle Returned", color: "#0ea5e9" },
+  deposit: { icon: "💰", label: "Deposit Returned", color: "#8b5cf6" },
+  returned: { icon: "🚗", label: "Vehicle Returned", color: "#0ea5e9" },
+  markdone: { icon: "✅", label: "Marked Done (early)", color: C.teal },
+  reopened: { icon: "↩️", label: "Reopened (set Active)", color: "#f59e0b" },
+  cancelled: { icon: "🚫", label: "Booking Cancelled", color: C.red },
   completed: { icon: "✅", label: "Booking Completed", color: C.teal },
 };
 
@@ -316,26 +321,36 @@ const ACTIVITY_META = {
 // comment), so every entry is attributed to the app's de facto logged-in
 // user. Sorted newest-first, which is how the tab renders it.
 const buildBookingActivityLog = (booking, inv) => {
-  const actor = "Selvakumar (Admin)";
+  const fallback = "System";
   const events = [];
 
-  if (booking.createdAt) {
-    events.push({ type: "created", at: booking.createdAt, by: actor });
+  // Lifecycle events come from the append-only `history` audit trail when it
+  // exists (real user + exact time, recorded as each action happened). Older
+  // bookings created before history tracking fall back to deriving the
+  // milestones from the timestamps stored on the booking.
+  const hist = Array.isArray(booking.history) ? booking.history : [];
+  if (hist.length) {
+    events.push(...hist);
+  } else {
+    if (booking.createdAt) events.push({ type: "created", at: booking.createdAt, by: fallback });
+    if (booking.handoverAt) events.push({ type: "handover", at: booking.handoverAt, by: fallback, detail: `Odometer ${booking.startingMileage || "—"} km · Fuel ${booking.fuelLevel || "—"}` });
+    if (booking.updatedAt && booking.updatedAt !== booking.createdAt) events.push({ type: "updated", at: booking.updatedAt, by: fallback });
+    if (booking.depositRefundedAt) events.push({ type: "deposit", at: booking.depositRefundedAt, by: fallback, detail: `Returned ${fmt(Number(booking.depositRefundedAmount) || 0)}` });
+    if (booking.returnedAt) events.push({ type: "returned", at: booking.returnedAt, by: fallback, detail: `Final odo ${booking.mileageIn || "—"} km` });
   }
-  if (booking.updatedAt && booking.updatedAt !== booking.createdAt) {
-    events.push({ type: "updated", at: booking.updatedAt, by: actor });
-  }
+
+  // Itemized charges & payments are always derived straight from their source
+  // arrays (each carries its own addedAt and, for newer records, a `by` actor).
   (inv.charges || []).forEach(c => {
-    events.push({ type: "charge", at: c.addedAt, by: actor, detail: `${c.label} · ${fmt(Number(c.amount) || 0)}` });
+    events.push({ type: "charge", at: c.addedAt, by: c.by || fallback, detail: `${c.label} · ${fmt(Number(c.amount) || 0)}` });
   });
   (inv.payments || []).forEach(p => {
-    events.push({ type: "payment", at: p.addedAt, by: actor, detail: `${fmt(Number(p.amount) || 0)} · ${p.method}` });
+    events.push({ type: "payment", at: p.addedAt, by: p.by || fallback, detail: `${fmt(Number(p.amount) || 0)} · ${p.method}` });
   });
-  if (booking.returnedAt) {
-    events.push({ type: "returned", at: booking.returnedAt, by: actor });
-  }
+
+  // The "Completed/Closed" milestone is a derived status, not a discrete action.
   if (isBookingClosedOut(booking.status)) {
-    events.push({ type: "completed", at: booking.completedAt || booking.returnedAt || booking.createdAt, by: actor });
+    events.push({ type: "completed", at: booking.completedAt || booking.returnedAt || booking.createdAt, by: "—" });
   }
 
   return events
@@ -391,7 +406,10 @@ const BookingActivityTimeline = ({ booking, inv }) => {
 // Opens either from clicking "View" on a row in the Bookings table, or
 // automatically right after a new booking is created (see `detailBookingId`
 // prop on <Booking>).
-const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking }) => {
+const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking, actor = "System" }) => {
+  // One append-only audit entry, attributed to the real logged-in user.
+  const histEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
+  const withHistory = (entry) => [...(booking.history || []), entry];
   const [mileageIn, setMileageIn] = useState(booking.mileageIn || "");
   // Odometer when the CUSTOMER handed the car back (B), separate from the final
   // shed reading (mileageIn / C). Left blank when the customer returned it
@@ -448,7 +466,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (!pickupArrived) { alert(`Vehicle Handover is allowed only at the scheduled pickup time or later (${formatDateTime(booking.start)}).`); return; }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
-    const updates = { startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active" };
+    const updates = {
+      startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
+      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}`)),
+    };
     onUpdateBooking(booking.id, updates);
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
     generateRentalAgreementPdf({ ...booking, ...updates }, car);
@@ -500,6 +521,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           taxable: true,
           origin: "return",
           addedAt: new Date().toISOString(),
+          by: actor,
         }]
       : (booking.charges || []);
 
@@ -508,10 +530,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // sync with whatever automatic Upcoming/Active/Completed logic already
     // owns booking status. The car goes straight to Available once this
     // fires — useFleetData.js no longer has any automatic Maintenance path.
+    const custB = customerReturnMileage === "" ? Number(mileageIn) : Number(customerReturnMileage);
+    const custKm = Math.max(0, custB - (Number(booking.startingMileage) || 0));
+    const compKm = Math.max(0, Number(mileageIn) - custB);
     onUpdateBooking(booking.id, {
       mileageIn, customerReturnMileage, fuelIn, actualReturnAt, charges,
       forceCompleted: true,
       returnedAt: new Date().toISOString(),
+      history: withHistory(histEntry("returned", `Final odo ${mileageIn} km · ${custKm.toLocaleString()} customer / ${compKm.toLocaleString()} company km · Fuel ${fuelIn}`)),
     });
 
     // onUpdateBooking's state update isn't synchronous, so build the
@@ -545,6 +571,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       depositRefunded: true,
       depositRefundedAmount: amount,
       depositRefundedAt: new Date().toISOString(),
+      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.deposit)}${amount < inv.deposit ? " (partial)" : ""}`)),
     });
   };
 
@@ -571,6 +598,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       amount: amt,
       method: paymentMethod,
       addedAt: `${paymentDate}T${paymentTime}`,
+      by: actor,
     };
     onUpdateBooking(booking.id, { payments: [...inv.payments, newPayment] });
     setPaymentAmount("");
@@ -1154,7 +1182,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   );
 };
 
-const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, selectedCar = "All Cars", selectedRange = "all" }) => {
+const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System" }) => {
+  const bkHistEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
   const [filter, setFilter] = useState("All");
   const [timelinePlate, setTimelinePlate] = useState(null);
   const [openDetailId, setOpenDetailId] = useState(null);
@@ -1230,9 +1259,9 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
       // a one-way door — reverting would skip the lifecycle backwards, which
       // the workflow never allows.
       if (b.status === "Closed" || b.maintenanceTriggered) return;
-      onUpdateBooking(b.id, { forceCompleted: false });
+      onUpdateBooking(b.id, { forceCompleted: false, history: [...(b.history || []), bkHistEntry("reopened", "Set back to Active")] });
     } else {
-      onUpdateBooking(b.id, { forceCompleted: true });
+      onUpdateBooking(b.id, { forceCompleted: true, history: [...(b.history || []), bkHistEntry("markdone", "Closed the booking early")] });
     }
   };
 
@@ -1347,6 +1376,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
           onClose={() => setOpenDetailId(null)}
           onUpdateBooking={onUpdateBooking}
           onEditBooking={onEditBooking}
+          actor={actor}
         />
       )}
     </div>
