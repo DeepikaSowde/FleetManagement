@@ -10,7 +10,8 @@ import { Card, CardHeader, Btn, Badge, PlateBadge, KpiCard } from "./components"
 const CATEGORIES = [
   "Vehicle Purchase", "New Vehicle Advance Paid", "Insurance", "Road Tax & Transfer Fee",
   "LTA Fee", "LTA Transfer", "Registration", "Inspection", "Internal Sticker", "Fuel",
-  "Parking Fee", "Repairs & Maintenance", "PR Payment", "Advertisement", "Other / Miscellaneous",
+  "Parking Fee", "External Pickup/Drop", "Repairs & Maintenance", "PR Payment", "Advertisement",
+  "Other / Miscellaneous",
 ];
 
 // Validated categorical hues (dataviz reference palette; red dropped so it
