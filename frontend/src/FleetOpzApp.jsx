@@ -1384,7 +1384,7 @@ export default function FleetOpzApp() {
                     />
                     {matchedCustomer && (
                       <div style={{ fontSize: 10.5, color: C.teal, marginTop: 5, fontWeight: 600 }}>
-                        ✓ Existing customer found — details auto-filled below. Only Customer Name can be edited.
+                        ✓ Existing customer found — details auto-filled below and stay editable, so you can update anything before continuing.
                       </div>
                     )}
                   </div>
@@ -1405,14 +1405,12 @@ export default function FleetOpzApp() {
                     <input
                       type="text"
                       value={newBookingData.contact}
-                      readOnly={!!matchedCustomer}
                       onChange={(e) => {
-                        if (matchedCustomer) return;
                         const v = e.target.value.replace(/\D/g, "").slice(0, 10);
                         setNewBookingData({ ...newBookingData, contact: v });
                       }}
                       placeholder=" 9501234567"
-                      style={bookingFieldInputStyle(!!matchedCustomer)}
+                      style={bookingFieldInputStyle(false)}
                     />
                   </div>
 
@@ -1424,10 +1422,9 @@ export default function FleetOpzApp() {
                       <input
                         type="text"
                         value={newBookingData.license}
-                        readOnly={!!matchedCustomer}
-                        onChange={(e) => !matchedCustomer && setNewBookingData({ ...newBookingData, license: e.target.value.toUpperCase() })}
+                        onChange={(e) => setNewBookingData({ ...newBookingData, license: e.target.value.toUpperCase() })}
                         placeholder="DL-2024-88213"
-                        style={bookingFieldInputStyle(!!matchedCustomer)}
+                        style={bookingFieldInputStyle(false)}
                       />
                       {newBookingData.license && restrictedLicenses.some(
                         r => r.licenseNumber.trim().toUpperCase() === newBookingData.license.trim().toUpperCase()
@@ -1492,10 +1489,9 @@ export default function FleetOpzApp() {
                     <input
                       type="text"
                       value={newBookingData.address}
-                      readOnly={!!matchedCustomer}
-                      onChange={(e) => !matchedCustomer && setNewBookingData({ ...newBookingData, address: e.target.value })}
+                      onChange={(e) => setNewBookingData({ ...newBookingData, address: e.target.value })}
                       placeholder=" 02-81 Pandan Gardens, Block 410, Singapore"
-                      style={bookingFieldInputStyle(!!matchedCustomer)}
+                      style={bookingFieldInputStyle(false)}
                     />
                   </div>
                 </>
