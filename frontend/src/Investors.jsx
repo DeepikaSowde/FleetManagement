@@ -19,9 +19,12 @@ import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
    - Net Cash Flow         = Total Cash IN - Total Cash OUT
    - Holding %             = Investor Current Value / Total Current Value (all
                              investors) x 100
-   - XIRR                  = solved from every actual transaction date & signed cash flow,
-                             plus the investor's Latest Current Value added as one final
-                             positive cash flow dated today. Captures realized + unrealized.
+   - XIRR                  = solved from every actual transaction's date & signed cash
+                             flow (Investment/Reinvestment = negative, Dividend/Exit =
+                             positive). No estimated or current-day value is added - only
+                             real cash flows that have actually occurred, so the rate
+                             reflects the real timing of returns rather than collapsing
+                             to ~0% off the cost-basis Current Value.
 
    PERSISTENCE: this component is prop-driven. `investors` (each with an embedded
    `transactions` array) comes from useFleetData, backed by the /api/investors and
@@ -147,33 +150,31 @@ export function computeXIRR(rawCashflows) {
   return mid * 100; // as a percentage
 }
 
-// Every actual transaction, real date, signed by direction - Investment/Reinvestment
-// negative (money leaving the investor), Dividend/Exit-Withdrawal positive - plus the
-// investor's Latest Current Value appended as a final positive cash flow dated today.
+// Every actual transaction, real date, signed by direction - Investment/Reinvestment as
+// a negative cash flow (money leaving the investor), Dividend/Exit-Withdrawal as a
+// positive cash flow (money returning to the investor). No synthetic "current value
+// today" leg is added: Current Value is defined as the remaining cost basis (Total
+// Invested minus Dividends minus Exit), so adding it as a final positive cash flow
+// always makes the whole set sum to exactly zero - at which point r = 0 is always an
+// exact root of the XIRR equation regardless of amounts or dates, making XIRR trivially
+// collapse toward 0% every time rather than reflect real timing-driven return. Using
+// only actual, already-occurred cash flows keeps XIRR meaningful.
 export function buildInvestorXIRRCashflows(investor) {
   const txns = investor?.transactions || [];
-  const flows = txns.map((t) => ({
+  return txns.map((t) => ({
     date: new Date(t.date + "T00:00:00"),
     amount: flowForType(t.type) === "IN" ? -Number(t.amount || 0) : Number(t.amount || 0),
     label: t.type,
   }));
-  if (txns.length > 0) {
-    const { currentValue } = computeInvestorMetrics(investor);
-    flows.push({
-      date: new Date(todayISO() + "T00:00:00"),
-      amount: currentValue,
-      label: "Latest Current Value",
-    });
-  }
-  return flows;
 }
 
 export function getInvestorXIRR(investor) {
   return computeXIRR(buildInvestorXIRRCashflows(investor));
 }
 
-// Portfolio-level XIRR: every transaction from every investor, plus the sum of every
-// investor's Latest Current Value as one final positive cash flow dated today.
+// Portfolio-level XIRR: every transaction from every investor, actual dates and signed
+// amounts - the same solver and the same rule (real transactions only, no synthetic
+// current-value leg) as the per-investor XIRR above.
 export function buildPortfolioXIRRCashflows(investors) {
   const flows = [];
   (investors || []).forEach((inv) => {
@@ -185,17 +186,6 @@ export function buildPortfolioXIRRCashflows(investors) {
       });
     });
   });
-  if (flows.length > 0) {
-    const totalCurrentValue = (investors || []).reduce(
-      (sum, inv) => sum + computeInvestorMetrics(inv).currentValue,
-      0
-    );
-    flows.push({
-      date: new Date(todayISO() + "T00:00:00"),
-      amount: totalCurrentValue,
-      label: "Total Latest Current Value",
-    });
-  }
   return flows;
 }
 
@@ -870,7 +860,7 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           <div style={cardStyle}>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 4 }}>XIRR Calculation (Since First Investment)</div>
             <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
-              Uses every actual transaction's date and signed cash flow (investment = outflow, dividend/exit = inflow to the investor), plus the Latest Current Value as a final positive cash flow dated today.
+              Uses every actual transaction's date and signed cash flow (investment = outflow, dividend/exit = inflow to the investor). No estimated or current-day value is added - only real cash flows that have actually occurred.
             </div>
             {xirrFlows.length < 2 ? (
               <div style={{ fontSize: 12.5, color: C.textMuted }}>Add at least two transactions (an investment and a dividend or exit) to calculate XIRR.</div>
@@ -1197,7 +1187,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
       {exampleInvestor && (
         <div style={{ ...cardStyle, marginTop: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 4 }}>XIRR Calculation (Example - {exampleInvestor.name})</div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Live example computed from {exampleInvestor.name}'s actual transaction dates and amounts - Investment/Reinvestment as negative, Dividend/Exit-Withdrawal as positive - plus Latest Current Value added as the final positive cash flow (dated today).</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Live example computed from {exampleInvestor.name}'s actual transaction dates and amounts - Investment/Reinvestment as negative, Dividend/Exit-Withdrawal as positive - using the same formula as every other XIRR figure on this page. No estimated or current-day value is added.</div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
               <thead>
