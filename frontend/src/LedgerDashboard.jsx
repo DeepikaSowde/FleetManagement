@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
-import { buildLedgerRows } from "./ledgerUtils";
+import { buildLedgerRows, forfeitedDepositIncome } from "./ledgerUtils";
 import StatTiles from "./StatTiles";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
@@ -55,9 +55,9 @@ const LedgerDashboard = ({
   const isAll = period === "all";
 
   // ── Money helpers ─────────────────────────────────────────────────────────
-  const earnMonth = (m) => earnings.filter((e) => (e.end || e.start || "").startsWith(m)).reduce((s, e) => s + (e.total || 0), 0);
+  const earnMonth = (m) => earnings.filter((e) => (e.end || e.start || "").startsWith(m)).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: m });
   const expMonth = (m) => expenses.filter((x) => (x.date || "").startsWith(m)).reduce((s, x) => s + (x.amount || 0), 0);
-  const totalEarn = earnings.reduce((s, e) => s + (e.total || 0), 0);
+  const totalEarn = earnings.reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings);
   const totalExp = expenses.reduce((s, x) => s + (x.amount || 0), 0);
 
   const income = isAll ? totalEarn : earnMonth(period);

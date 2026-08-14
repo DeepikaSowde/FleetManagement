@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { totalInv } from "./theme";
 import { flowForType } from "./Investors";
+import { forfeitedDepositIncome } from "./ledgerUtils";
 import api from "./services/api";
 
 // Desired profit margin layered on top of breakeven costs when deriving the monthly target.
@@ -469,14 +470,22 @@ export const useFleetData = () => {
   const bookingsWithStatus = bookings.map(b => ({ ...b, status: computeBookingStatus(b, todayStr) }));
   const fleetWithStatus = fleet.map(c => ({ ...c, status: computeFleetStatus(c, bookingsWithStatus) }));
 
-  // Whenever a booking's derived status becomes "Completed" and it doesn't yet
-  // have a matching earning record, auto-create one (unlocked, pending review)
-  // — locally for an instant UI update, and on the server so it persists.
+  // Once a booking's vehicle has been handed over (or it's been force-completed
+  // without a handover on file), recognize its rental income: auto-create a
+  // matching earning record (unlocked, pending review) if one doesn't exist yet
+  // — locally for an instant UI update, and on the server so it persists. This
+  // is deliberately at HANDOVER rather than "Completed", so the rental income
+  // shows up in the Ledger / Earnings as soon as the car goes out, regardless of
+  // the booking's later status. It later auto-locks when the booking completes.
   useEffect(() => {
     if (!loaded) return; // don't act until the initial fetch has populated state
-    const completed = bookings.filter(b => computeBookingStatus(b, todayStr) === "Completed");
+    const recognized = bookings.filter(b => {
+      if (b.cancelled) return false;
+      const st = computeBookingStatus(b, todayStr);
+      return !!b.handoverAt || st === "Completed" || st === "Closed";
+    });
     const existingBookingIds = new Set(earnings.map(e => e.bookingId));
-    const missing = completed.filter(b => !existingBookingIds.has(b.id));
+    const missing = recognized.filter(b => !existingBookingIds.has(b.id));
     if (missing.length === 0) return;
 
     let nextNum = Math.max(...earnings.map(e => parseInt(e.id.slice(3)) || 0), 0);
@@ -848,7 +857,7 @@ export const useFleetData = () => {
     const totalBookings = bookings.length;
     const uniqueCustomers = new Set(bookings.map(b => b.customer)).size;
 
-    const totalEarnings = earnings.reduce((sum, e) => sum + (e.total || 0), 0);
+    const totalEarnings = earnings.reduce((sum, e) => sum + (e.total || 0), 0) + forfeitedDepositIncome(bookings);
     const lockedEarnings = earnings.filter(e => e.locked).reduce((sum, e) => sum + (e.total || 0), 0);
     const pendingEarnings = earnings.filter(e => !e.locked).reduce((sum, e) => sum + (e.total || 0), 0);
 
@@ -900,7 +909,7 @@ export const useFleetData = () => {
   };
 
   const calculateMonthlyMetrics = (month) => {
-    const monthEarnings = earnings.filter(e => e.start?.startsWith(month)).reduce((sum, e) => sum + (e.total || 0), 0);
+    const monthEarnings = earnings.filter(e => e.start?.startsWith(month)).reduce((sum, e) => sum + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: month });
     const monthExpenses = expenses.filter(e => e.date?.startsWith(month)).reduce((sum, e) => sum + (e.amount || 0), 0);
     const monthBookings = bookings.filter(b => b.start?.startsWith(month)).length;
     const monthCustomers = new Set(bookings.filter(b => b.start?.startsWith(month)).map(b => b.customer)).size;

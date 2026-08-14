@@ -573,9 +573,17 @@ export default function FleetOpzApp() {
   // chosen car and (optionally) the searched pickup/return window.
   const openBookingForCar = (plate, start, end) => {
     setEditingBookingId(null);
+    // Prefill the Daily Rate from the car's target rate, exactly as the Car
+    // (Plate) dropdown does — otherwise arriving here from Car Availability
+    // leaves the rate blank even though the car is already chosen.
+    const car = fleetData.fleet.find(c => c.plate === plate);
+    if (plate && car && !car.targetRate) {
+      alert(`No target rental rate set for ${plate}. Please set a target rate in Fleet before booking this car.`);
+    }
     setNewBookingData(prev => ({
       ...prev,
       plate: plate || "",
+      rate: car?.targetRate ?? "",
       start: start || "",
       end: end || "",
       pickupDate: start ? start.slice(0, 10) : "",

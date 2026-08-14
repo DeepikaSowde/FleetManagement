@@ -4,6 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from "recharts";
 import { C, mono, fmt, totalInv } from "./theme";
+import { forfeitedDepositIncome } from "./ledgerUtils";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, KpiCard, MiniBar, PLRow } from "./components";
 
 const PL_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
@@ -42,7 +43,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
 
   // Calculate YTD
   const ytdMetrics = {
-    income: earnings.reduce((s, e) => s + (e.total || 0), 0),
+    income: earnings.reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings),
     expenses: expenses.reduce((s, e) => s + (e.amount || 0), 0),
     get profit() { return this.income - this.expenses; },
   };
@@ -56,7 +57,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
 
   // Net P&L per car for the selected month (profit vs loss), biggest first.
   const perCarNet = useMemo(() => fleet.map((c) => {
-    const inc = earnings.filter((e) => e.plate === c.plate && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0);
+    const inc = earnings.filter((e) => e.plate === c.plate && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: month, plate: c.plate });
     const exp = expenses.filter((e) => e.plate === c.plate && e.date?.startsWith(month)).reduce((s, e) => s + (e.amount || 0), 0);
     return { plate: c.plate, net: inc - exp };
   }).filter((x) => x.net !== 0).sort((a, b) => b.net - a.net), [fleet, earnings, expenses, month]);
@@ -209,7 +210,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
               <CardHeader title={`Per-Car Income — ${monthLabel}`} />
               <div style={{ padding: 16, maxHeight: 340, overflowY: "auto" }}>
                 {fleet.map(c => {
-                  const carEarnings = earnings.filter(e => e.plate === c.plate && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0);
+                  const carEarnings = earnings.filter(e => e.plate === c.plate && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: month, plate: c.plate });
                   const carExpenses = expenses.filter(e => e.plate === c.plate && e.date?.startsWith(month)).reduce((s, e) => s + (e.amount || 0), 0);
                   const net = carEarnings - carExpenses;
                   return (
@@ -298,17 +299,17 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
             const car = fleet.find(c => c.plate === selectedCar);
             if (!car) return <div>No car selected</div>;
 
-            const carEarnings = earnings.filter(e => e.plate === selectedCar && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0);
+            const carEarnings = earnings.filter(e => e.plate === selectedCar && e.start?.startsWith(month)).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: month, plate: selectedCar });
             const carExpenses = expenses.filter(e => e.plate === selectedCar && e.date?.startsWith(month)).reduce((s, e) => s + (e.amount || 0), 0);
             const net = carEarnings - carExpenses;
             const inv = totalInv(car);
-            const totalCarEarnings = earnings.filter(e => e.plate === selectedCar).reduce((s, e) => s + (e.total || 0), 0);
+            const totalCarEarnings = earnings.filter(e => e.plate === selectedCar).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { plate: selectedCar });
             const recovery = inv > 0 ? Math.round((totalCarEarnings / inv) * 100) : 0;
             const monthBookings = bookings.filter(b => b.plate === selectedCar && b.start?.startsWith(month));
 
             // Selected car's month-by-month income & net across 2026.
             const carMonthly = PL_MONTHS.map((m) => {
-              const inc = earnings.filter(e => e.plate === selectedCar && e.start?.startsWith(m)).reduce((s, e) => s + (e.total || 0), 0);
+              const inc = earnings.filter(e => e.plate === selectedCar && e.start?.startsWith(m)).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: m, plate: selectedCar });
               const exp = expenses.filter(e => e.plate === selectedCar && e.date?.startsWith(m)).reduce((s, e) => s + (e.amount || 0), 0);
               return { label: shortMonth(m), income: inc, net: inc - exp };
             });

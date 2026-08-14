@@ -102,6 +102,7 @@ const Ledger = ({
   const typeStyle = {
     "Investment": { color: C.navy, bg: C.linen },
     "Rental Income": { color: C.green, bg: C.greenFaint },
+    "Deposit Income": { color: C.green, bg: C.greenFaint },
     "Deposit IN": { color: C.teal, bg: C.tealFaint },
     "Expense": { color: C.red, bg: C.redFaint },
     "Deposit OUT": { color: C.amber, bg: C.amberFaint },
@@ -170,6 +171,7 @@ const Ledger = ({
               <option value="all">All Types</option>
               <option value="Investment">Investment</option>
               <option value="Rental Income">Rental Income</option>
+              <option value="Deposit Income">Deposit Income</option>
               <option value="Expense">Expense</option>
               <option value="Deposit IN">Deposit IN</option>
               <option value="Deposit OUT">Deposit OUT</option>

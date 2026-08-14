@@ -1,5 +1,23 @@
 import { flowForType } from "./Investors";
 
+// Income from forfeited security deposits — the part of a deposit that was NOT
+// returned to the customer (deposit − returned). This is real income on top of
+// rental earnings, so the P&L / income totals add it in. Optionally scoped by a
+// date-string prefix (e.g. "2026" or "2026-08", matched on the settlement date)
+// and/or a plate, so it composes with the same month/car filters earnings use.
+export const forfeitedDepositIncome = (bookings = [], { prefix = "", plate = null } = {}) =>
+  bookings.reduce((sum, b) => {
+    if (!b.depositRefunded) return sum;
+    if (plate && b.plate !== plate) return sum;
+    const deposit = Number(b.deductible) || 0;
+    const back = b.depositRefundedAmount ?? deposit;
+    const forfeited = Math.max(0, deposit - back);
+    if (forfeited <= 0) return sum;
+    const date = (b.depositRefundedAt || b.end || b.start || "").slice(0, 10);
+    if (prefix && !date.startsWith(prefix)) return sum;
+    return sum + forfeited;
+  }, 0);
+
 // Builds the unified, date-sorted ledger transaction list with a running
 // balance from the data the app already tracks:
 //   • Earnings          -> "Rental Income" credits
@@ -54,17 +72,46 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
       });
     }
     if (b.depositRefunded) {
-      const back = b.depositRefundedAmount ?? deposit;
+      const back = b.depositRefundedAmount ?? deposit;   // cash actually returned to the customer
+      const forfeited = Math.max(0, deposit - back);      // shortfall the business keeps
+      const settledDate = (b.depositRefundedAt || b.end || b.start || "").slice(0, 10);
       if (back > 0) {
         rows.push({
           key: `DO-${b.id}`,
-          date: (b.depositRefundedAt || b.end || b.start || "").slice(0, 10),
+          date: settledDate,
           plate: b.plate || "",
           type: "Deposit OUT",
-          description: `Deposit Returned${back < deposit ? " (partial)" : ""}`,
+          description: `Deposit Returned${forfeited > 0 ? " (partial)" : ""}`,
           remarks: b.customer || "—",
           credit: 0,
           debit: back,
+        });
+      }
+      // Whatever isn't returned is retained and recognized as income. Booked as
+      // a reclassification: the kept amount leaves the deposit (debit) and enters
+      // income (credit) on the same day, so the running balance is unchanged
+      // while the ledger now surfaces it under "Deposit Income" instead of
+      // leaving it silently inside the net Deposit IN/OUT.
+      if (forfeited > 0) {
+        rows.push({
+          key: `DF-${b.id}`,
+          date: settledDate,
+          plate: b.plate || "",
+          type: "Deposit OUT",
+          description: "Deposit Retained (moved to income)",
+          remarks: b.customer || "—",
+          credit: 0,
+          debit: forfeited,
+        });
+        rows.push({
+          key: `DFI-${b.id}`,
+          date: settledDate,
+          plate: b.plate || "",
+          type: "Deposit Income",
+          description: `Forfeited Deposit — retained ${forfeited} of ${deposit}`,
+          remarks: b.customer || "—",
+          credit: forfeited,
+          debit: 0,
         });
       }
     }
