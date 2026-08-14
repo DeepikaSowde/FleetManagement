@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { fmt } from "./theme";
 import { useViewport } from "./useViewport";
 import {
@@ -34,13 +34,7 @@ const CARD = {
   boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)",
 };
 
-const MONTHS = ["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06","2026-07","2026-08","2026-09","2026-10","2026-11","2026-12"];
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-// Current month, from the real clock — the same "today" the KPI tiles, Today's
-// Operations, and booking statuses already use. (This was hardcoded to a fixed
-// month, which went stale as live booking/earning data moved past it, leaving
-// the monthly P&L / Expense / Vehicle cards defaulting to an empty past month.)
-const TODAY_MONTH = new Date().toISOString().slice(0, 7);
 
 // Compact SGD for chart axes ("50K", "1.2M") so long tick labels don't crowd.
 const fmtK = (n) => {
@@ -109,7 +103,7 @@ const StatusBadge = ({ label, color, bg }) => (
 );
 
 const Dashboard = ({
-  fleet, bookings, earnings, expenses, alerts, month,
+  fleet, bookings, earnings, expenses, alerts,
   calculateMetrics, calculateMonthlyMetrics, calculateMonthlyTarget,
   getExpensesByCategory, onNewBooking, onNavigate,
 }) => {
@@ -117,24 +111,47 @@ const Dashboard = ({
   const { isMobile, isDesktop } = useViewport();
 
   const metrics = calculateMetrics();
-  const isAll = month === "all";
-  const refMonth = isAll ? TODAY_MONTH : (month || TODAY_MONTH);
-  const refMonthIdx = MONTHS.indexOf(refMonth);
-  const refMonthLabel = isAll ? "YTD" : (refMonthIdx >= 0 ? MONTH_LABELS[refMonthIdx] : refMonth);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const nowYear = new Date().getFullYear();
+  const nowMonthStr = todayStr.slice(0, 7); // "YYYY-MM"
+
+  // ── Year / Month filter (scopes the Revenue, P&L, Expense & Vehicle cards) ──
+  // Years that actually have data, with the current year always available so a
+  // fresh install still has something to pick.
+  const availableYears = useMemo(() => {
+    const ys = new Set([String(nowYear)]);
+    bookings.forEach((b) => b.start && ys.add(b.start.slice(0, 4)));
+    earnings.forEach((e) => e.start && ys.add(e.start.slice(0, 4)));
+    expenses.forEach((e) => e.date && ys.add(e.date.slice(0, 4)));
+    return [...ys].sort().reverse();
+  }, [bookings, earnings, expenses, nowYear]);
+
+  const [filterYear, setFilterYear] = useState(String(nowYear));
+  const [filterMonth, setFilterMonth] = useState(nowMonthStr.slice(5)); // "01".."12" or "all"
+
+  const isAll = filterMonth === "all";                    // whole selected year
+  const isCurrentYear = filterYear === String(nowYear);
+  // Months of the selected year included in a year ("All") rollup: YTD for the
+  // current year, the full year for any past year.
+  const yearMonths = MONTH_LABELS.map((_, i) => `${filterYear}-${String(i + 1).padStart(2, "0")}`);
+  const activeMonths = isCurrentYear ? yearMonths.filter((m) => m <= nowMonthStr) : yearMonths;
+  // A concrete month for the day-level chart and prev-month comparison, valid
+  // even in year view (current month for this year, December for a past year).
+  const refMonth = isAll ? (isCurrentYear ? nowMonthStr : `${filterYear}-12`) : `${filterYear}-${filterMonth}`;
+  const refMonthIdx = Number(refMonth.slice(5, 7)) - 1;
+  const refMonthLabel = isAll ? filterYear : `${MONTH_LABELS[refMonthIdx]} ${filterYear}`;
 
   const total = Math.max(1, metrics.totalFleet);
   const pct = (n) => Math.round((n / total) * 100);
 
-  // ── Monthly rollups (respect the topbar month / "all") ──────────────────────
-  const ytdMonths = MONTHS.filter((m) => m <= TODAY_MONTH);
-  const mm = isAll
-    ? { monthlyEarnings: metrics.totalEarnings, monthlyExpenses: metrics.totalExpenses, monthlyProfit: metrics.netProfit }
-    : calculateMonthlyMetrics(refMonth);
+  // ── Rollups: scoped to the selected month, or the whole selected year ────────
+  // calculateMonthlyMetrics/getExpensesByCategory match on a date-string prefix,
+  // so passing the bare year (e.g. "2026") aggregates every month of that year.
+  const mm = calculateMonthlyMetrics(isAll ? filterYear : refMonth);
   const monthlyTarget = isAll
-    ? ytdMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0)
+    ? activeMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0)
     : calculateMonthlyTarget(refMonth);
 
   const achieved = mm.monthlyEarnings;
@@ -154,21 +171,21 @@ const Dashboard = ({
 
   // ── Revenue Overview chart series ───────────────────────────────────────────
   const buildSeries = () => {
-    const earn2026 = earnings.filter((e) => e.start?.startsWith("2026"));
+    const earnYear = earnings.filter((e) => e.start?.startsWith(filterYear));
     if (revPeriod === "Year") {
       let cum = 0;
-      const data = MONTHS.map((m, i) => {
-        cum += earn2026.filter((e) => e.start.slice(0, 7) === m).reduce((s, e) => s + (e.total || 0), 0);
+      const data = yearMonths.map((m, i) => {
+        cum += earnYear.filter((e) => e.start.slice(0, 7) === m).reduce((s, e) => s + (e.total || 0), 0);
         return { label: MONTH_LABELS[i], actual: cum };
       });
-      const target = ytdMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0);
+      const target = activeMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0);
       return { data, target };
     }
     if (revPeriod === "Week") {
       const data = [];
       for (let i = 6; i >= 0; i--) {
         const ds = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-        const day = earn2026.filter((e) => e.start.slice(0, 10) === ds).reduce((s, e) => s + (e.total || 0), 0);
+        const day = earnYear.filter((e) => e.start.slice(0, 10) === ds).reduce((s, e) => s + (e.total || 0), 0);
         data.push({ label: ds.slice(5), actual: day });
       }
       return { data, target: Math.round(monthlyTarget / 4) };
@@ -179,7 +196,7 @@ const Dashboard = ({
     // Month (default): cumulative revenue by day of the reference month
     const [y, mo] = refMonth.split("-").map(Number);
     const daysInMonth = new Date(y, mo, 0).getDate();
-    const monthEarn = earn2026.filter((e) => e.start.slice(0, 7) === refMonth);
+    const monthEarn = earnYear.filter((e) => e.start.slice(0, 7) === refMonth);
     let cum = 0;
     const data = [];
     for (let d = 1; d <= daysInMonth; d++) {
@@ -251,9 +268,8 @@ const Dashboard = ({
   ];
 
   // ── Expense Overview (by category) ──────────────────────────────────────────
-  const expByCat = isAll
-    ? expenses.reduce((acc, e) => { acc[e.category] = (acc[e.category] || 0) + (e.amount || 0); return acc; }, {})
-    : getExpensesByCategory(refMonth);
+  // Bare year ("2026") aggregates the whole year; a "YYYY-MM" key scopes to one month.
+  const expByCat = getExpensesByCategory(isAll ? filterYear : refMonth);
   const catColors = [D.blue, D.green, D.purple, D.orange, D.yellow, D.red, D.teal];
   const expEntries = Object.entries(expByCat).sort(([, a], [, b]) => b - a);
   const expTotalCat = expEntries.reduce((s, [, a]) => s + a, 0);
@@ -276,10 +292,13 @@ const Dashboard = ({
     : u >= 70 ? { label: "Good", color: D.blue, bg: D.blueSoft }
     : u >= 40 ? { label: "Average", color: D.orange, bg: D.orangeSoft }
     : { label: "Low", color: D.red, bg: D.redSoft };
+  // In year ("All") view the target scales by the number of months in scope, so
+  // a full year's rented days is compared against a full year's target, not one month's.
+  const monthsInScope = isAll ? Math.max(1, activeMonths.length) : 1;
   const vehicleRows = fleet.map((c) => {
-    const targetDays = Number(c.runningDaysTarget) || 25;
+    const targetDays = (Number(c.runningDaysTarget) || 25) * monthsInScope;
     const rentedDays = isAll
-      ? Math.round(bookings.filter((b) => b.plate === c.plate && b.start && b.end).reduce((s, b) => s + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0))
+      ? Math.round(bookings.filter((b) => b.plate === c.plate && b.start && b.end && b.start.startsWith(filterYear)).reduce((s, b) => s + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0))
       : bookings.filter((b) => b.plate === c.plate).reduce((s, b) => s + overlapDays(b), 0);
     const util = targetDays > 0 ? Math.round((rentedDays / targetDays) * 100) : 0;
     return { plate: c.plate, name: `${c.make} ${c.model}`, targetDays, rentedDays, util, st: statusFor(util) };
@@ -294,11 +313,33 @@ const Dashboard = ({
   ];
 
   const chartTint = D.green;
+  const selStyle = {
+    fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, color: D.ink,
+    background: D.card, border: `1px solid ${D.line}`, borderRadius: 8,
+    padding: "6px 10px", cursor: "pointer", outline: "none",
+  };
 
   return (
     // Negative margin lets the dashboard own its lighter background inside the
     // shell's 24px-padded content area, without changing the shell itself.
     <div style={{ margin: isMobile ? -16 : -24, padding: isMobile ? 16 : 24, background: D.page, minHeight: "100%", fontFamily: "'Inter','Segoe UI',sans-serif", color: D.body }}>
+
+      {/* ── PERIOD FILTER (scopes Revenue, P&L, Expenses & Vehicle cards) ──── */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: D.ink }}>Period</span>
+        <select aria-label="Filter by month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} style={selStyle}>
+          <option value="all">All months (full year)</option>
+          {MONTH_LABELS.map((lbl, i) => (
+            <option key={lbl} value={String(i + 1).padStart(2, "0")}>{lbl}</option>
+          ))}
+        </select>
+        <select aria-label="Filter by year" value={filterYear} onChange={(e) => setFilterYear(e.target.value)} style={selStyle}>
+          {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span style={{ fontSize: 11.5, color: D.faint }}>
+          Scopes Revenue Overview, P&amp;L, Expenses &amp; Vehicle Performance · KPI tiles and Today’s Operations stay live
+        </span>
+      </div>
 
       {/* ── KPI STRIP ─────────────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 20 }}>
