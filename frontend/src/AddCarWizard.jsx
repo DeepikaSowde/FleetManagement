@@ -187,7 +187,7 @@ const AddCarWizard = ({ onComplete, onClose }) => {
           ))}
         </div>
 
-        <div style={{ padding: "20px 24px" }}>
+        <div style={{ padding: "14px 24px" }}>
           {/* STEP 1 — Purchase & Vehicle Details */}
           {step === 0 && (
             <div>
@@ -195,27 +195,29 @@ const AddCarWizard = ({ onComplete, onClose }) => {
                 <Input label="Car Number" value={car.plate} onChange={e => setField("plate", e.target.value)} placeholder="e.g., SBJ 4488 F" />
                 <Input label="Year" type="number" value={car.year} onChange={e => setField("year", e.target.value)} placeholder="e.g., 2024" />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
                 <Input label="Make" value={car.make} onChange={e => setField("make", e.target.value)} placeholder="e.g., Toyota" />
                 <Input label="Model" value={car.model} onChange={e => setField("model", e.target.value)} placeholder="e.g., Corolla" />
               </div>
-              <Input label="Colour" value={car.color} onChange={e => setField("color", e.target.value)} placeholder="e.g., Silver" />
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 6 }}>
+                <Input label="Colour" value={car.color} onChange={e => setField("color", e.target.value)} placeholder="e.g., Silver" />
                 <SelectField label="Fuel Type" value={car.fuelType} onChange={e => setField("fuelType", e.target.value)} options={["Petrol", "Diesel"]} />
                 <SelectField label="Transmission" value={car.transmission} onChange={e => setField("transmission", e.target.value)} options={["Automatic", "Manual"]} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
                 <Input label="Purchase Price (SGD)" type="number" value={car.purchase} onChange={e => setField("purchase", e.target.value)} placeholder="e.g., 26000" />
                 <Input label="Purchase Advance (SGD)" type="number" value={car.purchaseAdvance} onChange={e => setField("purchaseAdvance", e.target.value)} placeholder="e.g., 5000" />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
                 <Input label="Insurance (SGD)" type="number" value={car.insurance} onChange={e => setField("insurance", e.target.value)} placeholder="e.g., 1200" />
                 <Input label="Registration (SGD)" type="number" value={car.reg} onChange={e => setField("reg", e.target.value)} placeholder="e.g., 1300" />
               </div>
-              <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" />
-              <Input label="Purchase Date" type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+                <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" />
+                <Input label="Purchase Date" type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} />
+              </div>
             </div>
           )}
 
