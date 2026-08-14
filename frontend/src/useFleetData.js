@@ -312,9 +312,17 @@ const findOverlappingBooking = (bookings, plate, start, end, excludeBookingId) =
 };
 
 // Adds/subtracts whole days to a "YYYY-MM-DD" string, staying in plain
-// calendar-date land (no time-of-day/timezone drift).
-const addDaysToDateStr = (dateStr, n) =>
-  new Date(new Date(dateStr + "T00:00:00").getTime() + n * 86400000).toISOString().slice(0, 10);
+// calendar-date land (no time-of-day/timezone drift). Built entirely in UTC via
+// Date.UTC so it never touches the local timezone — the previous version parsed
+// local midnight and read it back with toISOString (UTC), which shifted the
+// result back a day in timezones ahead of UTC (e.g. SGT UTC+8), making the
+// booking-conflict message off by one (e.g. "available until Aug 11" when the
+// existing booking starts Aug 13, instead of Aug 12). Date.UTC also normalizes
+// month/day overflow, so day 0 or 32 rolls into the neighbouring month.
+const addDaysToDateStr = (dateStr, n) => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
 
 // Fixed en-US, no-year format ("Aug 1") so the validation message reads the
 // same regardless of the browser's locale — matches the style used in the
