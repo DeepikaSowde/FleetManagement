@@ -36,7 +36,11 @@ const CARD = {
 
 const MONTHS = ["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06","2026-07","2026-08","2026-09","2026-10","2026-11","2026-12"];
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const TODAY_MONTH = "2026-06"; // mirrors the fixed "today" reference used elsewhere for YTD roll-ups
+// Current month, from the real clock — the same "today" the KPI tiles, Today's
+// Operations, and booking statuses already use. (This was hardcoded to a fixed
+// month, which went stale as live booking/earning data moved past it, leaving
+// the monthly P&L / Expense / Vehicle cards defaulting to an empty past month.)
+const TODAY_MONTH = new Date().toISOString().slice(0, 7);
 
 // Compact SGD for chart axes ("50K", "1.2M") so long tick labels don't crowd.
 const fmtK = (n) => {
@@ -188,12 +192,17 @@ const Dashboard = ({
 
   // ── Fleet Status buckets ────────────────────────────────────────────────────
   const fsc = metrics.fleetStatusCounts || {};
+  // These five buckets are exactly the statuses computeFleetStatus can return,
+  // so they partition the fleet and the bars always sum to 100%. "Ending Today"
+  // (which folds in Overdue cars — still physically out) previously had no row,
+  // so those cars silently vanished from the breakdown; "Inactive" was never a
+  // real fleet status, so its row was always 0 and has been removed.
   const fleetRows = [
     { label: "Available", count: fsc.Available || 0, color: D.green },
     { label: "On Rent", count: fsc["On Rental"] || 0, color: D.blue },
+    { label: "Ending Today", count: fsc["Ending Today"] || 0, color: D.red },
     { label: "Reserved (Upcoming)", count: fsc.Upcoming || 0, color: D.purple },
     { label: "Maintenance", count: fsc.Maintenance || 0, color: D.orange },
-    { label: "Inactive", count: fsc.Inactive || 0, color: D.faint },
   ];
 
   // ── Today's Operations ──────────────────────────────────────────────────────
@@ -295,7 +304,10 @@ const Dashboard = ({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 20 }}>
         <KpiTile icon="🚗" iconColor={D.blue} iconBg={D.blueSoft} label="Total Fleet" value={metrics.totalFleet} sub="Cars" link="View Fleet" onLink={() => onNavigate?.("fleet")} />
         <KpiTile icon="✅" iconColor={D.green} iconBg={D.greenSoft} label="Available" value={metrics.availableCount} sub={`Cars (${pct(metrics.availableCount)}%)`} link="View Fleet" onLink={() => onNavigate?.("fleet")} />
-        <KpiTile icon="🚘" iconColor={D.teal} iconBg={D.tealSoft} label="On Rent" value={metrics.onRentalCount} sub={`Cars (${pct(metrics.onRentalCount)}%)`} link="View Bookings" onLink={() => onNavigate?.("bookings")} />
+        <KpiTile icon="🚘" iconColor={D.teal} iconBg={D.tealSoft} label="On Rent" value={metrics.onRentalCount}
+          sub={`Cars (${pct(metrics.onRentalCount)}%)${metrics.endingTodayCount ? ` · ${metrics.endingTodayCount} ending today` : ""}`}
+          subColor={metrics.endingTodayCount ? D.orange : undefined}
+          link="View Bookings" onLink={() => onNavigate?.("bookings")} />
         <KpiTile icon="📅" iconColor={D.purple} iconBg={D.purpleSoft} label="Today's Bookings" value={todaysBookings} sub="Bookings" link="View Bookings" onLink={() => onNavigate?.("bookings")} />
         <KpiTile icon="💰" iconColor={D.orange} iconBg={D.orangeSoft} label="Today's Revenue" value={fmt(todayRevenue)}
           sub={revDelta == null ? "vs yesterday" : `${revDelta >= 0 ? "↑" : "↓"} ${Math.abs(revDelta).toFixed(1)}% vs yesterday`}
