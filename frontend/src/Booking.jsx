@@ -393,6 +393,10 @@ const BookingActivityTimeline = ({ booking, inv }) => {
 // prop on <Booking>).
 const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking }) => {
   const [mileageIn, setMileageIn] = useState(booking.mileageIn || "");
+  // Odometer when the CUSTOMER handed the car back (B), separate from the final
+  // shed reading (mileageIn / C). Left blank when the customer returned it
+  // directly — then B = C and there's no company drive-back distance.
+  const [customerReturnMileage, setCustomerReturnMileage] = useState(booking.customerReturnMileage || "");
   const [fuelIn, setFuelIn] = useState(booking.fuelIn || "Full");
   // Fuel Charge is entered manually by staff at return time — there's no
   // fuel-price/tank-size field in the fleet data model to derive a rate
@@ -457,8 +461,18 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
 
   const handleConfirmReturn = () => {
     if (mileageIn === "" || Number(mileageIn) < 0) {
-      alert("Enter a valid Mileage In reading");
+      alert("Enter a valid Final Odometer (shed) reading");
       return;
+    }
+    // Customer return reading (B) is optional; when given it must sit between the
+    // starting reading (A) and the final shed reading (C = mileageIn).
+    if (customerReturnMileage !== "") {
+      const b = Number(customerReturnMileage);
+      const a = Number(booking.startingMileage) || 0;
+      if (b < a || b > Number(mileageIn)) {
+        alert(`Customer Return Odometer must be between the Starting Mileage (${a}) and the Final Odometer (${mileageIn}).`);
+        return;
+      }
     }
     if (!actualReturnDate || !actualReturnTime) {
       alert("Enter the Actual Return Date & Time");
@@ -495,7 +509,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // owns booking status. The car goes straight to Available once this
     // fires — useFleetData.js no longer has any automatic Maintenance path.
     onUpdateBooking(booking.id, {
-      mileageIn, fuelIn, actualReturnAt, charges,
+      mileageIn, customerReturnMileage, fuelIn, actualReturnAt, charges,
       forceCompleted: true,
       returnedAt: new Date().toISOString(),
     });
@@ -838,6 +852,59 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 ))}
               </div>
 
+              {/* Distance Driven — splits total odometer movement into the km the
+                  customer drove (A->B) and the km a staff member added driving it
+                  back to the shed (B->C). Shown once a return has been recorded. */}
+              {booking.mileageIn !== undefined && booking.mileageIn !== "" && booking.mileageIn !== null && (() => {
+                const a = Number(booking.startingMileage) || 0;
+                const c = Number(booking.mileageIn) || 0;
+                const b = (booking.customerReturnMileage === "" || booking.customerReturnMileage == null)
+                  ? c : Number(booking.customerReturnMileage);
+                const customerKm = Math.max(0, b - a);
+                const companyKm = Math.max(0, c - b);
+                const totalKm = Math.max(0, c - a);
+                const pctInternal = totalKm > 0 ? Math.round((companyKm / totalKm) * 100) : 0;
+                return (
+                  <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                    <SectionHeading size="sm">Distance Driven</SectionHeading>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, color: C.textMuted, marginBottom: 10, ...mono }}>
+                      <span>A · Start {a.toLocaleString()}</span><span>→</span>
+                      <span>B · Cust. return {b.toLocaleString()}</span><span>→</span>
+                      <span>C · Shed {c.toLocaleString()} km</span>
+                    </div>
+                    <div style={{ display: "flex", height: 26, borderRadius: 6, overflow: "hidden", background: C.bg, gap: 2 }}>
+                      {customerKm > 0 && (
+                        <div title={`Customer ${customerKm.toLocaleString()} km`} style={{ flexGrow: customerKm, background: C.teal, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{customerKm.toLocaleString()} km</div>
+                      )}
+                      {companyKm > 0 && (
+                        <div title={`Company / internal ${companyKm.toLocaleString()} km`} style={{ flexGrow: companyKm, background: C.amber, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{companyKm.toLocaleString()} km</div>
+                      )}
+                      {totalKm === 0 && (
+                        <div style={{ flex: 1, display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, color: C.textMuted }}>No distance recorded</div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.teal, display: "flex", alignItems: "center", gap: 5 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 2, background: C.teal }} /> Customer
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{customerKm.toLocaleString()} km</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.amber, display: "flex", alignItems: "center", gap: 5 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} /> Company / Internal
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{companyKm.toLocaleString()} km</div>
+                      </div>
+                      <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.textMuted }}>Total · {pctInternal}% internal</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{totalKm.toLocaleString()} km</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Vehicle Condition at Pickup — the note captured during Vehicle
                   Handover, shown only once it exists. */}
               {booking.vehicleCondition && (
@@ -852,7 +919,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 <SectionHeading size="sm">Vehicle Return</SectionHeading>
                 {alreadyReturned ? (
                   <div style={{ fontSize: 12.5, color: C.textSec }}>
-                    ✅ Returned{booking.actualReturnAt ? ` ${new Date(booking.actualReturnAt).toLocaleString()}` : ""} — Mileage In {booking.mileageIn || mileageIn} km · Fuel In {booking.fuelIn || fuelIn}
+                    ✅ Returned{booking.actualReturnAt ? ` ${new Date(booking.actualReturnAt).toLocaleString()}` : ""} — Final odo {booking.mileageIn || mileageIn} km · Fuel In {booking.fuelIn || fuelIn}
                     {(() => {
                       const recordedFuelCharge = (booking.charges || []).find(c => c.type === "fuel_shortfall");
                       return recordedFuelCharge ? ` · Fuel Charge ${fmt(Number(recordedFuelCharge.amount) || 0)}` : "";
@@ -871,7 +938,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <input type="time" value={actualReturnTime} onChange={(e) => setActualReturnTime(e.target.value)} style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "1 1 160px" }}>
-                      <div style={detailFieldLabelStyle}>Mileage In (km)</div>
+                      <div style={detailFieldLabelStyle}>Customer Return Odo (km) · optional</div>
+                      <input type="number" min="0" value={customerReturnMileage} onChange={(e) => setCustomerReturnMileage(e.target.value)} placeholder="only if staff drove it back" style={detailInputStyle} />
+                    </div>
+                    <div style={{ flex: "1 1 160px" }}>
+                      <div style={detailFieldLabelStyle}>Final Odometer / Shed (km)</div>
                       <input type="number" min="0" value={mileageIn} onChange={(e) => setMileageIn(e.target.value)} placeholder="e.g., 9450" style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "1 1 140px" }}>
@@ -892,6 +963,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       />
                     </div>
                     <Btn primary onClick={handleConfirmReturn}>Confirm Return & Generate Invoice</Btn>
+                    <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
+                      <strong style={{ color: C.navy }}>Customer Return Odo</strong> is the reading when the customer handed the car back — leave it blank if they returned it directly. Any extra distance up to the <strong style={{ color: C.navy }}>Final Odometer</strong> is counted as company/internal (drive-back), not customer usage.
+                    </div>
                     <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
                       Starting Fuel (at Handover): <strong style={{ color: C.navy }}>{booking.fuelLevel || "—"}</strong> · compare against Fuel In above to decide the Fuel Charge. Any amount entered here is added to the invoice and Balance Due on confirm.
                     </div>
