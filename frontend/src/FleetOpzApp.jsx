@@ -43,9 +43,6 @@ const CALENDAR_STATUS_BG = { Available: "#dcfce7", "On Rental": "#ffedd5", "Endi
 const CALENDAR_STATUS_TEXT = { Available: "#166534", "On Rental": "#9a3412", "Ending Today": "#9a3412" };
 const CALENDAR_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-// Local calendar date "YYYY-MM-DD" (not UTC) — used to tell whether a booking's
-// pickup is today, so the same-day Vehicle Handover fields surface at creation.
-const localDateStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // Step 1 (Customer Details) option lists for Customer Type and Driving
 // Experience — both plain selects, same field style as everything else on
@@ -163,7 +160,8 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
   const isAvailableDay = (d) => !isPast(d) && getStatus(d) === "Available";
   const isBeforeMin = (d) => minDate && toISODate(d) < minDate;
 
-  const canGoPrev = viewYear > today.getFullYear() || (viewYear === today.getFullYear() && viewMonth > today.getMonth());
+  // Backdated bookings are allowed — the calendar can navigate to any past month.
+  const canGoPrev = true;
 
   const goPrev = () => {
     if (!canGoPrev) return;
@@ -194,19 +192,22 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
     const iso = toISODate(d);
 
     if (minDate) {
-      // Return calendar: every day from minDate through iso must be Available.
+      // Return calendar: every FUTURE day from minDate through iso must be
+      // Available. Past days have no forward-availability data (the timeline is
+      // projected from today), so they're accepted here and the real overlap
+      // guard is the conflict check on Next/Submit.
       let cursor = new Date(minDate + "T00:00:00");
       const end = new Date(iso + "T00:00:00");
       let allAvailable = true;
       while (cursor <= end) {
-        if (!isAvailableDay(cursor)) { allAvailable = false; break; }
+        if (!isAvailableDay(cursor) && !isPast(cursor)) { allAvailable = false; break; }
         cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
       }
       if (!allAvailable) {
         setDayError("That range crosses an unavailable date — pick an earlier return date.");
         return;
       }
-    } else if (!isAvailableDay(d)) {
+    } else if (!isAvailableDay(d) && !isPast(d)) {
       return;
     }
     setDayError("");
@@ -264,8 +265,9 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
           const belowMin = isBeforeMin(d);
           // Return calendar (minDate set): any day from minDate onward is
           // clickable — handleDayClick validates the whole range. Pickup
-          // calendar (no minDate): only Available days are clickable.
-          const clickable = minDate ? (!isPast(d) && !belowMin) : isAvailableDay(d);
+          // calendar (no minDate): Available days, plus past days (backdated
+          // bookings) whose real overlap is caught by the conflict check.
+          const clickable = minDate ? !belowMin : (isAvailableDay(d) || isPast(d));
           const dimmed = !clickable && !isSelected;
           const af = availableFromByDate[iso]; // turnover: car returns this day, free after
           return (
@@ -281,7 +283,7 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
                 border: isSelected ? `2px solid ${C.navy}` : isToday ? `1px solid ${C.navy}` : "1px solid transparent",
                 fontFamily: "inherit", cursor: clickable ? "pointer" : "default", boxSizing: "border-box",
                 background: status !== "Past" ? CALENDAR_STATUS_BG[status] : "transparent",
-                color: status === "Past" ? C.border : CALENDAR_STATUS_TEXT[status],
+                color: status === "Past" ? C.textMuted : CALENDAR_STATUS_TEXT[status],
                 fontWeight: isSelected ? 700 : 500,
                 opacity: dimmed ? 0.4 : 1,
               }}
@@ -433,6 +435,11 @@ export default function FleetOpzApp() {
     startingMileage: "",
     fuelLevel: "",
     vehicleCondition: "",
+    // Vehicle Return fields — only used when creating a backdated booking whose
+    // rental period has already ended, to record it as a completed rental.
+    mileageIn: "",
+    customerReturnMileage: "",
+    fuelIn: "Full",
   });
   const [attachmentError, setAttachmentError] = useState("");
 
@@ -682,7 +689,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setMatchedCustomer(null);
     setCreatedBookingInfo(null);
@@ -1061,13 +1068,15 @@ export default function FleetOpzApp() {
           by: actorName,
         }]
       : [];
-    // Same-day pickup: if staff filled the Vehicle Handover fields (Kilometer
-    // Out + Fuel Level) shown in Review for a booking starting today, create it
-    // already handed over — Active, with the Rental Agreement generated — rather
-    // than leaving it Awaiting Handover to be re-opened later. Future-dated
-    // bookings keep the "Confirmed → hand over on the pickup day" flow.
-    const startIsToday = !!newBookingData.start && newBookingData.start.slice(0, 10) === localDateStr();
-    const wantsImmediateHandover = startIsToday &&
+    // A started booking (pickup today or backdated) can be handed over right at
+    // creation when staff filled Kilometer Out + Fuel Level in Review — it's
+    // created Active with the Rental Agreement generated. Future-dated bookings
+    // stay Confirmed until handed over on the pickup day.
+    const startMs = newBookingData.start ? new Date(newBookingData.start).getTime() : NaN;
+    const endMs = newBookingData.end ? new Date(newBookingData.end).getTime() : NaN;
+    const hasStarted = !isNaN(startMs) && startMs <= Date.now();
+    const hasEnded = !isNaN(endMs) && endMs < Date.now();
+    const wantsImmediateHandover = hasStarted &&
       (newBookingData.startingMileage !== "" || !!newBookingData.fuelLevel);
     if (wantsImmediateHandover) {
       if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
@@ -1079,28 +1088,60 @@ export default function FleetOpzApp() {
         return;
       }
     }
-    // Seed the audit log: always a "created" entry, plus a "handover" entry when
-    // the booking is created already handed over (same-day), and a "payment"
-    // entry is derived from initialPayments below.
+    // Backdated, already-finished rental: handed over + rental period already
+    // ended + a Final Odometer entered → record it as a completed rental. The
+    // return readings are validated the same way the detail-view return does.
+    const wantsCompleted = wantsImmediateHandover && hasEnded && newBookingData.mileageIn !== "";
+    if (wantsCompleted) {
+      const startKm = Number(newBookingData.startingMileage) || 0;
+      const finalKm = Number(newBookingData.mileageIn);
+      if (isNaN(finalKm) || finalKm < startKm) {
+        alert(`Final Odometer must be at least the Starting Mileage (${startKm}).`);
+        return;
+      }
+      if (newBookingData.customerReturnMileage !== "") {
+        const b = Number(newBookingData.customerReturnMileage);
+        if (b < startKm || b > finalKm) {
+          alert(`Customer Return Odometer must be between the Starting Mileage (${startKm}) and the Final Odometer (${finalKm}).`);
+          return;
+        }
+      }
+    }
+    // Seed the audit log: a "created" entry, a "handover" entry when handed over
+    // at creation, and a "returned" entry when recorded as completed. Payment is
+    // derived from initialPayments below.
     const createHistory = [auditEntry("created", `${newBookingData.plate} · ${newBookingData.customer || "—"}`)];
     if (wantsImmediateHandover) {
       createHistory.push(auditEntry("handover", `Odometer ${newBookingData.startingMileage} km · Fuel ${newBookingData.fuelLevel}`));
     }
+    if (wantsCompleted) {
+      const startKm = Number(newBookingData.startingMileage) || 0;
+      const finalKm = Number(newBookingData.mileageIn);
+      const custB = newBookingData.customerReturnMileage === "" ? finalKm : Number(newBookingData.customerReturnMileage);
+      const custKm = Math.max(0, custB - startKm);
+      const compKm = Math.max(0, finalKm - custB);
+      createHistory.push(auditEntry("returned", `Final odo ${finalKm} km · ${custKm} customer / ${compKm} company km · Fuel ${newBookingData.fuelIn}`));
+    }
     const createdBooking = fleetData.addBooking({
       ...newBookingData,
       ageGroup: getAgeGroup(newBookingData.age),
-      // Future-dated (or same-day with no handover details filled): Confirmed,
-      // not Active — stays editable until it's handed over on the pickup day.
-      // Same-day WITH handover details: Active immediately, handoverAt stamped.
+      // Future-dated (or started with no handover details): Confirmed. Started
+      // with handover: Active. Backdated + return recorded: forceCompleted so
+      // computeBookingStatus derives Completed/Closed.
       status: wantsImmediateHandover ? "Active" : "Confirmed",
-      handoverAt: wantsImmediateHandover ? new Date().toISOString() : undefined,
+      handoverAt: wantsImmediateHandover ? new Date(newBookingData.start).toISOString() : undefined,
+      ...(wantsCompleted ? {
+        forceCompleted: true,
+        actualReturnAt: newBookingData.end,
+        returnedAt: new Date().toISOString(),
+      } : {}),
       createdAt: new Date().toISOString(),
       history: createHistory,
       payments: initialPayments,
     });
-    // A same-day handover generates the Rental Agreement right away (it needs
-    // the mileage/fuel/condition just captured); otherwise the agreement waits
-    // until Vehicle Handover happens later from the booking's detail view.
+    // Handover generates the Rental Agreement right away (it needs the
+    // mileage/fuel/condition just captured); otherwise it waits until Vehicle
+    // Handover happens from the booking's detail view.
     if (wantsImmediateHandover) {
       generateRentalAgreementPdf(createdBooking, selectedCar);
     }
@@ -2124,62 +2165,77 @@ export default function FleetOpzApp() {
                           );
                         })()}
 
-                        {/* Same-day pickup (creating a NEW booking whose start
-                            date is today): surface the Vehicle Handover fields
-                            right here so the car can be handed over in the same
-                            flow. Filling Kilometer Out + Fuel Level makes
-                            "Confirm & Create Booking" create it already Active
-                            with the Rental Agreement generated; leaving them
-                            blank creates it as Upcoming to hand over later. */}
+                        {/* Started booking (pickup today or backdated): surface
+                            Vehicle Handover here. If the rental period has ALSO
+                            already ended, surface Vehicle Return too, so a past
+                            rental can be logged in one go — filling handover makes
+                            it Active on create; filling the return as well makes it
+                            Completed. Leaving them blank saves it as-is. */}
                         {!editingBookingId && !createdBookingInfo && newBookingData.start
-                          && newBookingData.start.slice(0, 10) === localDateStr() && (
+                          && new Date(newBookingData.start).getTime() <= Date.now() && (() => {
+                          const hasEnded = !!newBookingData.end && new Date(newBookingData.end).getTime() < Date.now();
+                          return (
                           <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover — same-day pickup</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover{hasEnded ? " & Return" : ""}</div>
                             <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
-                              Pickup is today. Record Kilometer Out &amp; Fuel Level to hand the car over now — the booking becomes Active and the Rental Agreement is generated on create. Leave blank to hand over later.
+                              {hasEnded
+                                ? "This rental period is already in the past. Fill in the handover and return readings to record it as a completed rental — or leave them blank to save it and record them later."
+                                : "Pickup has arrived. Record Kilometer Out & Fuel Level to hand the car over now — the booking becomes Active and the Rental Agreement is generated on create. Leave blank to hand over later."}
                             </div>
-                            <div style={{ marginBottom: 14 }}>
-                              <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
-                              <input
-                                type="number"
-                                min="0"
-                                value={newBookingData.startingMileage}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  if (v !== "" && Number(v) < 0) return;
-                                  setNewBookingData({ ...newBookingData, startingMileage: v });
-                                }}
-                                placeholder="9210"
-                                style={bookingFieldInputStyle(false)}
-                              />
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                              <div>
+                                <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
+                                <input type="number" min="0" value={newBookingData.startingMileage}
+                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, startingMileage: v }); }}
+                                  placeholder="9210" style={bookingFieldInputStyle(false)} />
+                              </div>
+                              <div>
+                                <label style={bookingFieldLabelStyle}>Fuel Level (at handover)</label>
+                                <select value={newBookingData.fuelLevel} onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })} style={bookingFieldInputStyle(false)}>
+                                  <option value="">Select fuel level</option>
+                                  <option value="Empty">Empty</option>
+                                  <option value="1/4">1/4</option>
+                                  <option value="1/2">1/2</option>
+                                  <option value="3/4">3/4</option>
+                                  <option value="Full">Full</option>
+                                </select>
+                              </div>
                             </div>
-                            <div style={{ marginBottom: 14 }}>
-                              <label style={bookingFieldLabelStyle}>Fuel Level</label>
-                              <select
-                                value={newBookingData.fuelLevel}
-                                onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })}
-                                style={bookingFieldInputStyle(false)}
-                              >
-                                <option value="">Select fuel level</option>
-                                <option value="Empty">Empty</option>
-                                <option value="1/4">1/4</option>
-                                <option value="1/2">1/2</option>
-                                <option value="3/4">3/4</option>
-                                <option value="Full">Full</option>
-                              </select>
-                            </div>
+                            {hasEnded && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+                                <div>
+                                  <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
+                                  <input type="number" min="0" value={newBookingData.customerReturnMileage}
+                                    onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, customerReturnMileage: v }); }}
+                                    placeholder="only if staff drove it back" style={bookingFieldInputStyle(false)} />
+                                </div>
+                                <div>
+                                  <label style={bookingFieldLabelStyle}>Final Odometer / Shed (km)</label>
+                                  <input type="number" min="0" value={newBookingData.mileageIn}
+                                    onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, mileageIn: v }); }}
+                                    placeholder="9450" style={bookingFieldInputStyle(false)} />
+                                </div>
+                                <div>
+                                  <label style={bookingFieldLabelStyle}>Fuel In (at return)</label>
+                                  <select value={newBookingData.fuelIn} onChange={(e) => setNewBookingData({ ...newBookingData, fuelIn: e.target.value })} style={bookingFieldInputStyle(false)}>
+                                    <option value="Empty">Empty</option>
+                                    <option value="1/4">1/4</option>
+                                    <option value="1/2">1/2</option>
+                                    <option value="3/4">3/4</option>
+                                    <option value="Full">Full</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
                             <div>
                               <label style={bookingFieldLabelStyle}>Vehicle Condition</label>
-                              <textarea
-                                value={newBookingData.vehicleCondition}
-                                onChange={(e) => setNewBookingData({ ...newBookingData, vehicleCondition: e.target.value })}
-                                placeholder="Note any existing scratches, dents, or issues before handing over the keys"
-                                rows={3}
-                                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }}
-                              />
+                              <textarea value={newBookingData.vehicleCondition} onChange={(e) => setNewBookingData({ ...newBookingData, vehicleCondition: e.target.value })}
+                                placeholder="Note any existing scratches, dents, or issues" rows={2}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
                             </div>
                           </div>
-                        )}
+                          );
+                        })()}
                       </>
                     );
                   })()}
