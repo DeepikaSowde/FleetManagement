@@ -306,6 +306,7 @@ const ACTIVITY_META = {
   handover: { icon: "🔑", label: "Vehicle Handover", color: "#0ea5e9" },
   charge: { icon: "🧾", label: "Additional Charge Added", color: "#f97316" },
   payment: { icon: "💳", label: "Payment Recorded", color: "#16a34a" },
+  deposit_collected: { icon: "💰", label: "Deposit Collected", color: "#8b5cf6" },
   deposit: { icon: "💰", label: "Deposit Returned", color: "#8b5cf6" },
   returned: { icon: "🚗", label: "Vehicle Returned", color: "#0ea5e9" },
   markdone: { icon: "✅", label: "Marked Done (early)", color: C.teal },
@@ -335,6 +336,7 @@ const buildBookingActivityLog = (booking, inv) => {
     if (booking.createdAt) events.push({ type: "created", at: booking.createdAt, by: fallback });
     if (booking.handoverAt) events.push({ type: "handover", at: booking.handoverAt, by: fallback, detail: `Odometer ${booking.startingMileage || "—"} km · Fuel ${booking.fuelLevel || "—"}` });
     if (booking.updatedAt && booking.updatedAt !== booking.createdAt) events.push({ type: "updated", at: booking.updatedAt, by: fallback });
+    if (booking.depositCollectedAt) events.push({ type: "deposit_collected", at: booking.depositCollectedAt, by: fallback, detail: `Deposit ${fmt(inv.deposit)}${booking.depositCollectedMethod ? ` · ${booking.depositCollectedMethod}` : ""}` });
     if (booking.depositRefundedAt) events.push({ type: "deposit", at: booking.depositRefundedAt, by: fallback, detail: `Returned ${fmt(Number(booking.depositRefundedAmount) || 0)}` });
     if (booking.returnedAt) events.push({ type: "returned", at: booking.returnedAt, by: fallback, detail: `Final odo ${booking.mileageIn || "—"} km` });
   }
@@ -370,7 +372,7 @@ const BookingActivityTimeline = ({ booking, inv }) => {
   return (
     <div>
       {events.map((ev, i) => {
-        const meta = ACTIVITY_META[ev.type];
+        const meta = ACTIVITY_META[ev.type] || { icon: "•", label: ev.type || "Activity", color: C.textMuted };
         const isLast = i === events.length - 1;
         return (
           <div key={i} style={{ display: "flex", gap: 14 }}>
@@ -437,6 +439,15 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
   const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
   const [showHandover, setShowHandover] = useState(false);
+  // Rent collected at pickup (deposit-first flow): the rental amount is now taken
+  // at Vehicle Handover. It's optional here — handover is NOT blocked when it's
+  // unpaid (staff may settle it another way or at return) — but this is the
+  // primary place to record it. Prefilled to the outstanding balance when the
+  // handover panel is opened (see the Complete Handover button).
+  const [rentAtPickup, setRentAtPickup] = useState("");
+  const [rentMethod, setRentMethod] = useState("Cash");
+  const [rentDate, setRentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rentTime, setRentTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const returnRef = useRef(null);
 
   if (!booking) return null;
@@ -466,10 +477,32 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (!pickupArrived) { alert(`Vehicle Handover is allowed only at the scheduled pickup time or later (${formatDateTime(booking.start)}).`); return; }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
+
+    // Rent at pickup — optional, not a gate. If an amount is entered it's
+    // recorded as a real payment (same shape as Record Payment), appended to
+    // the single `payments` source of truth so Balance Due updates itself.
+    // Overpayment is blocked at entry, exactly like handleRecordPayment.
+    const rentEntered = Number(rentAtPickup) || 0;
+    if (rentEntered < 0) { alert("Rent amount can't be negative"); return; }
+    if (rentEntered > inv.balanceDue) {
+      alert(`Rent exceeds the Balance Due (${fmt(inv.balanceDue)}). Enter ${fmt(inv.balanceDue)} or less.`);
+      return;
+    }
+    if (rentEntered > 0 && (!rentDate || !rentTime)) { alert("Enter the rent payment date & time"); return; }
+
     const updates = {
       startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
       history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}`)),
     };
+    if (rentEntered > 0) {
+      updates.payments = [...inv.payments, {
+        id: `rent-${Date.now()}`,
+        amount: rentEntered,
+        method: rentMethod,
+        addedAt: `${rentDate}T${rentTime}`,
+        by: actor,
+      }];
+    }
     onUpdateBooking(booking.id, updates);
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
     generateRentalAgreementPdf({ ...booking, ...updates }, car);
@@ -741,6 +774,39 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <div style={detailFieldLabelStyle}>Vehicle Condition (optional)</div>
                       <textarea value={vehicleCondition} onChange={(e) => setVehicleCondition(e.target.value)} placeholder="Any scratches, dents, notes…" style={{ ...detailInputStyle, minHeight: 52, resize: "vertical" }} />
                     </div>
+
+                    {/* Rent collected at pickup — the rental amount is taken here in
+                        the deposit-first flow. Optional (doesn't block handover). */}
+                    {inv.balanceDue > 0 && (
+                      <div style={{ marginTop: 12, borderTop: `1px dashed ${C.border}`, paddingTop: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy }}>💵 Collect Rent at Pickup</div>
+                          <div style={{ fontSize: 11.5, color: C.textMuted }}>Balance due <strong style={{ color: C.red }}>{fmt(inv.balanceDue)}</strong></div>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                          <div style={{ flex: "1 1 140px" }}>
+                            <div style={detailFieldLabelStyle}>Rent Amount</div>
+                            <input type="number" min="0" max={inv.balanceDue} value={rentAtPickup} onChange={(e) => setRentAtPickup(e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 120px" }}>
+                            <div style={detailFieldLabelStyle}>Method</div>
+                            <select value={rentMethod} onChange={(e) => setRentMethod(e.target.value)} style={detailInputStyle}>
+                              {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ flex: "1 1 120px" }}>
+                            <div style={detailFieldLabelStyle}>Date</div>
+                            <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 100px" }}>
+                            <div style={detailFieldLabelStyle}>Time</div>
+                            <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank to collect the rent later (e.g. at return).</div>
+                      </div>
+                    )}
+
                     <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                       <Btn primary onClick={handleCompleteHandover}>Save &amp; Generate Agreement</Btn>
                       <Btn onClick={() => setShowHandover(false)}>Cancel</Btn>
@@ -753,7 +819,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Next step: Complete Vehicle Handover</div>
                       <div style={{ fontSize: 11.5, color: C.textMuted }}>
                         {pickupArrived
-                          ? "Record starting mileage, fuel & condition to activate the rental and generate the Rental Agreement."
+                          ? "Collect the rent, record starting mileage, fuel & condition to activate the rental and generate the Rental Agreement."
                           : `Handover opens at the scheduled pickup time — ${formatDateTime(booking.start)}.`}
                       </div>
                     </div>
@@ -762,7 +828,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       disabled={!pickupArrived}
                       title={!pickupArrived ? `Available at the scheduled pickup time (${formatDateTime(booking.start)})` : undefined}
                       style={!pickupArrived ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-                      onClick={() => setShowHandover(true)}
+                      onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setShowHandover(true); }}
                     >
                       Complete Handover →
                     </Btn>
@@ -1021,7 +1087,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <span style={{ ...mono }}>
                         {fmt(inv.deposit)} — {booking.depositRefunded
                           ? `Returned ${fmt(booking.depositRefundedAmount ?? inv.deposit)}${(booking.depositRefundedAmount ?? inv.deposit) < inv.deposit ? " (partial)" : ""}`
-                          : "Held"}
+                          : booking.depositCollected === false
+                            ? "Pending collection"
+                            : "Held"}
                       </span>
                       {inv.deposit > 0 && !booking.depositRefunded && (
                         <button onClick={handleMarkDepositRefunded} style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
