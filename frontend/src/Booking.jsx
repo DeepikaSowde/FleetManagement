@@ -439,6 +439,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
   const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
   const [showHandover, setShowHandover] = useState(false);
+  // Security-deposit refund modal (replaces the old window.prompt). A refund
+  // lower than the deposit held requires a reason, captured here and recorded
+  // in the booking history + on the booking (depositRefundedReason).
+  const [showRefund, setShowRefund] = useState(false);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
   // Rent collected at pickup (deposit-first flow): the rental amount is now taken
   // at Vehicle Handover. It's optional here — handover is NOT blocked when it's
   // unpaid (staff may settle it another way or at return) — but this is the
@@ -587,25 +593,36 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     onUpdateBooking(booking.id, { charges: (booking.charges || []).filter(c => c.id !== id) });
   };
 
+  // Opens the refund modal, prefilled to a full refund. Supports full refunds,
+  // partial refunds (a deduction for damage/fuel/cleaning), or a full forfeit (0).
   const handleMarkDepositRefunded = () => {
-    // Ask how much is actually being returned — supports full refunds, partial
-    // refunds (e.g. a deduction for damage/fuel), or a full forfeit (0).
-    const input = window.prompt(
-      `Security deposit held: ${fmt(inv.deposit)}.\nHow much are you returning to the customer?`,
-      String(inv.deposit)
-    );
-    if (input === null) return; // cancelled
-    const amount = Number(input);
-    if (isNaN(amount) || amount < 0 || amount > inv.deposit) {
-      alert(`Enter an amount between 0 and ${fmt(inv.deposit)}.`);
+    setRefundAmount(String(inv.deposit));
+    setRefundReason("");
+    setShowRefund(true);
+  };
+
+  const handleConfirmRefund = () => {
+    const amount = Number(refundAmount);
+    if (refundAmount === "" || isNaN(amount) || amount < 0 || amount > inv.deposit) {
+      alert(`Enter an amount between ${fmt(0)} and ${fmt(inv.deposit)}.`);
+      return;
+    }
+    const isPartial = amount < inv.deposit;
+    const reason = refundReason.trim();
+    // A reduced refund must say why — it's money withheld from the customer, so
+    // the reason is required and recorded on the booking + in its history.
+    if (isPartial && !reason) {
+      alert("Enter the reason for returning less than the full deposit.");
       return;
     }
     onUpdateBooking(booking.id, {
       depositRefunded: true,
       depositRefundedAmount: amount,
+      depositRefundedReason: isPartial ? reason : "",
       depositRefundedAt: new Date().toISOString(),
-      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.deposit)}${amount < inv.deposit ? " (partial)" : ""}`)),
+      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.deposit)}${isPartial ? ` (partial) — ${reason}` : ""}`)),
     });
+    setShowRefund(false);
   };
 
   const handleRecordPayment = () => {
@@ -1094,7 +1111,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0", fontSize: 12.5, color: C.textSec }}>
                     <span>Security Deposit</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ ...mono }}>
+                      <span style={{ ...mono }} title={booking.depositRefundedReason || undefined}>
                         {fmt(inv.deposit)} — {booking.depositRefunded
                           ? `Returned ${fmt(booking.depositRefundedAmount ?? inv.deposit)}${(booking.depositRefundedAmount ?? inv.deposit) < inv.deposit ? " (partial)" : ""}`
                           : booking.depositCollected === false
@@ -1256,6 +1273,43 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           )}
         </div>
       </div>
+
+      {/* Security Deposit refund modal — replaces the browser prompt. A refund
+          below the deposit held reveals a required "reason" field. */}
+      {showRefund && (() => {
+        const amount = Number(refundAmount);
+        const validNum = refundAmount !== "" && !isNaN(amount) && amount >= 0 && amount <= inv.deposit;
+        const isPartial = validNum && amount < inv.deposit;
+        return (
+          <>
+            <div onClick={() => setShowRefund(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+            <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(440px, 92vw)", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Return Security Deposit</div>
+                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Deposit held: <strong style={{ color: C.navy }}>{fmt(inv.deposit)}</strong></div>
+              </div>
+              <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <div style={detailFieldLabelStyle}>Amount returning to customer</div>
+                  <input type="number" min="0" max={inv.deposit} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} style={detailInputStyle} autoFocus />
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{fmt(inv.deposit)} for a full refund, a lower amount for a partial refund, or 0 to forfeit.</div>
+                </div>
+                {isPartial && (
+                  <div>
+                    <div style={detailFieldLabelStyle}>Reason for reduced refund <span style={{ color: C.red }}>*</span></div>
+                    <textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} placeholder="e.g., deduction for a scratch on the rear bumper / fuel shortfall / cleaning fee" style={{ ...detailInputStyle, minHeight: 64, resize: "vertical" }} />
+                    <div style={{ fontSize: 11, color: "#d97706", marginTop: 4 }}>Deducting {fmt(inv.deposit - amount)} — a reason is required and recorded in the booking history.</div>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+                <Btn onClick={() => setShowRefund(false)}>Cancel</Btn>
+                <Btn primary onClick={handleConfirmRefund}>Confirm Refund</Btn>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </>
   );
 };
