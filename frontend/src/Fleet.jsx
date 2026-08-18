@@ -753,7 +753,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
 
       {/* Add Car Wizard Modal */}
       {wizardOpen && (
-        <AddCarWizard onComplete={handleWizardComplete} onClose={() => setWizardOpen(false)} />
+        <AddCarWizard onComplete={handleWizardComplete} onClose={() => setWizardOpen(false)} fleet={fleet} />
       )}
 
       {/* Filter and Search Section */}

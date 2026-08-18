@@ -978,6 +978,14 @@ export default function FleetOpzApp() {
       alert("Daily rate cannot be negative");
       return;
     }
+    // Security Deposit can never exceed the Rate Charge (Daily Rate x days).
+    // The Step 3 input already clamps this as the user types, but re-check
+    // here too in case Rate or the dates were lowered afterward, dropping
+    // bookingRateCharge below a deposit value that was valid when entered.
+    if (Number(newBookingData.deductible) > bookingRateCharge) {
+      alert(`Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`);
+      return;
+    }
     // Return date/time must always be after the booking date/time.
     if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
       alert("Return Date & Time must be after the Booking Date & Time");
@@ -1888,9 +1896,23 @@ export default function FleetOpzApp() {
                     </div>
                     <div>
                       <label style={bookingFieldLabelStyle}>Security Deposit</label>
-                      <input type="number" min="0" value={newBookingData.deductible}
-                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, deductible: v }); }}
+                      <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "") { setNewBookingData({ ...newBookingData, deductible: v }); return; }
+                          const n = Number(v);
+                          if (n < 0) return;
+                          // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
+                          // clamp instead of alerting so staff simply can't type past the cap.
+                          const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
+                          setNewBookingData({ ...newBookingData, deductible: String(capped) });
+                        }}
                         placeholder="0" style={bookingFieldInputStyle(false)} />
+                      {bookingRateCharge > 0 && (
+                        <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
+                          Max allowed: {formatSGD(bookingRateCharge)} (Rate Charge)
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
