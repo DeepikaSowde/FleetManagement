@@ -803,7 +803,17 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
                           </div>
                         </div>
-                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank to collect the rent later (e.g. at return).</div>
+                        {(() => {
+                          const entered = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
+                          const remaining = inv.balanceDue - entered;
+                          return (
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>Balance after this</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: remaining <= 0 ? C.teal : "#d97706", ...mono }}>{fmt(remaining)}</span>
+                            </div>
+                          );
+                        })()}
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank, or collect part now; any remaining balance can be collected later (e.g. at return).</div>
                       </div>
                     )}
 
