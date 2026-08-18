@@ -196,23 +196,30 @@ const computeFleetStatus = (car, bookingsWithStatus) => {
 };
 
 // Projects a car's availability forward day-by-day (used by the Booking
-// module's 10-day timeline). Everything it relies on (computeBookingStatus,
-// MAINTENANCE_MAX_DAYS) is the exact same logic "today" status already uses,
-// just replayed once per day instead of once for today. No new status rules
-// are introduced here — but note "Upcoming" is deliberately NOT one of this
-// projection's day statuses. computeBookingStatus only ever returns
-// "Upcoming" for a day strictly before a booking's start (i.e. a day the
-// booking does not actually occupy), so treating it as an occupied/
-// unavailable day here was the bug: it made every day between now and a
-// future booking's start look reserved. "Upcoming" remains valid everywhere
-// else (the car's overall current status, the booking table's status
-// column) — it's just not a per-day timeline state:
+// module's 10-day timeline, and by the New Booking wizard's Pickup/Return
+// calendars — both read this same projection, so neither can disagree with
+// the other or with checkBookingConflict about what's actually available).
+// Everything it relies on (computeBookingStatus, MAINTENANCE_MAX_DAYS) is the
+// exact same logic "today" status already uses, just replayed once per day
+// instead of once for today.
 //   Maintenance   → projected using the car's maintenanceStartDate + MAINTENANCE_MAX_DAYS,
 //                   for a car manually placed into Maintenance (nothing automatic sets this)
 //   Ending Today  → a booking's computeBookingStatus for that day is "Ending Today"
-//   On Rental     → a booking's computeBookingStatus for that day is "Active"
-//   Available     → none of the above (including every day before a future
-//                   booking's start — the car is genuinely free until then)
+//   On Rental     → a booking's computeBookingStatus for that day is "Active", OR its
+//                   status is "Upcoming" but dateStr still falls within that booking's
+//                   own [start, end] range — computeBookingStatus returns "Upcoming"
+//                   both for a day genuinely before a booking starts AND for a day
+//                   inside a booking's range whose Vehicle Handover hasn't happened
+//                   yet (see computeBookingStatus's !booking.handoverAt check), so
+//                   this projection disambiguates the two directly off the booking's
+//                   own dates rather than trusting `st` alone. Treating every
+//                   "Upcoming" day as free was the bug: a booking pending Handover
+//                   showed as Available here while checkBookingConflict (a plain
+//                   date-range overlap, independent of handoverAt) correctly flagged
+//                   the same dates as booked — the calendar would let someone select
+//                   a day it had just shown as open, only to be rejected right after.
+//   Available     → none of the above (including every day genuinely before a
+//                   future booking's start — the car is free until then)
 // Exported so Booking.jsx renders from this, rather than re-deriving statuses itself.
 export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDateStr) => {
   const start = fromDateStr ? new Date(fromDateStr) : new Date();
@@ -252,6 +259,25 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
         const st = computeBookingStatus(b, dateStr);
         if (st === "Active") {
           occupied = true;
+        } else if (st === "Upcoming") {
+          // computeBookingStatus returns "Upcoming" for two different reasons:
+          // (a) dateStr is genuinely before this booking's start — the car is
+          //     free until then, or
+          // (b) dateStr falls WITHIN this booking's own [start, end] range,
+          //     but Handover hasn't happened yet (the "Awaiting Handover"
+          //     case) — the car IS reserved for this day, just not yet
+          //     physically picked up.
+          // Those two cases are indistinguishable from `st` alone, so check
+          // dateStr against the booking's own start/end directly. Without
+          // this, a booking pending Handover was invisible to this timeline —
+          // every one of its days rendered as Available here even though
+          // checkBookingConflict (a plain date-range overlap, independent of
+          // handoverAt) correctly flagged the same dates as booked. That
+          // mismatch is what let the calendar show a day as available only
+          // for a conflict message to appear right after selecting it.
+          const bStart = toDateStr(b.start);
+          const bEnd = toDateStr(b.end);
+          if (dateStr >= bStart && dateStr <= bEnd) occupied = true;
         } else if (st === "Ending Today") {
           // The booking's REAL end date is a same-day turnover — the car comes
           // back at b.end time and is free for the rest of that day. (For this
