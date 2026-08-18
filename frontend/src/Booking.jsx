@@ -1026,7 +1026,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         tracking. Never sent to computeBookingInvoice, so these
                         never appear on the customer invoice or Balance Due. */}
                     <div style={{ flex: "1 1 100%" }}>
-                      <div style={{ ...detailFieldLabelStyle, marginBottom: 6 }}>Additional Return Charges <span style={{ color: C.textMuted, fontWeight: 400 }}>(internal — Rental Income only, not on customer invoice)</span></div>
+                      <div style={{ ...detailFieldLabelStyle, marginBottom: 6 }}>Additional Return Charges <span style={{ color: C.textMuted, fontWeight: 400 }}></span></div>
                       {additionalReturnCharges.map((c) => (
                         <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6, flexWrap: "wrap" }}>
                           <div style={{ flex: "1 1 140px" }}>
