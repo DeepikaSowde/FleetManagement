@@ -2284,15 +2284,18 @@ export default function FleetOpzApp() {
                           );
                         })()}
 
-                        {/* Started booking (pickup today or backdated): surface
-                            Vehicle Handover here. If the rental period has ALSO
-                            already ended, surface Vehicle Return too, so a past
-                            rental can be logged in one go — filling handover makes
-                            it Active on create; filling the return as well makes it
-                            Completed. Leaving them blank saves it as-is. */}
-                        {!editingBookingId && !createdBookingInfo && newBookingData.start
-                          && new Date(newBookingData.start).getTime() <= Date.now() && (() => {
-                          const hasEnded = !!newBookingData.end && new Date(newBookingData.end).getTime() < Date.now();
+                        {/* Backdated, already-ENDED rental only: surface Vehicle
+                            Handover + Return here so a completed past rental can be
+                            logged in one go (fill both → created Completed; leave
+                            blank → saved as-is). For a normal booking whose pickup is
+                            today/future but hasn't ended yet, handover is deliberately
+                            NOT shown here — mileage/fuel/condition are captured at the
+                            actual Vehicle Handover step in the booking detail view,
+                            where the rent is collected too (deposit-first flow). */}
+                        {!editingBookingId && !createdBookingInfo && newBookingData.start && newBookingData.end
+                          && new Date(newBookingData.start).getTime() <= Date.now()
+                          && new Date(newBookingData.end).getTime() < Date.now() && (() => {
+                          const hasEnded = true; // gated above: this block renders only for already-ended rentals
                           return (
                           <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover{hasEnded ? " & Return" : ""}</div>
