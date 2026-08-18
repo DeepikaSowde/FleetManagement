@@ -421,6 +421,21 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // from, so this is a plain amount field, same as any other post-return
   // charge amount (Damage Fee, Cleaning Fee, etc).
   const [fuelCharge, setFuelCharge] = useState("");
+  // Additional Return Charges — internal-only line items recorded at return
+  // time (e.g. late fee, damage note, cleaning). Deliberately kept out of
+  // `booking.charges` (the invoice-facing array computeBookingInvoice reads),
+  // so these never touch the customer invoice or Balance Due — they're
+  // stored separately on the booking purely for Rental Income tracking.
+  const [additionalReturnCharges, setAdditionalReturnCharges] = useState([]);
+  const addReturnCharge = () => {
+    setAdditionalReturnCharges(list => [...list, { id: `arc-${Date.now()}-${list.length}`, name: "", description: "", amount: "" }]);
+  };
+  const updateReturnCharge = (id, field, value) => {
+    setAdditionalReturnCharges(list => list.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+  const removeReturnCharge = (id) => {
+    setAdditionalReturnCharges(list => list.filter(c => c.id !== id));
+  };
   // Defaults to right now (still fully editable) so an on-time return needs
   // no changes, but an early or late return can be corrected before confirming.
   const [actualReturnDate, setActualReturnDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -505,6 +520,21 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     }
     const actualReturnAt = `${actualReturnDate}T${actualReturnTime}`;
 
+    // Only rows with both a Charge Name and an Amount > 0 are kept — blank
+    // or half-filled rows staff added then abandoned are simply dropped,
+    // not saved. This never touches booking.charges (the invoice array),
+    // so it can't affect the customer invoice or Balance Due.
+    const validRentalIncomeCharges = additionalReturnCharges
+      .filter(c => c.name.trim() !== "" && Number(c.amount) > 0)
+      .map(c => ({
+        id: c.id,
+        name: c.name.trim(),
+        description: c.description.trim(),
+        amount: Number(c.amount),
+        addedAt: new Date().toISOString(),
+        by: actor,
+      }));
+
     // Fuel Charge is whatever amount staff entered above (comparing Starting
     // Fuel at Handover against the Ending Fuel just entered is on them — no
     // rate is assumed here). Added as an itemized, taxable "return" charge —
@@ -535,6 +565,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const compKm = Math.max(0, Number(mileageIn) - custB);
     onUpdateBooking(booking.id, {
       mileageIn, customerReturnMileage, fuelIn, actualReturnAt, charges,
+      rentalIncomeCharges: [...(booking.rentalIncomeCharges || []), ...validRentalIncomeCharges],
       forceCompleted: true,
       returnedAt: new Date().toISOString(),
       history: withHistory(histEntry("returned", `Final odo ${mileageIn} km · ${custKm.toLocaleString()} customer / ${compKm.toLocaleString()} company km · Fuel ${fuelIn}`)),
@@ -979,7 +1010,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         {FUEL_LEVELS.map(f => <option key={f} value={f}>{f}</option>)}
                       </select>
                     </div>
-                    <div style={{ flex: "1 1 160px" }}>
+                    <div style={{ flex: "0 1 110px" }}>
                       <div style={detailFieldLabelStyle}>Fuel Charge</div>
                       <input
                         type="number"
@@ -990,6 +1021,29 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         style={detailInputStyle}
                       />
                     </div>
+
+                    {/* Additional Return Charges — internal-only, Rental Income
+                        tracking. Never sent to computeBookingInvoice, so these
+                        never appear on the customer invoice or Balance Due. */}
+                    <div style={{ flex: "1 1 100%" }}>
+                      <div style={{ ...detailFieldLabelStyle, marginBottom: 6 }}>Additional Return Charges <span style={{ color: C.textMuted, fontWeight: 400 }}>(internal — Rental Income only, not on customer invoice)</span></div>
+                      {additionalReturnCharges.map((c) => (
+                        <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6, flexWrap: "wrap" }}>
+                          <div style={{ flex: "1 1 140px" }}>
+                            <input type="text" value={c.name} onChange={(e) => updateReturnCharge(c.id, "name", e.target.value)} placeholder="Charge Name" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "2 1 200px" }}>
+                            <input type="text" value={c.description} onChange={(e) => updateReturnCharge(c.id, "description", e.target.value)} placeholder="Description" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "0 1 110px" }}>
+                            <input type="number" min="0" value={c.amount} onChange={(e) => updateReturnCharge(c.id, "amount", e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                          </div>
+                          <Btn onClick={() => removeReturnCharge(c.id)} style={{ color: C.red }}>Delete</Btn>
+                        </div>
+                      ))}
+                      <Btn onClick={addReturnCharge}>+ Add Charge</Btn>
+                    </div>
+
                     <Btn primary onClick={handleConfirmReturn}>Confirm Return & Generate Invoice</Btn>
                     <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
                       <strong style={{ color: C.navy }}>Customer Return Odo</strong> is the reading when the customer handed the car back — leave it blank if they returned it directly. Any extra distance up to the <strong style={{ color: C.navy }}>Final Odometer</strong> is counted as company/internal (drive-back), not customer usage.
