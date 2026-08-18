@@ -1948,11 +1948,14 @@ export default function FleetOpzApp() {
                     )}
                   </div>
                   <div style={{ marginBottom: 16, fontSize: 10.5, color: C.textMuted }}>
-                    Security Deposit is refundable — not part of the rental total.
+                    Security Deposit is refundable — collected upfront and included in the Grand Total, returned at the end of the rental.
                   </div>
 
-                  {/* Calculated amount summary — Security Deposit intentionally
-                      excluded, since it's refundable and not part of the rental total */}
+                  {/* Calculated amount summary — Security Deposit is refundable but
+                      shown here and folded into the Grand Total, so it reflects the
+                      full amount collected across the booking (deposit upfront + rent
+                      at pickup). NOTE: bookingTotal itself stays rental-only for the
+                      rent / Balance Due math; only this displayed total adds the deposit. */}
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
                     {[
                       { label: "Rental Vehicle Charge", value: bookingRateCharge },
@@ -1974,9 +1977,15 @@ export default function FleetOpzApp() {
                       <span>VAT ({bookingVatRatePct || 0}%)</span>
                       <span style={mono}>{formatSGD(bookingVatAmount)}</span>
                     </div>
+                    {bookingDeductible > 0 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
+                        <span>Security Deposit <span style={{ color: C.textMuted }}>(refundable)</span></span>
+                        <span style={mono}>{formatSGD(bookingDeductible)}</span>
+                      </div>
+                    )}
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
                       <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Grand Total</span>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal)}</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal + bookingDeductible)}</span>
                     </div>
                   </div>
                 </>
