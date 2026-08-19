@@ -392,6 +392,9 @@ export default function FleetOpzApp() {
     pickup: "",
     drop: "",
     rate: "",
+    // Total Rental Amount — the editable, authoritative rental charge (Pricing &
+    // Charges). Blank = use the suggested total (rate × units). See derived vars.
+    rentalAmount: "",
     deductible: "",
     vatRate: "",
     // New Pricing Details charge fields — separate optional line items beyond
@@ -670,6 +673,7 @@ export default function FleetOpzApp() {
       pickup: booking.pickup || "",
       drop: booking.drop || "",
       rate: booking.rate ?? "",
+      rentalAmount: booking.rentalAmount ?? "",
       deductible: booking.deductible ?? "",
       vatRate: booking.vatRate ?? "",
       deliveryCharge: booking.deliveryCharge ?? "",
@@ -707,7 +711,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setMatchedCustomer(null);
     setCreatedBookingInfo(null);
@@ -1173,6 +1177,9 @@ export default function FleetOpzApp() {
         returnedAt: new Date().toISOString(),
       } : {}),
       createdAt: new Date().toISOString(),
+      // Persist the resolved Total Rental Amount (blank input → suggested total)
+      // so the booking's invoice bills exactly what Pricing & Charges showed.
+      rentalAmount: String(bookingRateCharge),
       // Deposit collection metadata (separate from `payments`). depositCollectedAt
       // is set only when the deposit was actually received at confirmation.
       depositCollectedAt,
@@ -1263,10 +1270,33 @@ export default function FleetOpzApp() {
   // Derived pricing for Step 3 (Pricing & Charges) — recomputed from
   // newBookingData on every render since it's cheap arithmetic; nothing here
   // is written back into state until Create Booking actually submits.
-  const bookingDays = (newBookingData.start && newBookingData.end)
-    ? Math.max(0, Math.round((new Date(newBookingData.end) - new Date(newBookingData.start)) / 86400000))
+  // Duration → billing units. Under 24h bills per HOUR; otherwise per DAY with
+  // days rounded UP (any part of a day counts as a full day).
+  const bookingHoursExact = (newBookingData.start && newBookingData.end)
+    ? Math.max(0, (new Date(newBookingData.end) - new Date(newBookingData.start)) / 3600000)
     : 0;
-  const bookingRateCharge = (Number(newBookingData.rate) || 0) * bookingDays;
+  const bookingIsHourly = bookingHoursExact > 0 && bookingHoursExact < 24;
+  const bookingUnits = bookingHoursExact <= 0
+    ? 0
+    : bookingIsHourly
+      ? Math.max(1, Math.ceil(bookingHoursExact))
+      : Math.max(1, Math.ceil(bookingHoursExact / 24));
+  const bookingUnitLabel = bookingIsHourly ? "hour" : "day";
+  const bookingDays = bookingIsHourly ? 0 : bookingUnits; // kept for day-only labels
+  // Suggested rate = the car's daily rate (Step 2); per hour it's that ÷ 24.
+  const bookingSuggestedDaily = Number(newBookingData.rate) || 0;
+  const bookingSuggestedUnitRate = bookingIsHourly ? bookingSuggestedDaily / 24 : bookingSuggestedDaily;
+  const bookingSuggestedTotal = bookingSuggestedUnitRate * bookingUnits;
+  // Total Rental Amount is the stored source of truth. Left blank it falls back
+  // to the suggested total (so an untouched booking bills the suggested rate).
+  const bookingRentalEntered = newBookingData.rentalAmount !== "" && newBookingData.rentalAmount != null;
+  const bookingRateCharge = bookingRentalEntered ? (Number(newBookingData.rentalAmount) || 0) : bookingSuggestedTotal;
+  // Implied per-unit rate from the total in effect, and how it compares to the
+  // suggested rate (positive = gain, negative = loss).
+  const bookingImpliedUnitRate = bookingUnits > 0 ? bookingRateCharge / bookingUnits : 0;
+  const bookingRatePct = bookingSuggestedUnitRate > 0
+    ? ((bookingImpliedUnitRate - bookingSuggestedUnitRate) / bookingSuggestedUnitRate) * 100
+    : 0;
   const bookingDeliveryCharge = Number(newBookingData.deliveryCharge) || 0;
   const bookingCollectionCharge = Number(newBookingData.collectionCharge) || 0;
   const bookingAdditionalDriverCharge = Number(newBookingData.additionalDriverCharge) || 0;
@@ -1899,8 +1929,44 @@ export default function FleetOpzApp() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 16 }}>🧾 Pricing & Charges</div>
 
                   <div style={{ marginBottom: 14 }}>
-                    <label style={bookingFieldLabelStyle}>Rate Charge (Daily, {bookingDays} day{bookingDays === 1 ? "" : "s"}) — auto</label>
-                    <input type="text" readOnly value={formatSGD(bookingRateCharge)} style={bookingFieldInputStyle(true)} />
+                    <label style={bookingFieldLabelStyle}>
+                      Total Rental Amount{bookingUnits > 0 ? ` — ${bookingUnits} ${bookingUnitLabel}${bookingUnits === 1 ? "" : "s"}` : ""}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newBookingData.rentalAmount}
+                      onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, rentalAmount: v }); }}
+                      placeholder={bookingSuggestedTotal ? String(bookingSuggestedTotal) : "0"}
+                      style={bookingFieldInputStyle(false)}
+                    />
+                    {/* Derived per-unit rate + how it compares to the car's suggested rate */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                      <span style={{ fontSize: 11, color: C.textMuted }}>
+                        {bookingUnits > 0 ? (
+                          <>
+                            Rate <b style={{ color: C.navy }}>{formatSGD(bookingImpliedUnitRate)}</b>/{bookingUnitLabel}
+                            {bookingSuggestedUnitRate > 0 && <> · suggested {formatSGD(bookingSuggestedUnitRate)}/{bookingUnitLabel}</>}
+                          </>
+                        ) : "Set pickup & return date/time to see the rate."}
+                      </span>
+                      {bookingUnits > 0 && bookingSuggestedUnitRate > 0 && Math.abs(bookingRatePct) >= 0.05 && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: bookingRatePct >= 0 ? "#16a34a" : C.red }}>
+                          {bookingRatePct >= 0
+                            ? `▲ You gain ${bookingRatePct.toFixed(1)}%`
+                            : `▼ You lose ${Math.abs(bookingRatePct).toFixed(1)}%`}
+                        </span>
+                      )}
+                    </div>
+                    {bookingSuggestedTotal > 0 && bookingRentalEntered && Number(newBookingData.rentalAmount) !== bookingSuggestedTotal && (
+                      <button
+                        type="button"
+                        onClick={() => setNewBookingData({ ...newBookingData, rentalAmount: String(bookingSuggestedTotal) })}
+                        style={{ marginTop: 6, fontSize: 11, color: C.teal, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+                      >
+                        Use suggested {formatSGD(bookingSuggestedTotal)}
+                      </button>
+                    )}
                   </div>
 
                   {/* All the small numeric charge fields packed into one dense
@@ -2187,7 +2253,7 @@ export default function FleetOpzApp() {
                           <div style={{ fontSize: 12.5, color: C.navy }}>{formatDateTime(newBookingData.start) || "—"}</div>
                           <div style={{ fontSize: 12.5, color: C.textMuted, margin: "2px 0" }}>↓</div>
                           <div style={{ fontSize: 12.5, color: C.navy }}>{formatDateTime(newBookingData.end) || "—"}</div>
-                          <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>{bookingDays} Day{bookingDays === 1 ? "" : "s"} · Daily</div>
+                          <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>{bookingUnits} {bookingUnitLabel === "hour" ? "Hour" : "Day"}{bookingUnits === 1 ? "" : "s"} · {bookingIsHourly ? "Hourly" : "Daily"}</div>
                         </div>
 
                         {editingBookingId ? (

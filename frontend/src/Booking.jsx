@@ -173,7 +173,13 @@ const computeBookingInvoice = (b) => {
   // not the originally planned end date/time.
   const effectiveEnd = b.actualReturnAt || b.end;
   const days = (b.start && effectiveEnd) ? Math.max(0, Math.round((new Date(effectiveEnd) - new Date(b.start)) / 86400000)) : 0;
-  const rateCharge = (Number(b.rate) || 0) * days;
+  // Rental charge is the stored Total Rental Amount when present — that's the
+  // source of truth entered in Pricing & Charges (it already accounts for
+  // hourly/short rentals and any rate the staff agreed). Older bookings that
+  // predate this field fall back to the daily rate × days.
+  const rentalRaw = b.rentalAmount;
+  const hasRental = rentalRaw !== undefined && rentalRaw !== null && String(rentalRaw).trim() !== "" && !isNaN(Number(rentalRaw));
+  const rateCharge = hasRental ? Number(rentalRaw) : (Number(b.rate) || 0) * days;
   const deliveryCharge = Number(b.deliveryCharge) || 0;
   const collectionCharge = Number(b.collectionCharge) || 0;
   const additionalDriverCharge = Number(b.additionalDriverCharge) || 0;
