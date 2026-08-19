@@ -567,6 +567,18 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // partially paid, red while nothing's been paid against an outstanding balance.
   const balanceColor = inv.balanceDue <= 0 ? C.teal : inv.totalPaid > 0 ? "#d97706" : C.red;
 
+  // Overview tab's Payment Summary card only — folds the Security Deposit
+  // into Grand Total/Balance Due for that display, per product request.
+  // This is deliberately scoped to this one card: everywhere else (Pricing &
+  // Payment tab, Record Payment, the security-deposit refund modal,
+  // ledgerUtils.js) keeps using inv.finalInvoiceTotal/inv.balanceDue, which
+  // exclude the refundable deposit — that's the figure Record Payment and
+  // the deposit-refund flow are actually built around.
+  const overviewTotalRental = inv.finalInvoiceTotal;
+  const overviewGrandTotal = inv.deposit + overviewTotalRental;
+  const overviewBalanceDue = Math.max(0, overviewGrandTotal - inv.totalPaid);
+  const overviewBalanceColor = overviewBalanceDue <= 0 ? C.teal : inv.totalPaid > 0 ? "#d97706" : C.red;
+
   const handleConfirmReturn = () => {
     if (mileageIn === "" || Number(mileageIn) < 0) {
       alert("Enter a valid Final Odometer (shed) reading");
@@ -1029,21 +1041,17 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                                <SectionHeading size="sm">Payment Summary</SectionHeading>
                                {[
-                                 { label: "Grand Total", value: inv.finalInvoiceTotal, color: C.navy },
+                                 { label: "Security Deposit", value: inv.deposit, color: C.navy },
+                                 { label: "Total Rental", value: overviewTotalRental, color: C.navy },
+                                 { label: "Grand Total", value: overviewGrandTotal, color: C.navy },
                                  { label: "Total Paid", value: inv.totalPaid, color: C.teal },
-                                 { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
+                                 { label: "Balance Due", value: overviewBalanceDue, color: overviewBalanceColor },
                                ].map(row => (
                                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
                                    <span style={{ color: C.textSec }}>{row.label}</span>
                                    <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
                                  </div>
                                ))}
-                               {/* Kept visually separate — Security Deposit is refundable and
-                                   never part of Grand Total / Total Paid / Balance Due. */}
-                               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
-                                 <span>Security Deposit (refundable)</span>
-                                 <span style={{ textAlign: "right", ...mono }}>{fmt(inv.deposit)}</span>
-                               </div>
                              </div>
                
                              {/* Customer Summary */}

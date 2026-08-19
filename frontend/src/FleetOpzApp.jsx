@@ -46,6 +46,43 @@ const bookingFieldInputStyle = (readOnly, hasError) => ({
 const FieldErr = ({ msg }) =>
   msg ? <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>{msg}</div> : null;
 
+// Country codes offered on the Contact Number field (Step 1 only). Each
+// entry's `digits` is the number of digits the user types into the field
+// (excludes the dial code itself) — drives both the "N digits required"
+// helper text and the validation in validateStep1. `prefix`, when set, is a
+// fixed local prefix shown ahead of the editable digits and baked into the
+// stored value — Singapore's legacy format is "65" + 6 digits (8 total),
+// matching how Additional Driver contact numbers are already validated
+// elsewhere in this form (isValidContactNumber's /^65\d{6}$/).
+const CONTACT_COUNTRY_CODES = [
+  { code: "+65", country: "Singapore", flag: "🇸🇬", prefix: "65", digits: 6 },
+  { code: "+91", country: "India", flag: "🇮🇳", digits: 10 },
+  { code: "+1", country: "US / Canada", flag: "🇺🇸", digits: 10 },
+  { code: "+44", country: "United Kingdom", flag: "🇬🇧", digits: 10 },
+  { code: "+61", country: "Australia", flag: "🇦🇺", digits: 9 },
+  { code: "+971", country: "UAE", flag: "🇦🇪", digits: 9 },
+  { code: "+966", country: "Saudi Arabia", flag: "🇸🇦", digits: 9 },
+  { code: "+974", country: "Qatar", flag: "🇶🇦", digits: 8 },
+  { code: "+965", country: "Kuwait", flag: "🇰🇼", digits: 8 },
+  { code: "+968", country: "Oman", flag: "🇴🇲", digits: 8 },
+  { code: "+973", country: "Bahrain", flag: "🇧🇭", digits: 8 },
+  { code: "+60", country: "Malaysia", flag: "🇲🇾", digits: 9 },
+];
+const contactCountryEntry = (dialCode) =>
+  CONTACT_COUNTRY_CODES.find(c => c.code === dialCode) || CONTACT_COUNTRY_CODES[0];
+const contactDigitsRequired = (dialCode) => contactCountryEntry(dialCode).digits;
+const contactPrefix = (dialCode) => contactCountryEntry(dialCode).prefix || "";
+const contactHelperText = (dialCode) => {
+  const { prefix, digits } = contactCountryEntry(dialCode);
+  return prefix ? `${prefix} + ${digits} digits required` : `${digits} digits required`;
+};
+const contactErrorMsg = (dialCode) => {
+  const { prefix, digits } = contactCountryEntry(dialCode);
+  return prefix
+    ? `Contact number must be ${prefix.length + digits} digits and start with ${prefix}`
+    : `Contact number must be exactly ${digits} digits`;
+};
+
 const CALENDAR_STATUS_BG = { Available: "#dcfce7", "On Rental": "#ffedd5", "Ending Today": "#ffedd5" };
 const CALENDAR_STATUS_TEXT = { Available: "#166534", "On Rental": "#9a3412", "Ending Today": "#9a3412" };
 const CALENDAR_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -377,6 +414,10 @@ export default function FleetOpzApp() {
     customer: "",
     ic: "",
     contact: "",
+    // Dial code for the main Customer Contact Number only (Step 1). `contact`
+    // holds just the local digits; the required digit count is looked up
+    // dynamically from CONTACT_COUNTRY_CODES based on this value.
+    contactCountryCode: "+65",
     passport: "",
     address: "",
     // Step 1 additions: Customer Type, Age, Driving Experience. Age drives
@@ -510,6 +551,19 @@ export default function FleetOpzApp() {
   // Emirates ID (784-YYYY-NNNNNNN-N) can actually be entered — the old
   // 9-char cap silently truncated Emirates IDs before they could ever match
   // isValidEmiratesIdOrPassport's 15-digit check.
+  // Older customer/booking records store the contact number as a single
+  // "65XXXXXXXX"-style string (no separate dial code). When auto-filling
+  // from one of those, split off the Singapore "65" prefix if present so
+  // the new dropdown + local-digits split still shows something sane;
+  // otherwise fall back to Singapore with the raw digits as typed.
+  const splitLegacyContact = (raw) => {
+    const digits = (raw || "").replace(/\D/g, "");
+    if (digits.length === 8 && digits.startsWith("65")) {
+      return { contactCountryCode: "+65", contact: digits.slice(2) };
+    }
+    return { contactCountryCode: "+65", contact: digits };
+  };
+
   const handleICInputChange = (e) => {
     let v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (v.length > 15) v = v.slice(0, 15);
@@ -541,7 +595,7 @@ export default function FleetOpzApp() {
         return {
           ...prev,
           customer: prev.customer || cust?.name || bookingMatch?.customer || "",
-          contact: cust?.contact ?? bookingMatch?.contact ?? "",
+          ...splitLegacyContact(cust?.contact ?? bookingMatch?.contact ?? ""),
           passport: bookingMatch?.passport ?? prev.passport ?? "",
           license: cust?.license ?? bookingMatch?.license ?? "",
           licenseExpiry: bookingMatch?.licenseExpiry ?? prev.licenseExpiry ?? "",
@@ -552,7 +606,7 @@ export default function FleetOpzApp() {
         };
       }
       if (matchedCustomer) {
-        return { ...prev, contact: "", passport: "", license: "", licenseExpiry: "", address: "", customerType: "Local", age: "", drivingExperience: "" };
+        return { ...prev, contact: "", contactCountryCode: "+65", passport: "", license: "", licenseExpiry: "", address: "", customerType: "Local", age: "", drivingExperience: "" };
       }
       return prev;
     });
@@ -574,9 +628,14 @@ export default function FleetOpzApp() {
     const errors = {};
     if (!newBookingData.customer.trim()) errors.customer = "Customer Name is required";
     if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
-      errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
+      errors.ic = "Enter a valid Emirates ID  ";
     }
-    if (!isValidContactNumber(newBookingData.contact)) errors.contact = CONTACT_ERROR_MSG;
+    {
+      const requiredDigits = contactDigitsRequired(newBookingData.contactCountryCode);
+      if (newBookingData.contact.length !== requiredDigits) {
+        errors.contact = `Contact number must be exactly ${requiredDigits} digits`;
+      }
+    }
     if (newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)) {
       errors.license = DRIVING_LICENSE_FORMAT_ERROR;
     } else {
@@ -631,7 +690,11 @@ export default function FleetOpzApp() {
   // with everything else, and so it's still visible if it ever does fire.
   const validateStep3 = () => {
     const errors = {};
-    if (!editingBookingId && Number(newBookingData.deductible) > bookingRateCharge) {
+    // Security Deposit is mandatory — staff must enter an amount (0 counts as
+    // a deliberate "no deposit" choice; blank does not) before moving on.
+    if (!editingBookingId && newBookingData.deductible === "") {
+      errors.deductible = "Security Deposit is required. Enter an amount (0 if no deposit is being collected).";
+    } else if (!editingBookingId && Number(newBookingData.deductible) > bookingRateCharge) {
       errors.deductible = `Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`;
     }
     // Additional Driver Charge becomes mandatory the moment at least one
@@ -654,6 +717,12 @@ export default function FleetOpzApp() {
       errors.amountCollectedDateTime = "Enter the Payment Date & Time for the Advance";
     }
     const depositAmount = Number(newBookingData.deductible) || 0;
+    // Security Deposit must actually be collected (checkbox ticked) before
+    // moving on — it can no longer be deferred to "record it later". Only
+    // enforced when there's a deposit amount to collect in the first place.
+    if (depositAmount > 0 && !newBookingData.depositCollected) {
+      errors.depositCollected = "Security Deposit must be paid before continuing. Check \u201CSecurity deposit received\u201D once payment is taken.";
+    }
     if (newBookingData.depositCollected && depositAmount > 0
       && (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime)) {
       errors.depositDateTime = "Enter the Deposit Date & Time (or untick \u201CSecurity deposit received\u201D).";
@@ -726,7 +795,7 @@ export default function FleetOpzApp() {
   // Step 4 → Step 5.
   const handleBookingStep4Next = () => {
     const errors = validateStep4();
-    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, depositCollected: undefined, ...errors }));
     if (Object.keys(errors).length) return;
     setBookingStep(5);
   };
@@ -807,7 +876,7 @@ export default function FleetOpzApp() {
       plate: booking.plate || "",
       customer: booking.customer || "",
       ic: booking.ic || "",
-      contact: booking.contact || "",
+      ...splitLegacyContact(booking.contact || ""),
       passport: booking.passport || "",
       address: booking.address || "",
       customerType: booking.customerType || "Local",
@@ -860,7 +929,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", contactCountryCode: "+65", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setContactError("");
     setMatchedCustomer(null);
@@ -1109,7 +1178,7 @@ export default function FleetOpzApp() {
   // to each Additional Driver's License No. — IC Number is unaffected and
   // keeps using isValidEmiratesIdOrPassport above.
   const isValidDrivingLicenseFormat = (v) => /^[A-Za-z]\d{7}[A-Za-z]$/.test((v || "").trim());
-  const DRIVING_LICENSE_FORMAT_ERROR = "Enter a valid Driving License Number (1 letter + 7 digits + 1 letter, e.g. S1234567A)";
+  const DRIVING_LICENSE_FORMAT_ERROR = "Enter a valid Driving License Number ";
 
   // Booking contact number: exactly 8 digits, starting with "65".
   const isValidContactNumber = (v) => /^65\d{6}$/.test(v);
@@ -1572,30 +1641,68 @@ export default function FleetOpzApp() {
 
                   <div style={{ marginBottom: 14 }}>
                     <label style={bookingFieldLabelStyle}>Contact Number</label>
-                    <input
-                      type="text"
-                      value={newBookingData.contact}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/\D/g, "").slice(0, 8);
-                        setNewBookingData({ ...newBookingData, contact: v });
-                        // Clear a stale error as soon as the value looks valid again;
-                        // don't nag mid-typing otherwise — full validation happens on
-                        // blur and on Next, same as elsewhere in this form.
-                        if (contactError && (v === "" || isValidContactNumber(v))) setContactError("");
-                      }}
-                      onBlur={() => {
-                        if (newBookingData.contact && !isValidContactNumber(newBookingData.contact)) {
-                          setContactError(CONTACT_ERROR_MSG);
-                        }
-                      }}
-                      placeholder=" 65012345"
-                      style={{
-                        ...bookingFieldInputStyle(false),
-                        ...(contactError ? { border: `1px solid ${C.red}` } : {}),
-                      }}
-                    />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <select
+                        value={newBookingData.contactCountryCode}
+                        onChange={(e) => {
+                          const newCode = e.target.value;
+                          const requiredDigits = contactDigitsRequired(newCode);
+                          // Re-clamp whatever digits are already typed to the new
+                          // country's length, and re-validate immediately against
+                          // it rather than waiting for the next blur — switching
+                          // country is itself a reason to re-check.
+                          const clamped = newBookingData.contact.slice(0, requiredDigits);
+                          setNewBookingData({ ...newBookingData, contactCountryCode: newCode, contact: clamped });
+                          if (clamped && clamped.length !== requiredDigits) {
+                            setContactError(`Contact number must be exactly ${requiredDigits} digits`);
+                          } else {
+                            setContactError("");
+                          }
+                        }}
+                        style={{
+                          ...bookingFieldInputStyle(false),
+                          width: 120,
+                          flex: "0 0 auto",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {CONTACT_COUNTRY_CODES.map(c => (
+                          <option key={c.code} value={c.code}>
+                            {c.flag} {c.code}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={newBookingData.contact}
+                        onChange={(e) => {
+                          const requiredDigits = contactDigitsRequired(newBookingData.contactCountryCode);
+                          const v = e.target.value.replace(/\D/g, "").slice(0, requiredDigits);
+                          setNewBookingData({ ...newBookingData, contact: v });
+                          // Clear a stale error as soon as the value looks valid again;
+                          // don't nag mid-typing otherwise — full validation happens on
+                          // blur and on Next, same as elsewhere in this form.
+                          if (contactError && (v === "" || v.length === requiredDigits)) setContactError("");
+                        }}
+                        onBlur={() => {
+                          const requiredDigits = contactDigitsRequired(newBookingData.contactCountryCode);
+                          if (newBookingData.contact && newBookingData.contact.length !== requiredDigits) {
+                            setContactError(`Contact number must be exactly ${requiredDigits} digits`);
+                          }
+                        }}
+                        placeholder=" e.g. 98765432"
+                        style={{
+                          ...bookingFieldInputStyle(false),
+                          flex: 1,
+                          ...(contactError ? { border: `1px solid ${C.red}` } : {}),
+                        }}
+                      />
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 5 }}>
+                      {contactDigitsRequired(newBookingData.contactCountryCode)} digits required
+                    </div>
                     {contactError && (
-                      <div style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{contactError}</div>
+                      <div style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{contactError}</div>
                     )}
                   </div>
 
@@ -2074,7 +2181,7 @@ export default function FleetOpzApp() {
                         placeholder="0" style={bookingFieldInputStyle(false)} />
                     </div>
                      <div>
-                                          <label style={bookingFieldLabelStyle}>Security Deposit</label>
+                                          <label style={bookingFieldLabelStyle}>Security Deposit <span style={{ color: C.red }}>*</span></label>
                                           {editingBookingId ? (
                                             // Locked while editing an existing booking — the deposit was
                                             // already collected at creation and must stay exactly as-is,
@@ -2084,15 +2191,16 @@ export default function FleetOpzApp() {
                                             <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
                                               onChange={(e) => {
                                                 const v = e.target.value;
-                                                if (v === "") { setNewBookingData({ ...newBookingData, deductible: v }); return; }
+                                                if (v === "") { clearFieldError("deductible"); setNewBookingData({ ...newBookingData, deductible: v }); return; }
                                                 const n = Number(v);
                                                 if (n < 0) return;
                                                 // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
                                                 // clamp instead of alerting so staff simply can't type past the cap.
                                                 const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
+                                                clearFieldError("deductible");
                                                 setNewBookingData({ ...newBookingData, deductible: String(capped) });
                                               }}
-                                              placeholder="0" style={bookingFieldInputStyle(false)} />
+                                              placeholder="0" style={bookingFieldInputStyle(false, !!fieldErrors.deductible)} />
                                           )}
                                           {editingBookingId ? (
                                             <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
@@ -2192,7 +2300,7 @@ export default function FleetOpzApp() {
                                          <input
                                            type="checkbox"
                                            checked={newBookingData.depositCollected}
-                                           onChange={(e) => setNewBookingData({ ...newBookingData, depositCollected: e.target.checked })}
+                                           onChange={(e) => { clearFieldError("depositCollected"); setNewBookingData({ ...newBookingData, depositCollected: e.target.checked }); }}
                                            style={{ width: 16, height: 16, accentColor: C.teal }}
                                          />
                                          <span style={{ fontSize: 12.5, fontWeight: 600, color: C.navy }}>Security deposit received</span>
@@ -2249,10 +2357,16 @@ export default function FleetOpzApp() {
                                            </div>
                                          </div>
                                        ) : (
-                                         <div style={{ fontSize: 12, color: "#92400e", border: "1px solid #f59e0b55", background: "#fef3c7", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-                                           ⚠ Deposit pending — you can still confirm the booking. Record the deposit later from the booking's <b>Pricing &amp; Payment</b> tab.
+                                         <div style={{
+                                           fontSize: 12, borderRadius: 10, padding: "12px 14px", marginBottom: 14,
+                                           ...(fieldErrors.depositCollected
+                                             ? { color: C.red, border: `1px solid ${C.red}`, background: "#fef2f2" }
+                                             : { color: "#92400e", border: "1px solid #f59e0b55", background: "#fef3c7" }),
+                                         }}>
+                                           ⚠ Security Deposit not yet collected. Check <b>“Security deposit received”</b> and record the payment details to continue — it must be paid before moving to the next step.
                                          </div>
                                        )}
+                                       <FieldErr msg={fieldErrors.depositCollected} />
                                        <FieldErr msg={fieldErrors.depositDateTime} />
                  
                                        {/* Optional: collect rent now — e.g. same-day or backdated
@@ -2388,7 +2502,7 @@ export default function FleetOpzApp() {
                         ) : (
                           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
                             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                              <span>Rental Total</span>
+                              <span>Total Rental</span>
                               <span style={mono}>{formatSGD(bookingTotal)}</span>
                             </div>
                             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
