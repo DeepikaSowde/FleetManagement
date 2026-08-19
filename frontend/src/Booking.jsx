@@ -454,6 +454,17 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
   const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
   const [showHandover, setShowHandover] = useState(false);
+  // --- FIX: previously-missing state -------------------------------------
+  // Collect Rent at Pickup (used inside the Vehicle Handover panel below).
+  const [rentAtPickup, setRentAtPickup] = useState("");
+  const [rentMethod, setRentMethod] = useState("Cash");
+  const [rentDate, setRentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rentTime, setRentTime] = useState(() => new Date().toTimeString().slice(0, 5));
+  // Security Deposit refund modal (used at the bottom of this component).
+  const [showRefund, setShowRefund] = useState(false);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  // -------------------------------------------------------------------------
   const returnRef = useRef(null);
 
   if (!booking) return null;
@@ -483,14 +494,27 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (!pickupArrived) { alert(`Vehicle Handover is allowed only at the scheduled pickup time or later (${formatDateTime(booking.start)}).`); return; }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
+    // --- FIX: fold "Collect Rent at Pickup" into a real payment record ----
+    const rentAmt = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
+    const rentPaymentEntry = rentAmt > 0
+      ? [{
+          id: `rent-${Date.now()}`,
+          amount: rentAmt,
+          method: rentMethod,
+          addedAt: `${rentDate}T${rentTime}`,
+          by: actor,
+        }]
+      : [];
     const updates = {
       startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
-      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}`)),
+      ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
+      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
     };
     onUpdateBooking(booking.id, updates);
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
     generateRentalAgreementPdf({ ...booking, ...updates }, car);
     setShowHandover(false);
+    setRentAtPickup("");
   };
 
   // Balance Due coloring, per spec: green once fully paid, orange while
@@ -601,26 +625,29 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     onUpdateBooking(booking.id, { charges: (booking.charges || []).filter(c => c.id !== id) });
   };
 
-  const handleMarkDepositRefunded = () => {
-    // Ask how much is actually being returned — supports full refunds, partial
-    // refunds (e.g. a deduction for damage/fuel), or a full forfeit (0).
-    const input = window.prompt(
-      `Security deposit held: ${fmt(inv.deposit)}.\nHow much are you returning to the customer?`,
-      String(inv.deposit)
-    );
-    if (input === null) return; // cancelled
-    const amount = Number(input);
-    if (isNaN(amount) || amount < 0 || amount > inv.deposit) {
+  // --- FIX: implemented handler for the Security Deposit refund modal ----
+  const handleConfirmRefund = () => {
+    const amount = Number(refundAmount);
+    if (refundAmount === "" || isNaN(amount) || amount < 0 || amount > inv.deposit) {
       alert(`Enter an amount between 0 and ${fmt(inv.deposit)}.`);
+      return;
+    }
+    const isPartial = amount < inv.deposit;
+    if (isPartial && !refundReason.trim()) {
+      alert("A reason is required for a reduced refund.");
       return;
     }
     onUpdateBooking(booking.id, {
       depositRefunded: true,
       depositRefundedAmount: amount,
       depositRefundedAt: new Date().toISOString(),
-      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.deposit)}${amount < inv.deposit ? " (partial)" : ""}`)),
+      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.deposit)}${isPartial ? ` (partial — ${refundReason.trim()})` : ""}`)),
     });
+    setShowRefund(false);
+    setRefundAmount("");
+    setRefundReason("");
   };
+  // -------------------------------------------------------------------------
 
   const handleRecordPayment = () => {
     const amt = Number(paymentAmount);
@@ -784,211 +811,254 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         </select>
                       </div>
                     </div>
-                    <div style={{ marginTop: 10 }}>
-                      <div style={detailFieldLabelStyle}>Vehicle Condition (optional)</div>
-                      <textarea value={vehicleCondition} onChange={(e) => setVehicleCondition(e.target.value)} placeholder="Any scratches, dents, notes…" style={{ ...detailInputStyle, minHeight: 52, resize: "vertical" }} />
-                    </div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                      <Btn primary onClick={handleCompleteHandover}>Save &amp; Generate Agreement</Btn>
-                      <Btn onClick={() => setShowHandover(false)}>Cancel</Btn>
-                    </div>
+                       <div style={{ marginTop: 10 }}>
+                                         <div style={detailFieldLabelStyle}>Vehicle Condition (optional)</div>
+                                         <textarea value={vehicleCondition} onChange={(e) => setVehicleCondition(e.target.value)} placeholder="Any scratches, dents, notes…" style={{ ...detailInputStyle, minHeight: 52, resize: "vertical" }} />
+                                       </div>
+                   
+                                       {/* Rent collected at pickup — the rental amount is taken here in
+                                           the deposit-first flow. Optional (doesn't block handover). */}
+                                       {inv.balanceDue > 0 && (
+                                         <div style={{ marginTop: 12, borderTop: `1px dashed ${C.border}`, paddingTop: 12 }}>
+                                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                                             <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy }}>💵 Collect Rent at Pickup</div>
+                                             <div style={{ fontSize: 11.5, color: C.textMuted }}>Balance due <strong style={{ color: C.red }}>{fmt(inv.balanceDue)}</strong></div>
+                                           </div>
+                                           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                                             <div style={{ flex: "1 1 140px" }}>
+                                               <div style={detailFieldLabelStyle}>Rent Amount</div>
+                                               <input type="number" min="0" max={inv.balanceDue} value={rentAtPickup} onChange={(e) => setRentAtPickup(e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                                             </div>
+                                             <div style={{ flex: "1 1 120px" }}>
+                                               <div style={detailFieldLabelStyle}>Method</div>
+                                               <select value={rentMethod} onChange={(e) => setRentMethod(e.target.value)} style={detailInputStyle}>
+                                                 {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                                               </select>
+                                             </div>
+                                             <div style={{ flex: "1 1 120px" }}>
+                                               <div style={detailFieldLabelStyle}>Date</div>
+                                               <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} style={detailInputStyle} />
+                                             </div>
+                                             <div style={{ flex: "1 1 100px" }}>
+                                               <div style={detailFieldLabelStyle}>Time</div>
+                                               <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
+                                             </div>
+                                           </div>
+                                           {(() => {
+                                             const entered = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
+                                             const remaining = inv.balanceDue - entered;
+                                             return (
+                                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                                                 <span style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>Balance after this</span>
+                                                 <span style={{ fontSize: 13, fontWeight: 700, color: remaining <= 0 ? C.teal : "#d97706", ...mono }}>{fmt(remaining)}</span>
+                                               </div>
+                                             );
+                                           })()}
+                                           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank, or collect part now; any remaining balance can be collected later (e.g. at return).</div>
+                                         </div>
+                                       )}
+                   
+                                       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                                         <Btn primary onClick={handleCompleteHandover}>Save &amp; Generate Agreement</Btn>
+                                         <Btn onClick={() => setShowHandover(false)}>Cancel</Btn>
+                                       </div>
                   </div>
                 ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontSize: 22 }}>🔑</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Next step: Complete Vehicle Handover</div>
-                      <div style={{ fontSize: 11.5, color: C.textMuted }}>
-                        {pickupArrived
-                          ? "Record starting mileage, fuel & condition to activate the rental and generate the Rental Agreement."
-                          : `Handover opens at the scheduled pickup time — ${formatDateTime(booking.start)}.`}
-                      </div>
-                    </div>
-                    <Btn
-                      primary
-                      disabled={!pickupArrived}
-                      title={!pickupArrived ? `Available at the scheduled pickup time (${formatDateTime(booking.start)})` : undefined}
-                      style={!pickupArrived ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-                      onClick={() => setShowHandover(true)}
-                    >
-                      Complete Handover →
-                    </Btn>
-                  </div>
-                ))}
-
-                {action === "return" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontSize: 22 }}>🏁</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Vehicle on rental</div>
-                      <div style={{ fontSize: 11.5, color: C.textMuted }}>When the customer returns the car, record the mileage &amp; fuel to close it out.</div>
-                    </div>
-                    <Btn primary onClick={() => returnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}>Mark Vehicle Returned →</Btn>
-                  </div>
-                )}
-
-                {action === "payment" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontSize: 22 }}>💳</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Payment pending</div>
-                      <div style={{ fontSize: 11.5, color: C.textMuted }}>Vehicle returned. Balance due <strong style={{ color: C.red }}>{fmt(inv.balanceDue)}</strong> — record the remaining payment.</div>
-                    </div>
-                    <Btn primary onClick={() => setActiveTab("Pricing & Payment")}>Record Payment →</Btn>
-                  </div>
-                )}
-
-                {action === "done" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.teal, fontWeight: 700, fontSize: 13 }}>
-                    ✅ Booking completed — handed over, returned, and fully paid.
-                  </div>
-                )}
-              </div>
-
-              {/* Rental Summary */}
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
-                <SectionHeading size="sm">Rental Summary</SectionHeading>
-                {[
-                  { label: "Booking ID", value: booking.id },
-                  { label: "Booking Status", value: booking.status },
-                  { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.end)}` },
-                  { label: "Pickup Date & Time", value: formatDateTime(booking.start) || "—" },
-                  { label: "Return Date & Time", value: formatDateTime(booking.end) || "—" },
-                  { label: "Total Rental Days", value: `${inv.days} Day${inv.days === 1 ? "" : "s"}` },
-                ].map(row => (
-                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
-                    <span style={{ color: C.textMuted }}>{row.label}</span>
-                    <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>{row.value}</span>
-                  </div>
-                ))}
-                {/* Reflects handover state; the action itself is the Next Action
-                    bar at the top of this tab. */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "3px 0", fontSize: 12 }}>
-                  <span style={{ color: C.textMuted }}>Vehicle Handover</span>
-                  {hasHandedOver(booking) ? (
-                    <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>✅ {formatDateTime(booking.handoverAt)}</span>
-                  ) : (
-                    <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Pending</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Payment Summary */}
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
-                <SectionHeading size="sm">Payment Summary</SectionHeading>
-                {[
-                  { label: "Grand Total", value: inv.finalInvoiceTotal, color: C.navy },
-                  { label: "Total Paid", value: inv.totalPaid, color: C.teal },
-                  { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
-                ].map(row => (
-                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
-                    <span style={{ color: C.textSec }}>{row.label}</span>
-                    <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
-                  </div>
-                ))}
-                {/* Kept visually separate — Security Deposit is refundable and
-                    never part of Grand Total / Total Paid / Balance Due. */}
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
-                  <span>Security Deposit (refundable)</span>
-                  <span style={{ textAlign: "right", ...mono }}>{fmt(inv.deposit)}</span>
-                </div>
-              </div>
-
-              {/* Customer Summary */}
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
-                <SectionHeading size="sm">Customer Summary</SectionHeading>
-                {[
-                  { label: "Customer Name", value: booking.customer || "—" },
-                  { label: "Driving License No.", value: booking.license || "—" },
-                  { label: "Phone Number", value: booking.contact || "—" },
-                ].map(row => (
-                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
-                    <span style={{ color: C.textMuted }}>{row.label}</span>
-                    <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>{row.value}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Vehicle Summary */}
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
-                <SectionHeading size="sm">Vehicle Summary</SectionHeading>
-                {[
-                  { label: "Vehicle Name", value: car?.model || booking.plate || "—" },
-                  { label: "Registration Number", value: booking.plate || "—" },
-                  { label: "Daily Rate", value: fmt(Number(booking.rate) || 0) },
-                  { label: "Starting Mileage", value: booking.startingMileage ? `${booking.startingMileage} km` : "—" },
-                  { label: "Fuel Level at Pickup", value: booking.fuelLevel || "—" },
-                  { label: "Current Odometer", value: booking.mileageIn || booking.startingMileage || "—" },
-                ].map(row => (
-                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
-                    <span style={{ color: C.textMuted }}>{row.label}</span>
-                    <span style={{ color: C.navy, fontWeight: 600, textAlign: "right", ...mono }}>{row.value}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Distance Driven — splits total odometer movement into the km the
-                  customer drove (A->B) and the km a staff member added driving it
-                  back to the shed (B->C). Shown once a return has been recorded. */}
-              {booking.mileageIn !== undefined && booking.mileageIn !== "" && booking.mileageIn !== null && (() => {
-                const a = Number(booking.startingMileage) || 0;
-                const c = Number(booking.mileageIn) || 0;
-                const b = (booking.customerReturnMileage === "" || booking.customerReturnMileage == null)
-                  ? c : Number(booking.customerReturnMileage);
-                const customerKm = Math.max(0, b - a);
-                const companyKm = Math.max(0, c - b);
-                const totalKm = Math.max(0, c - a);
-                const pctInternal = totalKm > 0 ? Math.round((companyKm / totalKm) * 100) : 0;
-                return (
-                  <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-                    <SectionHeading size="sm">Distance Driven</SectionHeading>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, color: C.textMuted, marginBottom: 10, ...mono }}>
-                      <span>A · Start {a.toLocaleString()}</span><span>→</span>
-                      <span>B · Cust. return {b.toLocaleString()}</span><span>→</span>
-                      <span>C · Shed {c.toLocaleString()} km</span>
-                    </div>
-                    <div style={{ display: "flex", height: 26, borderRadius: 6, overflow: "hidden", background: C.bg, gap: 2 }}>
-                      {customerKm > 0 && (
-                        <div title={`Customer ${customerKm.toLocaleString()} km`} style={{ flexGrow: customerKm, background: C.teal, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{customerKm.toLocaleString()} km</div>
-                      )}
-                      {companyKm > 0 && (
-                        <div title={`Company / internal ${companyKm.toLocaleString()} km`} style={{ flexGrow: companyKm, background: C.amber, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{companyKm.toLocaleString()} km</div>
-                      )}
-                      {totalKm === 0 && (
-                        <div style={{ flex: 1, display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, color: C.textMuted }}>No distance recorded</div>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.teal, display: "flex", alignItems: "center", gap: 5 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: C.teal }} /> Customer
-                        </div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{customerKm.toLocaleString()} km</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.amber, display: "flex", alignItems: "center", gap: 5 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} /> Company / Internal
-                        </div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{companyKm.toLocaleString()} km</div>
-                      </div>
-                      <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.textMuted }}>Total · {pctInternal}% internal</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{totalKm.toLocaleString()} km</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Vehicle Condition at Pickup — the note captured during Vehicle
-                  Handover, shown only once it exists. */}
-              {booking.vehicleCondition && (
-                <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-                  <SectionHeading size="sm">Vehicle Condition at Pickup</SectionHeading>
-                  <div style={{ fontSize: 12.5, color: C.textSec, whiteSpace: "pre-wrap" }}>{booking.vehicleCondition}</div>
-                </div>
-              )}
-
+                                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                   <div style={{ fontSize: 22 }}>🔑</div>
+                                   <div style={{ flex: 1 }}>
+                                     <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Next step: Complete Vehicle Handover</div>
+                                     <div style={{ fontSize: 11.5, color: C.textMuted }}>
+                                       {pickupArrived
+                                         ? "Collect the rent, record starting mileage, fuel & condition to activate the rental and generate the Rental Agreement."
+                                         : `Handover opens at the scheduled pickup time — ${formatDateTime(booking.start)}.`}
+                                     </div>
+                                   </div>
+                                   <Btn
+                                     primary
+                                     disabled={!pickupArrived}
+                                     title={!pickupArrived ? `Available at the scheduled pickup time (${formatDateTime(booking.start)})` : undefined}
+                                     style={!pickupArrived ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                                     onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setShowHandover(true); }}
+                                   >
+                                     Complete Handover →
+                                   </Btn>
+                                 </div>
+                               ))}
+               
+                               {action === "return" && (
+                                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                   <div style={{ fontSize: 22 }}>🏁</div>
+                                   <div style={{ flex: 1 }}>
+                                     <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Vehicle on rental</div>
+                                     <div style={{ fontSize: 11.5, color: C.textMuted }}>When the customer returns the car, record the mileage &amp; fuel to close it out.</div>
+                                   </div>
+                                   <Btn primary onClick={() => returnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}>Mark Vehicle Returned →</Btn>
+                                 </div>
+                               )}
+               
+                               {action === "payment" && (
+                                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                   <div style={{ fontSize: 22 }}>💳</div>
+                                   <div style={{ flex: 1 }}>
+                                     <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Payment pending</div>
+                                     <div style={{ fontSize: 11.5, color: C.textMuted }}>Vehicle returned. Balance due <strong style={{ color: C.red }}>{fmt(inv.balanceDue)}</strong> — record the remaining payment.</div>
+                                   </div>
+                                   <Btn primary onClick={() => setActiveTab("Pricing & Payment")}>Record Payment →</Btn>
+                                 </div>
+                               )}
+               
+                               {action === "done" && (
+                                 <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.teal, fontWeight: 700, fontSize: 13 }}>
+                                   ✅ Booking completed — handed over, returned, and fully paid.
+                                 </div>
+                               )}
+                             </div>
+               
+                             {/* Rental Summary */}
+                             <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+                               <SectionHeading size="sm">Rental Summary</SectionHeading>
+                               {[
+                                 { label: "Booking ID", value: booking.id },
+                                 { label: "Booking Status", value: booking.status },
+                                 { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.end)}` },
+                                 { label: "Pickup Date & Time", value: formatDateTime(booking.start) || "—" },
+                                 { label: "Return Date & Time", value: formatDateTime(booking.end) || "—" },
+                                 { label: "Total Rental Days", value: `${inv.days} Day${inv.days === 1 ? "" : "s"}` },
+                               ].map(row => (
+                                 <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                                   <span style={{ color: C.textMuted }}>{row.label}</span>
+                                   <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>{row.value}</span>
+                                 </div>
+                               ))}
+                               {/* Reflects handover state; the action itself is the Next Action
+                                   bar at the top of this tab. */}
+                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                                 <span style={{ color: C.textMuted }}>Vehicle Handover</span>
+                                 {hasHandedOver(booking) ? (
+                                   <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>✅ {formatDateTime(booking.handoverAt)}</span>
+                                 ) : (
+                                   <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Pending</span>
+                                 )}
+                               </div>
+                             </div>
+               
+                             {/* Payment Summary */}
+                             <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+                               <SectionHeading size="sm">Payment Summary</SectionHeading>
+                               {[
+                                 { label: "Grand Total", value: inv.finalInvoiceTotal, color: C.navy },
+                                 { label: "Total Paid", value: inv.totalPaid, color: C.teal },
+                                 { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
+                               ].map(row => (
+                                 <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
+                                   <span style={{ color: C.textSec }}>{row.label}</span>
+                                   <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
+                                 </div>
+                               ))}
+                               {/* Kept visually separate — Security Deposit is refundable and
+                                   never part of Grand Total / Total Paid / Balance Due. */}
+                               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
+                                 <span>Security Deposit (refundable)</span>
+                                 <span style={{ textAlign: "right", ...mono }}>{fmt(inv.deposit)}</span>
+                               </div>
+                             </div>
+               
+                             {/* Customer Summary */}
+                             <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+                               <SectionHeading size="sm">Customer Summary</SectionHeading>
+                               {[
+                                 { label: "Customer Name", value: booking.customer || "—" },
+                                 { label: "Driving License No.", value: booking.license || "—" },
+                                 { label: "Phone Number", value: booking.contact || "—" },
+                               ].map(row => (
+                                 <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                                   <span style={{ color: C.textMuted }}>{row.label}</span>
+                                   <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>{row.value}</span>
+                                 </div>
+                               ))}
+                             </div>
+               
+                             {/* Vehicle Summary */}
+                             <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+                               <SectionHeading size="sm">Vehicle Summary</SectionHeading>
+                               {[
+                                 { label: "Vehicle Name", value: car?.model || booking.plate || "—" },
+                                 { label: "Registration Number", value: booking.plate || "—" },
+                                 { label: "Daily Rate", value: fmt(Number(booking.rate) || 0) },
+                                 { label: "Starting Mileage", value: booking.startingMileage ? `${booking.startingMileage} km` : "—" },
+                                 { label: "Fuel Level at Pickup", value: booking.fuelLevel || "—" },
+                                 { label: "Current Odometer", value: booking.mileageIn || booking.startingMileage || "—" },
+                               ].map(row => (
+                                 <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                                   <span style={{ color: C.textMuted }}>{row.label}</span>
+                                   <span style={{ color: C.navy, fontWeight: 600, textAlign: "right", ...mono }}>{row.value}</span>
+                                 </div>
+                               ))}
+                             </div>
+               
+                             {/* Distance Driven — splits total odometer movement into the km the
+                                 customer drove (A->B) and the km a staff member added driving it
+                                 back to the shed (B->C). Shown once a return has been recorded. */}
+                             {booking.mileageIn !== undefined && booking.mileageIn !== "" && booking.mileageIn !== null && (() => {
+                               const a = Number(booking.startingMileage) || 0;
+                               const c = Number(booking.mileageIn) || 0;
+                               const b = (booking.customerReturnMileage === "" || booking.customerReturnMileage == null)
+                                 ? c : Number(booking.customerReturnMileage);
+                               const customerKm = Math.max(0, b - a);
+                               const companyKm = Math.max(0, c - b);
+                               const totalKm = Math.max(0, c - a);
+                               const pctInternal = totalKm > 0 ? Math.round((companyKm / totalKm) * 100) : 0;
+                               return (
+                                 <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                                   <SectionHeading size="sm">Distance Driven</SectionHeading>
+                                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, color: C.textMuted, marginBottom: 10, ...mono }}>
+                                     <span>A · Start {a.toLocaleString()}</span><span>→</span>
+                                     <span>B · Cust. return {b.toLocaleString()}</span><span>→</span>
+                                     <span>C · Shed {c.toLocaleString()} km</span>
+                                   </div>
+                                   <div style={{ display: "flex", height: 26, borderRadius: 6, overflow: "hidden", background: C.bg, gap: 2 }}>
+                                     {customerKm > 0 && (
+                                       <div title={`Customer ${customerKm.toLocaleString()} km`} style={{ flexGrow: customerKm, background: C.teal, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{customerKm.toLocaleString()} km</div>
+                                     )}
+                                     {companyKm > 0 && (
+                                       <div title={`Company / internal ${companyKm.toLocaleString()} km`} style={{ flexGrow: companyKm, background: C.amber, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{companyKm.toLocaleString()} km</div>
+                                     )}
+                                     {totalKm === 0 && (
+                                       <div style={{ flex: 1, display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, color: C.textMuted }}>No distance recorded</div>
+                                     )}
+                                   </div>
+                                   <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 10 }}>
+                                     <div>
+                                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.teal, display: "flex", alignItems: "center", gap: 5 }}>
+                                         <span style={{ width: 8, height: 8, borderRadius: 2, background: C.teal }} /> Customer
+                                       </div>
+                                       <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{customerKm.toLocaleString()} km</div>
+                                     </div>
+                                     <div>
+                                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.amber, display: "flex", alignItems: "center", gap: 5 }}>
+                                         <span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} /> Company / Internal
+                                       </div>
+                                       <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{companyKm.toLocaleString()} km</div>
+                                     </div>
+                                     <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.textMuted }}>Total · {pctInternal}% internal</div>
+                                       <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{totalKm.toLocaleString()} km</div>
+                                     </div>
+                                   </div>
+                                 </div>
+                               );
+                             })()}
+               
+                             {/* Vehicle Condition at Pickup — the note captured during Vehicle
+                                 Handover, shown only once it exists. */}
+                             {booking.vehicleCondition && (
+                               <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                                 <SectionHeading size="sm">Vehicle Condition at Pickup</SectionHeading>
+                                 <div style={{ fontSize: 12.5, color: C.textSec, whiteSpace: "pre-wrap" }}>{booking.vehicleCondition}</div>
+                               </div>
+                             )}
+               
               {/* Vehicle Return — spans both columns */}
               <div ref={returnRef} style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
                 <SectionHeading size="sm">Vehicle Return</SectionHeading>
@@ -1097,7 +1167,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           : "Held"}
                       </span>
                       {inv.deposit > 0 && !booking.depositRefunded && (
-                        <button onClick={handleMarkDepositRefunded} style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
+                        <button
+                          onClick={() => { setRefundAmount(String(inv.deposit)); setRefundReason(""); setShowRefund(true); }}
+                          style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                        >
                           Mark Refunded
                         </button>
                       )}
@@ -1251,9 +1324,46 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           )}
         </div>
       </div>
-    </>
-  );
-};
+  {/* Security Deposit refund modal — replaces the browser prompt. A refund
+            below the deposit held reveals a required "reason" field. */}
+        {showRefund && (() => {
+          const amount = Number(refundAmount);
+          const validNum = refundAmount !== "" && !isNaN(amount) && amount >= 0 && amount <= inv.deposit;
+          const isPartial = validNum && amount < inv.deposit;
+          return (
+            <>
+              <div onClick={() => setShowRefund(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+              <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(440px, 92vw)", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" }}>
+                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Return Security Deposit</div>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Deposit held: <strong style={{ color: C.navy }}>{fmt(inv.deposit)}</strong></div>
+                </div>
+                <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <div style={detailFieldLabelStyle}>Amount returning to customer</div>
+                    <input type="number" min="0" max={inv.deposit} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} style={detailInputStyle} autoFocus />
+                    <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{fmt(inv.deposit)} for a full refund, a lower amount for a partial refund, or 0 to forfeit.</div>
+                  </div>
+                  {isPartial && (
+                    <div>
+                      <div style={detailFieldLabelStyle}>Reason for reduced refund <span style={{ color: C.red }}>*</span></div>
+                      <textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} placeholder="e.g., deduction for a scratch on the rear bumper / fuel shortfall / cleaning fee" style={{ ...detailInputStyle, minHeight: 64, resize: "vertical" }} />
+                      <div style={{ fontSize: 11, color: "#d97706", marginTop: 4 }}>Deducting {fmt(inv.deposit - amount)} — a reason is required and recorded in the booking history.</div>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+                  <Btn onClick={() => setShowRefund(false)}>Cancel</Btn>
+                  <Btn primary onClick={handleConfirmRefund}>Confirm Refund</Btn>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+      </>
+    );
+  };
+  
 
 const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System" }) => {
   const bkHistEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
