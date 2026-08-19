@@ -1753,18 +1753,10 @@ export default function FleetOpzApp() {
                     />
                   </div>
 
-                  <Input
-                    label="Daily Rate (SGD)"
-                    type="number"
-                    min="0"
-                    value={newBookingData.rate}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v !== "" && Number(v) < 0) return;
-                      setNewBookingData({ ...newBookingData, rate: v });
-                    }}
-                    placeholder="Select a car to auto-fill"
-                  />
+                  {/* Daily Rate input removed from Booking Details — the car's
+                      suggested daily rate (targetRate) is still auto-filled into
+                      `rate` on car select and used as the baseline for the
+                      Total Rental Amount's gain/loss in Pricing & Charges. */}
 
                   {/* Additional Drivers — optional, one or more people besides the
                       main customer who are permitted to drive during this rental.
