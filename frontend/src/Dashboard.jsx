@@ -309,7 +309,7 @@ const Dashboard = ({
     { label: "Add Vehicle", icon: "＋", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("fleet") },
     { label: "Add Customer", icon: "＋", color: D.purple, bg: D.purpleSoft, onClick: () => onNavigate?.("customers") },
     { label: "Record Expense", icon: "＋", color: D.orange, bg: D.orangeSoft, onClick: () => onNavigate?.("expenses") },
-    { label: "Calendar", icon: "📅", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("bookings") },
+    { label: "Calendar", icon: "📅", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("car-availability") },
   ];
 
   const chartTint = D.green;
