@@ -428,6 +428,20 @@ export default function FleetOpzApp() {
     // accurate even if entered/backdated later.
     amountCollectedDate: new Date().toISOString().slice(0, 10),
     amountCollectedTime: new Date().toTimeString().slice(0, 5),
+    // Security Deposit collection (Step 4) — in the deposit-first flow the
+    // refundable deposit is what's collected to confirm a booking (the rental
+    // amount is collected later, at Vehicle Handover on the pickup day).
+    // Defaults to "received now"; unticking marks it pending so a booking can
+    // still be confirmed without it. These are collection metadata only — the
+    // deposit figure itself stays on `deductible`.
+    depositCollected: true,
+    depositCollectedMethod: "Cash",
+    depositReference: "",
+    depositCollectedDate: new Date().toISOString().slice(0, 10),
+    depositCollectedTime: new Date().toTimeString().slice(0, 5),
+   
+   
+   
     // Vehicle Handover fields — captured from Step 5 (Review) while editing
     // an existing booking, not at creation time. startingMileage/fuelLevel
     // are auto-filled (see openEditBookingModal) from the same car's most
@@ -676,6 +690,13 @@ export default function FleetOpzApp() {
       referenceCode: "",
       amountCollectedDate: new Date().toISOString().slice(0, 10),
       amountCollectedTime: new Date().toTimeString().slice(0, 5),
+      // Deposit collection isn't edited here (Step 4 is read-only while editing);
+      // seeded from defaults and excluded from the update in handleSubmitBooking.
+      depositCollected: true,
+      depositCollectedMethod: "Cash",
+      depositReference: "",
+      depositCollectedDate: new Date().toISOString().slice(0, 10),
+      depositCollectedTime: new Date().toTimeString().slice(0, 5),
       startingMileage: booking.startingMileage || previous?.mileage || "",
       fuelLevel: booking.fuelLevel || previous?.fuel || "",
       vehicleCondition: booking.vehicleCondition || "",
@@ -1023,7 +1044,7 @@ export default function FleetOpzApp() {
           return;
         }
       }
-      const { amountCollected, paymentMethod, referenceCode, amountCollectedDate, amountCollectedTime, ...editableFields } = newBookingData;
+      const { amountCollected, paymentMethod, referenceCode, amountCollectedDate, amountCollectedTime, depositCollected, depositCollectedMethod, depositReference, depositCollectedDate, depositCollectedTime, ...editableFields } = newBookingData;
       // Summarize what actually changed for the audit log.
       const changed = [];
       if (original) {
@@ -1060,6 +1081,19 @@ export default function FleetOpzApp() {
     if (amountCollectedNow > 0 && (!newBookingData.amountCollectedDate || !newBookingData.amountCollectedTime)) {
       alert("Enter the Payment Date & Time for the Advance");
       return;
+    }
+     // Security deposit collection (deposit-first flow): when the deposit was
+    // received, stamp a single collection timestamp. It's kept entirely separate
+    // from `payments`/Balance Due (the deposit is refundable, not rental income)
+    // — the same separation computeBookingInvoice already enforces.
+    const depositAmount = Number(newBookingData.deductible) || 0;
+    let depositCollectedAt;
+    if (newBookingData.depositCollected && depositAmount > 0) {
+      if (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime) {
+        alert("Enter the Deposit Date & Time (or untick “Security deposit received”).");
+        return;
+      }
+      depositCollectedAt = `${newBookingData.depositCollectedDate}T${newBookingData.depositCollectedTime}`;
     }
     // Built explicitly here, once, as the booking's first Payment History
     // entry — computeBookingInvoice (Booking.jsx) then treats `payments` as
@@ -1119,6 +1153,12 @@ export default function FleetOpzApp() {
     // at creation, and a "returned" entry when recorded as completed. Payment is
     // derived from initialPayments below.
     const createHistory = [auditEntry("created", `${newBookingData.plate} · ${newBookingData.customer || "—"}`)];
+    if (depositCollectedAt) {
+      createHistory.push({
+        ...auditEntry("deposit_collected", `Deposit ${formatSGD(depositAmount)} · ${newBookingData.depositCollectedMethod}${newBookingData.depositReference ? ` · ${newBookingData.depositReference}` : ""}`),
+        at: depositCollectedAt,
+      });
+    }
     if (wantsImmediateHandover) {
       createHistory.push(auditEntry("handover", `Odometer ${newBookingData.startingMileage} km · Fuel ${newBookingData.fuelLevel}`));
     }
@@ -1144,6 +1184,9 @@ export default function FleetOpzApp() {
         returnedAt: new Date().toISOString(),
       } : {}),
       createdAt: new Date().toISOString(),
+      // Deposit collection metadata (separate from `payments`). depositCollectedAt
+      // is set only when the deposit was actually received at confirmation.
+      depositCollectedAt,
       history: createHistory,
       payments: initialPayments,
     });
@@ -1894,165 +1937,244 @@ export default function FleetOpzApp() {
                         onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, otherCharges: v }); }}
                         placeholder="0" style={bookingFieldInputStyle(false)} />
                     </div>
-                    <div>
-                      <label style={bookingFieldLabelStyle}>Security Deposit</label>
-                      <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === "") { setNewBookingData({ ...newBookingData, deductible: v }); return; }
-                          const n = Number(v);
-                          if (n < 0) return;
-                          // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
-                          // clamp instead of alerting so staff simply can't type past the cap.
-                          const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
-                          setNewBookingData({ ...newBookingData, deductible: String(capped) });
-                        }}
-                        placeholder="0" style={bookingFieldInputStyle(false)} />
-                      {bookingRateCharge > 0 && (
-                        <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
-                          Max allowed: {formatSGD(bookingRateCharge)} (Rate Charge)
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
-                      <input type="number" min="0" step="0.1" value={newBookingData.vatRate}
-                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, vatRate: v }); }}
-                        placeholder="e.g., 9" style={bookingFieldInputStyle(false)} />
-                    </div>
-                    {newBookingData.additionalDrivers.length > 0 && (
+                     <div>
+                                          <label style={bookingFieldLabelStyle}>Security Deposit</label>
+                                          <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
+                                            onChange={(e) => {
+                                              const v = e.target.value;
+                                              if (v === "") { setNewBookingData({ ...newBookingData, deductible: v }); return; }
+                                              const n = Number(v);
+                                              if (n < 0) return;
+                                              // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
+                                              // clamp instead of alerting so staff simply can't type past the cap.
+                                              const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
+                                              setNewBookingData({ ...newBookingData, deductible: String(capped) });
+                                            }}
+                                            placeholder="0" style={bookingFieldInputStyle(false)} />
+                                          {bookingRateCharge > 0 && (
+                                            <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
+                                              Max allowed: {formatSGD(bookingRateCharge)} (Rate Charge)
+                                            </div>
+                                          )}
+                                        </div>
                       <div>
-                        <label style={bookingFieldLabelStyle}>Additional Driver Charge</label>
-                        <input type="number" min="0" value={newBookingData.additionalDriverCharge}
-                          onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
-                          placeholder="0" style={bookingFieldInputStyle(false)} />
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ marginBottom: 16, fontSize: 10.5, color: C.textMuted }}>
-                    Security Deposit is refundable — not part of the rental total.
-                  </div>
+                                         <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
+                                         <input type="number" min="0" step="0.1" value={newBookingData.vatRate}
+                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, vatRate: v }); }}
+                                           placeholder="e.g., 9" style={bookingFieldInputStyle(false)} />
+                                       </div>
+                                       {newBookingData.additionalDrivers.length > 0 && (
+                                         <div>
+                                           <label style={bookingFieldLabelStyle}>Additional Driver Charge</label>
+                                           <input type="number" min="0" value={newBookingData.additionalDriverCharge}
+                                             onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
+                                             placeholder="0" style={bookingFieldInputStyle(false)} />
+                                         </div>
+                                       )}
+                                     </div>
+                                     <div style={{ marginBottom: 16, fontSize: 10.5, color: C.textMuted }}>
+                                       Security Deposit is refundable — collected upfront and included in the Grand Total, returned at the end of the rental.
+                                     </div>
 
-                  {/* Calculated amount summary — Security Deposit intentionally
-                      excluded, since it's refundable and not part of the rental total */}
-                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
-                    {[
-                      { label: "Rental Vehicle Charge", value: bookingRateCharge },
-                      { label: "Delivery Charge", value: bookingDeliveryCharge },
-                      { label: "Collection Charge", value: bookingCollectionCharge },
-                      { label: "Additional Driver Charge", value: bookingAdditionalDriverCharge },
-                      { label: "Other Charges", value: bookingOtherCharges },
-                    ].filter(row => row.value > 0 || row.label === "Rental Vehicle Charge").map(row => (
-                      <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                        <span>{row.label}</span>
-                        <span style={mono}>{formatSGD(row.value)}</span>
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", marginTop: 4, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 12.5, color: C.textSec }}>
-                      <span>Subtotal</span>
-                      <span style={mono}>{formatSGD(bookingSubtotal)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                      <span>VAT ({bookingVatRatePct || 0}%)</span>
-                      <span style={mono}>{formatSGD(bookingVatAmount)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Grand Total</span>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal)}</span>
-                    </div>
-                  </div>
-                </>
-              ) : bookingStep === 4 ? (
-                <>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 16 }}>💳 Payment</div>
-
-                  {/* Total Rental Amount / Security Deposit — read-only, carried over from Step 3 */}
-                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 18 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Total Rental Amount</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.navy, ...mono }}>{formatSGD(bookingTotal)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                      <span style={{ fontSize: 12.5, color: C.textSec }}>Security Deposit</span>
-                      <span style={{ fontSize: 12.5, color: C.textSec, ...mono }}>{formatSGD(bookingDeductible)}</span>
-                    </div>
-                  </div>
+                 {/* Calculated amount summary — Security Deposit is refundable but
+                                      shown here and folded into the Grand Total, so it reflects the
+                                      full amount collected across the booking (deposit upfront + rent
+                                      at pickup). NOTE: bookingTotal itself stays rental-only for the
+                                      rent / Balance Due math; only this displayed total adds the deposit. */}
+                                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
+                                    {[
+                                      { label: "Rental Vehicle Charge", value: bookingRateCharge },
+                                      { label: "Delivery Charge", value: bookingDeliveryCharge },
+                                      { label: "Collection Charge", value: bookingCollectionCharge },
+                                      { label: "Additional Driver Charge", value: bookingAdditionalDriverCharge },
+                                      { label: "Other Charges", value: bookingOtherCharges },
+                                    ].filter(row => row.value > 0 || row.label === "Rental Vehicle Charge").map(row => (
+                                      <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
+                                        <span>{row.label}</span>
+                                        <span style={mono}>{formatSGD(row.value)}</span>
+                                      </div>
+                                    ))}
+                                    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", marginTop: 4, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 12.5, color: C.textSec }}>
+                                      <span>Subtotal</span>
+                                      <span style={mono}>{formatSGD(bookingSubtotal)}</span>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
+                                      <span>VAT ({bookingVatRatePct || 0}%)</span>
+                                      <span style={mono}>{formatSGD(bookingVatAmount)}</span>
+                                    </div>
+                                    {bookingDeductible > 0 && (
+                                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
+                                        <span>Security Deposit <span style={{ color: C.textMuted }}>(refundable)</span></span>
+                                        <span style={mono}>{formatSGD(bookingDeductible)}</span>
+                                      </div>
+                                    )}
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+                                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Grand Total</span>
+                                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal + bookingDeductible)}</span>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : bookingStep === 4 ? (
+                                <>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 6 }}>💰 Security Deposit</div>
+                                  <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
+                                    Collect the refundable security deposit to confirm this booking. The rental amount is collected later, at Vehicle Handover on the pickup day.
+                                  </div>
+                
+                                  {/* Rental amount (collected at pickup) + Security Deposit (collected now) */}
+                                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 18 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                                      <span style={{ fontSize: 12.5, color: C.textSec }}>Total Rental Amount <span style={{ color: C.textMuted }}>· collected at pickup</span></span>
+                                      <span style={{ fontSize: 12.5, color: C.textSec, ...mono }}>{formatSGD(bookingTotal)}</span>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                                      <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Security Deposit <span style={{ fontWeight: 400, color: C.textMuted }}>· collect now</span></span>
+                                      <span style={{ fontSize: 13, fontWeight: 700, color: C.navy, ...mono }}>{formatSGD(bookingDeductible)}</span>
+                                    </div>
+                                  </div>
 
                   {editingBookingId ? (
-                    <div style={{ fontSize: 12, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg }}>
-                      Payments aren't recorded here while editing — record or view payments from the booking's <b>Pricing & Payment</b> tab instead.
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                        <div>
-                          <label style={bookingFieldLabelStyle}>Rental Amount</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={newBookingData.amountCollected}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              if (v !== "" && Number(v) < 0) return;
-                              setNewBookingData({ ...newBookingData, amountCollected: v });
-                            }}
-                            placeholder="0"
-                            style={bookingFieldInputStyle(false)}
-                          />
-                        </div>
-                        <div>
-                          <label style={bookingFieldLabelStyle}>Payment Method</label>
-                          <select
-                            value={newBookingData.paymentMethod}
-                            onChange={(e) => setNewBookingData({ ...newBookingData, paymentMethod: e.target.value })}
-                            style={bookingFieldInputStyle(false)}
-                          >
-                            <option value="Cash">Cash</option>
-                            <option value="Card">Card</option>
-                            <option value="Bank Transfer">Bank Transfer</option>
-                            <option value="Online">Online</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label style={bookingFieldLabelStyle}>Payment Date</label>
-                          <input
-                            type="date"
-                            value={newBookingData.amountCollectedDate}
-                            onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })}
-                            style={bookingFieldInputStyle(false)}
-                          />
-                        </div>
-                        <div>
-                          <label style={bookingFieldLabelStyle}>Payment Time</label>
-                          <input
-                            type="time"
-                            value={newBookingData.amountCollectedTime}
-                            onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value })}
-                            style={bookingFieldInputStyle(false)}
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ marginBottom: 20 }}>
-                        <label style={bookingFieldLabelStyle}>Transaction ID</label>
-                        <input
-                          type="text"
-                          value={newBookingData.referenceCode}
-                          onChange={(e) => setNewBookingData({ ...newBookingData, referenceCode: e.target.value })}
-                          placeholder="Optional — Transaction ID/ Payment reference"
-                          style={bookingFieldInputStyle(false)}
-                        />
-                      </div>
-
-                      <div style={{ border: `1px solid ${C.tealFaint}`, borderRadius: 10, padding: "14px 16px", background: C.tealFaint, display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: C.navy }}>Balance after this payment</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingBalance)}</span>
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
+                                     <div style={{ fontSize: 12, color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg }}>
+                                       Payments aren't recorded here while editing — record or view the deposit and rent from the booking's <b>Pricing & Payment</b> tab instead.
+                                     </div>
+                                   ) : (
+                                     <>
+                                       <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, cursor: "pointer" }}>
+                                         <input
+                                           type="checkbox"
+                                           checked={newBookingData.depositCollected}
+                                           onChange={(e) => setNewBookingData({ ...newBookingData, depositCollected: e.target.checked })}
+                                           style={{ width: 16, height: 16, accentColor: C.teal }}
+                                         />
+                                         <span style={{ fontSize: 12.5, fontWeight: 600, color: C.navy }}>Security deposit received</span>
+                                       </label>
+                 
+                                       {newBookingData.depositCollected ? (
+                                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                                           <div>
+                                             <label style={bookingFieldLabelStyle}>Deposit Method</label>
+                                             <select
+                                               value={newBookingData.depositCollectedMethod}
+                                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedMethod: e.target.value })}
+                                               style={bookingFieldInputStyle(false)}
+                                             >
+                                               <option value="Cash">Cash</option>
+                                               <option value="Card">Card</option>
+                                               <option value="Bank Transfer">Bank Transfer</option>
+                                               <option value="Online">Online</option>
+                                             </select>
+                                           </div>
+                                           <div>
+                                             <label style={bookingFieldLabelStyle}>Deposit Reference</label>
+                                             <input
+                                               type="text"
+                                               value={newBookingData.depositReference}
+                                               onChange={(e) => setNewBookingData({ ...newBookingData, depositReference: e.target.value })}
+                                               placeholder="Optional — reference / txn ID"
+                                               style={bookingFieldInputStyle(false)}
+                                             />
+                                           </div>
+                                           <div>
+                                             <label style={bookingFieldLabelStyle}>Deposit Date</label>
+                                             <input
+                                               type="date"
+                                               value={newBookingData.depositCollectedDate}
+                                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedDate: e.target.value })}
+                                               style={bookingFieldInputStyle(false)}
+                                             />
+                                           </div>
+                                           <div>
+                                             <label style={bookingFieldLabelStyle}>Deposit Time</label>
+                                             <input
+                                               type="time"
+                                               value={newBookingData.depositCollectedTime}
+                                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedTime: e.target.value })}
+                                               style={bookingFieldInputStyle(false)}
+                                             />
+                                           </div>
+                                         </div>
+                                       ) : (
+                                         <div style={{ fontSize: 12, color: "#92400e", border: "1px solid #f59e0b55", background: "#fef3c7", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+                                           ⚠ Deposit pending — you can still confirm the booking. Record the deposit later from the booking's <b>Pricing &amp; Payment</b> tab.
+                                         </div>
+                                       )}
+                 
+                                       {/* Optional: collect rent now — e.g. same-day or backdated
+                                           rentals. The normal flow collects rent at pickup. */}
+                                       <details style={{ marginTop: 4 }}>
+                                         <summary style={{ fontSize: 12, color: C.textSec, cursor: "pointer", userSelect: "none" }}>
+                                           Optional: also collect rent now (same-day / backdated rentals)
+                                         </summary>
+                    <div style={{ marginTop: 12 }}>
+                                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                                        <div>
+                                          <label style={bookingFieldLabelStyle}>Rent Collected Now</label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={newBookingData.amountCollected}
+                                            onChange={(e) => {
+                                              const v = e.target.value;
+                                              if (v !== "" && Number(v) < 0) return;
+                                              setNewBookingData({ ...newBookingData, amountCollected: v });
+                                            }}
+                                            placeholder="0"
+                                            style={bookingFieldInputStyle(false)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={bookingFieldLabelStyle}>Payment Method</label>
+                                          <select
+                                            value={newBookingData.paymentMethod}
+                                            onChange={(e) => setNewBookingData({ ...newBookingData, paymentMethod: e.target.value })}
+                                            style={bookingFieldInputStyle(false)}
+                                          >
+                                            <option value="Cash">Cash</option>
+                                            <option value="Card">Card</option>
+                                            <option value="Bank Transfer">Bank Transfer</option>
+                                            <option value="Online">Online</option>
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <label style={bookingFieldLabelStyle}>Payment Date</label>
+                                          <input
+                                            type="date"
+                                            value={newBookingData.amountCollectedDate}
+                                            onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })}
+                                            style={bookingFieldInputStyle(false)}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={bookingFieldLabelStyle}>Payment Time</label>
+                                          <input
+                                            type="time"
+                                            value={newBookingData.amountCollectedTime}
+                                            onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value })}
+                                            style={bookingFieldInputStyle(false)}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div style={{ marginBottom: 16 }}>
+                                        <label style={bookingFieldLabelStyle}>Transaction ID</label>
+                                        <input
+                                          type="text"
+                                          value={newBookingData.referenceCode}
+                                          onChange={(e) => setNewBookingData({ ...newBookingData, referenceCode: e.target.value })}
+                                          placeholder="Optional — Transaction ID / payment reference"
+                                          style={bookingFieldInputStyle(false)}
+                                        />
+                                      </div>
+                                      <div style={{ border: `1px solid ${C.tealFaint}`, borderRadius: 10, padding: "14px 16px", background: C.tealFaint, display: "flex", justifyContent: "space-between" }}>
+                                        <span style={{ fontSize: 13, fontWeight: 600, color: C.navy }}>Rent balance after this</span>
+                                        <span style={{ fontSize: 13, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingBalance)}</span>
+                                      </div>
+                                    </div>
+                                  </details>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            <>
                   {createdBookingInfo ? (
                     <div style={{ border: `1px solid ${C.tealFaint}`, borderRadius: 10, padding: "14px 16px", background: C.tealFaint, marginBottom: 16 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>✅ Booking Confirmed</div>
@@ -2187,69 +2309,72 @@ export default function FleetOpzApp() {
                           );
                         })()}
 
-                        {/* Started booking (pickup today or backdated): surface
-                            Vehicle Handover here. If the rental period has ALSO
-                            already ended, surface Vehicle Return too, so a past
-                            rental can be logged in one go — filling handover makes
-                            it Active on create; filling the return as well makes it
-                            Completed. Leaving them blank saves it as-is. */}
-                        {!editingBookingId && !createdBookingInfo && newBookingData.start
-                          && new Date(newBookingData.start).getTime() <= Date.now() && (() => {
-                          const hasEnded = !!newBookingData.end && new Date(newBookingData.end).getTime() < Date.now();
-                          return (
-                          <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover{hasEnded ? " & Return" : ""}</div>
-                            <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
-                              {hasEnded
-                                ? "This rental period is already in the past. Fill in the handover and return readings to record it as a completed rental — or leave them blank to save it and record them later."
-                                : "Pickup has arrived. Record Kilometer Out & Fuel Level to hand the car over now — the booking becomes Active and the Rental Agreement is generated on create. Leave blank to hand over later."}
-                            </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                              <div>
-                                <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
-                                <input type="number" min="0" value={newBookingData.startingMileage}
-                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, startingMileage: v }); }}
-                                  placeholder="9210" style={bookingFieldInputStyle(false)} />
-                              </div>
-                              <div>
-                                <label style={bookingFieldLabelStyle}>Fuel Level (at handover)</label>
-                                <select value={newBookingData.fuelLevel} onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })} style={bookingFieldInputStyle(false)}>
-                                  <option value="">Select fuel level</option>
-                                  <option value="Empty">Empty</option>
-                                  <option value="1/4">1/4</option>
-                                  <option value="1/2">1/2</option>
-                                  <option value="3/4">3/4</option>
-                                  <option value="Full">Full</option>
-                                </select>
-                              </div>
-                            </div>
-                            {hasEnded && (
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
-                                <div>
-                                  <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
-                                  <input type="number" min="0" value={newBookingData.customerReturnMileage}
-                                    onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, customerReturnMileage: v }); }}
-                                    placeholder="only if staff drove it back" style={bookingFieldInputStyle(false)} />
-                                </div>
-                                <div>
-                                  <label style={bookingFieldLabelStyle}>Final Odometer / Shed (km)</label>
-                                  <input type="number" min="0" value={newBookingData.mileageIn}
-                                    onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, mileageIn: v }); }}
-                                    placeholder="9450" style={bookingFieldInputStyle(false)} />
-                                </div>
-                                <div>
-                                  <label style={bookingFieldLabelStyle}>Fuel In (at return)</label>
-                                  <select value={newBookingData.fuelIn} onChange={(e) => setNewBookingData({ ...newBookingData, fuelIn: e.target.value })} style={bookingFieldInputStyle(false)}>
-                                    <option value="Empty">Empty</option>
-                                    <option value="1/4">1/4</option>
-                                    <option value="1/2">1/2</option>
-                                    <option value="3/4">3/4</option>
-                                    <option value="Full">Full</option>
-                                  </select>
-                                </div>
-                              </div>
-                            )}
-                            <div>
+                        {/* Backdated, already-ENDED rental only: surface Vehicle
+                                                   Handover + Return here so a completed past rental can be
+                                                   logged in one go (fill both → created Completed; leave
+                                                   blank → saved as-is). For a normal booking whose pickup is
+                                                   today/future but hasn't ended yet, handover is deliberately
+                                                   NOT shown here — mileage/fuel/condition are captured at the
+                                                   actual Vehicle Handover step in the booking detail view,
+                                                   where the rent is collected too (deposit-first flow). */}
+                                               {!editingBookingId && !createdBookingInfo && newBookingData.start && newBookingData.end
+                                                 && new Date(newBookingData.start).getTime() <= Date.now()
+                                                 && new Date(newBookingData.end).getTime() < Date.now() && (() => {
+                                                 const hasEnded = true; // gated above: this block renders only for already-ended rentals
+                                                 return (
+                                                 <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
+                                                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover{hasEnded ? " & Return" : ""}</div>
+                                                   <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
+                                                     {hasEnded
+                                                       ? "This rental period is already in the past. Fill in the handover and return readings to record it as a completed rental — or leave them blank to save it and record them later."
+                                                       : "Pickup has arrived. Record Kilometer Out & Fuel Level to hand the car over now — the booking becomes Active and the Rental Agreement is generated on create. Leave blank to hand over later."}
+                                                   </div>
+                                                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                                                     <div>
+                                                       <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
+                                                       <input type="number" min="0" value={newBookingData.startingMileage}
+                                                         onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, startingMileage: v }); }}
+                                                         placeholder="9210" style={bookingFieldInputStyle(false)} />
+                                                     </div>
+                                                     <div>
+                                                       <label style={bookingFieldLabelStyle}>Fuel Level (at handover)</label>
+                                                       <select value={newBookingData.fuelLevel} onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })} style={bookingFieldInputStyle(false)}>
+                                                         <option value="">Select fuel level</option>
+                                                         <option value="Empty">Empty</option>
+                                                         <option value="1/4">1/4</option>
+                                                         <option value="1/2">1/2</option>
+                                                         <option value="3/4">3/4</option>
+                                                         <option value="Full">Full</option>
+                                                       </select>
+                                                     </div>
+                                                   </div>
+                                                   {hasEnded && (
+                                                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+                                                       <div>
+                                                         <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
+                                                         <input type="number" min="0" value={newBookingData.customerReturnMileage}
+                                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, customerReturnMileage: v }); }}
+                                                           placeholder="only if staff drove it back" style={bookingFieldInputStyle(false)} />
+                                                       </div>
+                                                       <div>
+                                                         <label style={bookingFieldLabelStyle}>Final Odometer / Shed (km)</label>
+                                                         <input type="number" min="0" value={newBookingData.mileageIn}
+                                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, mileageIn: v }); }}
+                                                           placeholder="9450" style={bookingFieldInputStyle(false)} />
+                                                       </div>
+                                                       <div>
+                                                         <label style={bookingFieldLabelStyle}>Fuel In (at return)</label>
+                                                         <select value={newBookingData.fuelIn} onChange={(e) => setNewBookingData({ ...newBookingData, fuelIn: e.target.value })} style={bookingFieldInputStyle(false)}>
+                                                           <option value="Empty">Empty</option>
+                                                           <option value="1/4">1/4</option>
+                                                           <option value="1/2">1/2</option>
+                                                           <option value="3/4">3/4</option>
+                                                           <option value="Full">Full</option>
+                                                         </select>
+                                                       </div>
+                                                     </div>
+                                                   )}
+                                                   <div>
                               <label style={bookingFieldLabelStyle}>Vehicle Condition</label>
                               <textarea value={newBookingData.vehicleCondition} onChange={(e) => setNewBookingData({ ...newBookingData, vehicleCondition: e.target.value })}
                                 placeholder="Note any existing scratches, dents, or issues" rows={2}
