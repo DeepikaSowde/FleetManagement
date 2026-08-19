@@ -18,9 +18,28 @@ export const forfeitedDepositIncome = (bookings = [], { prefix = "", plate = nul
     return sum + forfeited;
   }, 0);
 
+// Booking payments, normalized the same way Booking.jsx / useFleetData.js
+// treat legacy data: prefer the real `payments` array; for older bookings
+// that only ever had the single `amountCollected` field, synthesize one
+// payment entry from it so nothing is silently dropped from the ledger.
+const normalizedPayments = (b) =>
+  b.payments || (Number(b.amountCollected) > 0
+    ? [{ id: "seed", amount: Number(b.amountCollected), method: b.paymentMethod || "Cash", reference: b.referenceCode || "", addedAt: b.createdAt || null }]
+    : []);
+
 // Builds the unified, date-sorted ledger transaction list with a running
 // balance from the data the app already tracks:
-//   • Earnings          -> "Rental Income" credits
+//   • Booking payments  -> "Rental Income" credits, ONE ROW PER PAYMENT,
+//                          dated to when that payment was actually received
+//                          (`payment.addedAt`) — not per booking and not on
+//                          an accrual/handover basis. This is intentionally
+//                          different from the `earnings` records used by the
+//                          Earnings tab / P&L, which still recognize the full
+//                          rental total at handover; the Ledger instead
+//                          reflects real cash movements as they happen, so a
+//                          customer paying in installments shows up as
+//                          separate, correctly-dated entries instead of one
+//                          lump sum.
 //   • Expenses          -> "Expense" debits
 //   • Booking deposits  -> "Deposit IN" at pickup / "Deposit OUT" when refunded
 //   • Investor capital  -> "Investment" credits, taken LIVE from the Investors
@@ -28,24 +47,25 @@ export const forfeitedDepositIncome = (bookings = [], { prefix = "", plate = nul
 //                          Reinvestment, i.e. their IN transactions).
 // Shared by the Ledger page and the Ledger Dashboard so both show identical
 // balances instead of each re-deriving them and drifting.
+// `earnings` is accepted for interface stability with existing callers but is
+// no longer used to build Rental Income rows — see above.
 export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], investors = []) => {
   const rows = [];
-
-  earnings.forEach((e) => {
-    rows.push({
-      key: `E-${e.id}`,
-      date: (e.end || e.start || "").slice(0, 10),
-      plate: e.plate || "",
-      type: "Rental Income",
-      description: `Rental Income${e.days ? ` - ${e.days} Day${e.days > 1 ? "s" : ""}` : ""}`,
-      remarks: e.customer || "—",
-      credit: e.total || 0,
-      debit: 0,
-    });
-  });
+  // Insertion-order fallback for rows whose source data has no time
+  // component (just a date) — e.g. an Expense's `date` field. Two such rows
+  // on the same day fall back to the order they were added to their source
+  // array (assumed chronological, since new items are appended), rather than
+  // an arbitrary string-key comparison.
+  let seq = 0;
+  const push = (row, tsSource) => {
+    seq += 1;
+    row.ts = tsSource ? Date.parse(tsSource) : NaN;
+    row.seq = seq;
+    rows.push(row);
+  };
 
   expenses.forEach((x) => {
-    rows.push({
+    push({
       key: `X-${x.id}`,
       date: (x.date || "").slice(0, 10),
       plate: x.plate || "",
@@ -54,13 +74,30 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
       remarks: x.category || "—",
       credit: 0,
       debit: x.amount || 0,
-    });
+    }, x.createdAt || x.date);
   });
 
   bookings.forEach((b) => {
+    if (!b.cancelled) {
+      normalizedPayments(b).forEach((p) => {
+        const amt = Number(p.amount) || 0;
+        if (amt <= 0) return;
+        push({
+          key: `RI-${b.id}-${p.id}`,
+          date: (p.addedAt || b.start || "").slice(0, 10),
+          plate: b.plate || "",
+          type: "Rental Income",
+          description: `Rental Payment (${p.method || "Cash"})`,
+          remarks: b.customer || "—",
+          credit: amt,
+          debit: 0,
+        }, p.addedAt || b.start);
+      });
+    }
+
     const deposit = Number(b.deductible) || 0;
     if (deposit > 0) {
-      rows.push({
+      push({
         key: `DI-${b.id}`,
         date: (b.start || "").slice(0, 10),
         plate: b.plate || "",
@@ -69,14 +106,14 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
         remarks: b.customer || "—",
         credit: deposit,
         debit: 0,
-      });
+      }, b.createdAt || b.start);
     }
     if (b.depositRefunded) {
       const back = b.depositRefundedAmount ?? deposit;   // cash actually returned to the customer
       const forfeited = Math.max(0, deposit - back);      // shortfall the business keeps
       const settledDate = (b.depositRefundedAt || b.end || b.start || "").slice(0, 10);
       if (back > 0) {
-        rows.push({
+        push({
           key: `DO-${b.id}`,
           date: settledDate,
           plate: b.plate || "",
@@ -85,7 +122,7 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
           remarks: b.customer || "—",
           credit: 0,
           debit: back,
-        });
+        }, b.depositRefundedAt);
       }
       // Whatever isn't returned is retained and recognized as income. Booked as
       // a reclassification: the kept amount leaves the deposit (debit) and enters
@@ -93,7 +130,7 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
       // while the ledger now surfaces it under "Deposit Income" instead of
       // leaving it silently inside the net Deposit IN/OUT.
       if (forfeited > 0) {
-        rows.push({
+        push({
           key: `DF-${b.id}`,
           date: settledDate,
           plate: b.plate || "",
@@ -102,8 +139,8 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
           remarks: b.customer || "—",
           credit: 0,
           debit: forfeited,
-        });
-        rows.push({
+        }, b.depositRefundedAt);
+        push({
           key: `DFI-${b.id}`,
           date: settledDate,
           plate: b.plate || "",
@@ -112,7 +149,7 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
           remarks: b.customer || "—",
           credit: forfeited,
           debit: 0,
-        });
+        }, b.depositRefundedAt);
       }
     }
   });
@@ -124,7 +161,7 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
   investors.forEach((inv) => {
     (inv.transactions || []).forEach((t) => {
       if (flowForType(t.type) !== "IN") return;
-      rows.push({
+      push({
         key: `IV-${t.id}`,
         date: (t.date || "").slice(0, 10),
         plate: "",
@@ -133,11 +170,23 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
         remarks: inv.name,
         credit: Number(t.amount) || 0,
         debit: 0,
-      });
+      }, t.date);
     });
   });
 
-  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.key < b.key ? -1 : 1));
+  // Sort ascending by date; within the same date, by the row's actual
+  // recorded time when we have one (payment.addedAt, depositRefundedAt,
+  // etc.), and finally by insertion sequence as a last-resort tie-break for
+  // rows with only a bare date. The Ledger UI reverses this list for
+  // display, so the item that sorts LAST here is the one shown at the very
+  // top — i.e. the most recently recorded entry on a given day.
+  rows.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    const aTs = Number.isNaN(a.ts) ? -Infinity : a.ts;
+    const bTs = Number.isNaN(b.ts) ? -Infinity : b.ts;
+    if (aTs !== bTs) return aTs - bTs;
+    return a.seq - b.seq;
+  });
   let bal = 0;
   rows.forEach((r) => {
     bal += r.credit - r.debit;

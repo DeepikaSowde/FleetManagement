@@ -6,7 +6,8 @@ import LedgerDashboard from "./LedgerDashboard";
 
 // Read-only financial ledger. It is NOT a separate data source — it is a
 // unified, chronological view built from data the app already tracks:
-//   • Earnings          -> "Rental Income" credits
+//   • Booking payments  -> "Rental Income" credits, one entry per payment
+//                          actually received (see buildLedgerRows)
 //   • Expenses          -> "Expense" debits
 //   • Booking deposits  -> "Deposit IN" credit at pickup, "Deposit OUT" debit
 //                          when refunded (deposits move cash but are NOT profit,

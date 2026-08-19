@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions } from "./theme";
 import { Btn, Input } from "./components";
 
@@ -41,6 +41,47 @@ const emptyCar = () => ({
   coe: "",
 });
 
+// Base catalog of common brands/models (Singapore rental fleet defaults) —
+// merged at render time with any brand/model pairs already present in the
+// live fleet, so the dropdown always reflects real inventory too.
+const BASE_BRAND_MODELS = {
+  Toyota: ["Corolla", "Camry", "Vios", "Yaris", "Alphard", "Wish", "Sienta", "Prius"],
+  Honda: ["Civic", "City", "Vezel", "Fit", "Freed", "Shuttle", "CR-V"],
+  Nissan: ["Almera", "Sylphy", "Note", "X-Trail", "Serena"],
+  Hyundai: ["Avante", "Elantra", "Tucson", "Ioniq"],
+  Kia: ["Cerato", "Forte", "Sportage", "Niro"],
+  Mazda: ["Mazda 2", "Mazda 3", "Mazda 6", "CX-5"],
+  BMW: ["3 Series", "5 Series", "X1", "X3"],
+  "Mercedes-Benz": ["A-Class", "C-Class", "E-Class", "GLA"],
+  Volkswagen: ["Golf", "Passat", "Tiguan"],
+  Perodua: ["Myvi", "Axia", "Bezza"],
+  Proton: ["Saga", "Persona", "X50"],
+  Suzuki: ["Swift", "Vitara"],
+  Mitsubishi: ["Attrage", "Xpander"],
+};
+
+// Merges the base catalog above with whatever brand/model pairs already
+// exist in the live fleet, so newly-registered brands/models show up too
+// without needing a code change.
+const buildBrandModelMap = (fleet = []) => {
+  const map = {};
+  Object.entries(BASE_BRAND_MODELS).forEach(([brand, models]) => {
+    map[brand] = new Set(models);
+  });
+  fleet.forEach(c => {
+    const brand = (c.make || "").trim();
+    const model = (c.model || "").trim();
+    if (!brand) return;
+    if (!map[brand]) map[brand] = new Set();
+    if (model) map[brand].add(model);
+  });
+  const result = {};
+  Object.keys(map).sort((a, b) => a.localeCompare(b)).forEach(brand => {
+    result[brand] = Array.from(map[brand]).sort((a, b) => a.localeCompare(b));
+  });
+  return result;
+};
+
 // Compact select field matching the visual weight of the Input component
 // used everywhere else in this wizard (label above, bordered control below).
 const selectFieldStyle = {
@@ -48,6 +89,27 @@ const selectFieldStyle = {
   fontFamily: "inherit", fontSize: 12.5, outline: "none", background: C.surface,
   color: C.textPri, cursor: "pointer", boxSizing: "border-box",
 };
+
+// Dropdown-with-free-typing combobox: shows suggestions like a <select>, but
+// lets staff type a brand/model that isn't in the list yet (a genuinely new
+// one), since <select> alone can't do that. Backed by <input list=...>.
+const Combobox = ({ label, value, onChange, options, placeholder, listId }) => (
+  <div>
+    <div style={{ fontSize: 10.5, color: C.textMuted, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+    <input
+      list={listId}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      style={{ ...selectFieldStyle, cursor: "text" }}
+    />
+    <datalist id={listId}>
+      {options.map(o => <option key={o} value={o} />)}
+    </datalist>
+  </div>
+);
+
+
 
 const SelectField = ({ label, value, onChange, options }) => (
   <div>
@@ -98,7 +160,7 @@ const ComplianceField = ({ label, value, onChange }) => {
 // only thing that actually gets saved to fleet data. Editing any of this
 // after the car is added happens from the Fleet Details view, not here — this
 // wizard is add-only, with no separate "edit" affordance of its own.
-const AddCarWizard = ({ onComplete, onClose }) => {
+const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const [step, setStep] = useState(0);
   const [car, setCar] = useState(emptyCar());
   const [options, setOptions] = useState(null);
@@ -106,8 +168,29 @@ const AddCarWizard = ({ onComplete, onClose }) => {
 
   const setField = (key, value) => setCar(c => ({ ...c, [key]: value }));
 
+  // Base brand/model catalog merged with whatever's already in the live
+  // fleet — recomputed only when the fleet list actually changes.
+  const brandModelMap = useMemo(() => buildBrandModelMap(fleet), [fleet]);
+  const brandOptions = Object.keys(brandModelMap);
+  // Models filter down to the selected Brand's known models; if Brand is
+  // blank or not a recognized brand yet (a brand-new one being typed in),
+  // Model just falls back to no suggestions and stays free-text.
+  const modelOptions = brandModelMap[car.make] || [];
+
+  // Fuel Type change also drives Transmission: selecting EV forces
+  // Transmission to Automatic (EVs don't have a manual gearbox) and Manual
+  // becomes unavailable until Fuel Type is changed away from EV again.
+  const handleFuelTypeChange = (value) => {
+    setCar(c => ({
+      ...c,
+      fuelType: value,
+      transmission: value === "EV" ? "Automatic" : c.transmission,
+    }));
+  };
+
   const investment =
     (parseFloat(car.purchase) || 0) +
+    (parseFloat(car.purchaseAdvance) || 0) +
     (parseFloat(car.insurance) || 0) +
     (parseFloat(car.reg) || 0) +
     (parseFloat(car.otherCharges) || 0);
@@ -192,18 +275,28 @@ const AddCarWizard = ({ onComplete, onClose }) => {
           {step === 0 && (
             <div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <Input label="Car Number" value={car.plate} onChange={e => setField("plate", e.target.value)} placeholder="e.g., SBJ 4488 F" />
+                <Input label="Car Plate" value={car.plate} onChange={e => setField("plate", e.target.value)} placeholder="e.g., SBJ 4488 F" />
                 <Input label="Year" type="number" value={car.year} onChange={e => setField("year", e.target.value)} placeholder="e.g., 2024" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
-                <Input label="Make" value={car.make} onChange={e => setField("make", e.target.value)} placeholder="e.g., Toyota" />
-                <Input label="Model" value={car.model} onChange={e => setField("model", e.target.value)} placeholder="e.g., Corolla" />
+                <Combobox label="Brand" listId="brand-options" value={car.make}
+                  onChange={e => {
+                    const value = e.target.value;
+                    // Changing Brand invalidates a Model picked under the
+                    // previous Brand, since models are filtered per-brand.
+                    setCar(c => ({ ...c, make: value, model: brandModelMap[value]?.includes(c.model) ? c.model : "" }));
+                  }}
+                  options={brandOptions} placeholder="e.g., Toyota" />
+                <Combobox label="Model" listId="model-options" value={car.model}
+                  onChange={e => setField("model", e.target.value)}
+                  options={modelOptions} placeholder="e.g., Corolla" />
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 6 }}>
                 <Input label="Colour" value={car.color} onChange={e => setField("color", e.target.value)} placeholder="e.g., Silver" />
-                <SelectField label="Fuel Type" value={car.fuelType} onChange={e => setField("fuelType", e.target.value)} options={["Petrol", "Diesel"]} />
-                <SelectField label="Transmission" value={car.transmission} onChange={e => setField("transmission", e.target.value)} options={["Automatic", "Manual"]} />
+                <SelectField label="Fuel Type" value={car.fuelType} onChange={e => handleFuelTypeChange(e.target.value)} options={["Petrol", "Diesel", "EV"]} />
+                <SelectField label="Transmission" value={car.transmission} onChange={e => setField("transmission", e.target.value)}
+                  options={car.fuelType === "EV" ? ["Automatic"] : ["Automatic", "Manual"]} />
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
@@ -243,6 +336,7 @@ const AddCarWizard = ({ onComplete, onClose }) => {
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>System auto-calculated from what you entered — nothing to fill in here.</div>
               {[
                 ["Purchase Price", car.purchase],
+                ["Purchase Advance", car.purchaseAdvance || 0],
                 ["Insurance", car.insurance || 0],
                 ["Registration", car.reg || 0],
                 ["Other Charges", car.otherCharges || 0],
@@ -307,6 +401,7 @@ const AddCarWizard = ({ onComplete, onClose }) => {
                 ["Car", `${car.make} ${car.model} (${car.plate})`],
                 ["Fuel Type", car.fuelType],
                 ["Transmission", car.transmission],
+                ["Purchase Advance", fmt(parseFloat(car.purchaseAdvance) || 0)],
                 ["Total Investment", fmt(investment)],
                 ["Insurance Expiry", car.insuranceExpiry || "—"],
                 ["LTA Transfer Validity", car.ltaTransferDate || "—"],

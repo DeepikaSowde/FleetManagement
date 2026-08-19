@@ -429,6 +429,23 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // from, so this is a plain amount field, same as any other post-return
   // charge amount (Damage Fee, Cleaning Fee, etc).
   const [fuelCharge, setFuelCharge] = useState("");
+  // Additional Return Charges — line items staff can add at return time
+  // (e.g. late fee, damage note, cleaning). Added into `booking.charges`
+  // (origin: "return", non-taxable) on confirm, same mechanism Fuel Charge
+  // already uses — so they flow into finalInvoiceTotal/Balance Due, and once
+  // paid via Record Payment, ledgerUtils.js's buildLedgerRows automatically
+  // posts that payment as a "Rental Income" row — no separate storage or
+  // ledger wiring needed here.
+  const [additionalReturnCharges, setAdditionalReturnCharges] = useState([]);
+  const addReturnCharge = () => {
+    setAdditionalReturnCharges(list => [...list, { id: `arc-${Date.now()}-${list.length}`, name: "", description: "", amount: "" }]);
+  };
+  const updateReturnCharge = (id, field, value) => {
+    setAdditionalReturnCharges(list => list.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+  const removeReturnCharge = (id) => {
+    setAdditionalReturnCharges(list => list.filter(c => c.id !== id));
+  };
   // Defaults to right now (still fully editable) so an on-time return needs
   // no changes, but an early or late return can be corrected before confirming.
   const [actualReturnDate, setActualReturnDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -504,7 +521,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
 
     const updates = {
       startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
-      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}`)),
+      ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
+      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
     };
     if (rentEntered > 0) {
       updates.payments = [...inv.payments, {
@@ -519,11 +537,58 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
     generateRentalAgreementPdf({ ...booking, ...updates }, car);
     setShowHandover(false);
+    setRentAtPickup("");
+    setRentReference("");
+  };
+
+  // "Collect Now" — a standalone action separate from Save & Generate
+  // Agreement. It records a real payment for the *current* Balance Due
+  // immediately (doesn't touch handover/mileage/fuel), so staff can settle
+  // the full amount without stepping through the rest of the handover form.
+  const handleCollectNow = () => {
+    if (inv.balanceDue <= 0) return;
+    // Receipt / Reference No. is mandatory for any non-cash payment.
+    if (rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Receipt / Reference No. (required unless payment method is Cash).");
+      return;
+    }
+    if (!rentDate || !rentTime) {
+      alert("Enter the payment date & time");
+      return;
+    }
+    const amt = inv.balanceDue;
+    const newPayment = {
+      id: `collect-${Date.now()}`,
+      amount: amt,
+      method: rentMethod,
+      reference: rentReference.trim(),
+      addedAt: `${rentDate}T${rentTime}`,
+      by: actor,
+    };
+    onUpdateBooking(booking.id, {
+      payments: [...inv.payments, newPayment],
+      history: withHistory(histEntry("payment", `Collected ${fmt(amt)} (${rentMethod})${rentReference.trim() ? ` · Ref ${rentReference.trim()}` : ""} — full balance cleared`)),
+    });
+    setRentAtPickup("");
+    setRentReference("");
+    setFullyCollectedNotice(true);
   };
 
   // Balance Due coloring, per spec: green once fully paid, orange while
   // partially paid, red while nothing's been paid against an outstanding balance.
   const balanceColor = inv.balanceDue <= 0 ? C.teal : inv.totalPaid > 0 ? "#d97706" : C.red;
+
+  // Overview tab's Payment Summary card only — folds the Security Deposit
+  // into Grand Total/Balance Due for that display, per product request.
+  // This is deliberately scoped to this one card: everywhere else (Pricing &
+  // Payment tab, Record Payment, the security-deposit refund modal,
+  // ledgerUtils.js) keeps using inv.finalInvoiceTotal/inv.balanceDue, which
+  // exclude the refundable deposit — that's the figure Record Payment and
+  // the deposit-refund flow are actually built around.
+  const overviewTotalRental = inv.finalInvoiceTotal;
+  const overviewGrandTotal = inv.deposit + overviewTotalRental;
+  const overviewBalanceDue = Math.max(0, overviewGrandTotal - inv.totalPaid);
+  const overviewBalanceColor = overviewBalanceDue <= 0 ? C.teal : inv.totalPaid > 0 ? "#d97706" : C.red;
 
   const handleConfirmReturn = () => {
     if (mileageIn === "" || Number(mileageIn) < 0) {
@@ -548,6 +613,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Fuel Charge cannot be negative");
       return;
     }
+    if (additionalReturnCharges.some(c => c.amount !== "" && Number(c.amount) < 0)) {
+      alert("Additional Return Charge amounts cannot be negative");
+      return;
+    }
     const actualReturnAt = `${actualReturnDate}T${actualReturnTime}`;
 
     // Fuel Charge is whatever amount staff entered above (comparing Starting
@@ -557,8 +626,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // flows into finalInvoiceTotal/balanceDue through computeBookingInvoice
     // automatically rather than needing separate math anywhere else in the app.
     const fuelChargeAmount = Number(fuelCharge) || 0;
-    const charges = fuelChargeAmount > 0
-      ? [...(booking.charges || []), {
+    const fuelChargeEntry = fuelChargeAmount > 0
+      ? [{
           id: `fuel-${Date.now()}`,
           type: "fuel_shortfall",
           label: `Fuel Charge (${booking.fuelLevel || "?"} -> ${fuelIn})`,
@@ -568,7 +637,33 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           addedAt: new Date().toISOString(),
           by: actor,
         }]
-      : (booking.charges || []);
+      : [];
+
+    // Additional Return Charges — only rows with both a Charge Name and an
+    // Amount > 0 are kept; blank/half-filled rows staff added then abandoned
+    // are simply dropped, not saved. Each becomes a genuine post-return
+    // charge (origin: "return", non-taxable — no VAT applied, per product
+    // decision), same shape and same array as Fuel Charge above, so it flows
+    // into finalInvoiceTotal/balanceDue automatically: New Balance Due =
+    // previous Balance Due + these charges. When staff later collect payment
+    // for it through the existing Record Payment flow, ledgerUtils.js's
+    // buildLedgerRows picks that payment up automatically as a "Rental
+    // Income" / "Rental Payment (method)" row — no separate ledger write needed.
+    const additionalChargeEntries = additionalReturnCharges
+      .filter(c => c.name.trim() !== "" && Number(c.amount) > 0)
+      .map((c, i) => ({
+        id: `arc-${Date.now()}-${i}`,
+        type: "other_non_taxable",
+        label: c.name.trim(),
+        note: c.description.trim() || undefined,
+        amount: Number(c.amount),
+        taxable: false,
+        origin: "return",
+        addedAt: new Date().toISOString(),
+        by: actor,
+      }));
+
+    const charges = [...(booking.charges || []), ...fuelChargeEntry, ...additionalChargeEntries];
 
     // forceCompleted mirrors the existing "Mark Done" convention elsewhere in
     // this file, rather than setting status directly — that keeps this in
@@ -621,6 +716,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Enter the reason for returning less than the full deposit.");
       return;
     }
+    const isPartial = amount < inv.deposit;
+    if (isPartial && !refundReason.trim()) {
+      alert("A reason is required for a reduced refund.");
+      return;
+    }
     onUpdateBooking(booking.id, {
       depositRefunded: true,
       depositRefundedAmount: amount,
@@ -630,6 +730,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     });
     setShowRefund(false);
   };
+  // -------------------------------------------------------------------------
 
   const handleRecordPayment = () => {
     const amt = Number(paymentAmount);
@@ -641,7 +742,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // overpayment is blocked right here at entry rather than silently
     // accepted and clamped away — the person gets a clear error instead of
     // money quietly vanishing from the numbers.
-    if (amt > inv.balanceDue) {
+    //
+    // Compare in integer cents (rounded), not raw floats: amt and
+    // inv.balanceDue are each the result of chained arithmetic and can carry
+    // binary floating-point noise (e.g. 0.6000000000000001 or
+    // 0.5999999999999999). A direct `amt > inv.balanceDue` can then reject a
+    // payment that's actually exactly equal to the Balance Due. Rounding
+    // both to the nearest cent before comparing makes "equal" mean equal.
+    const amtCents = Math.round(amt * 100);
+    const balanceDueCents = Math.round(inv.balanceDue * 100);
+    if (amtCents > balanceDueCents) {
       alert(`Amount exceeds the Balance Due (${fmt(inv.balanceDue)}). Enter ${fmt(inv.balanceDue)} or less.`);
       return;
     }
@@ -1078,7 +1188,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         {FUEL_LEVELS.map(f => <option key={f} value={f}>{f}</option>)}
                       </select>
                     </div>
-                    <div style={{ flex: "1 1 160px" }}>
+                    <div style={{ flex: "0 1 110px" }}>
                       <div style={detailFieldLabelStyle}>Fuel Charge</div>
                       <input
                         type="number"
@@ -1089,6 +1199,32 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         style={detailInputStyle}
                       />
                     </div>
+
+                    {/* Additional Return Charges — folded into booking.charges on
+                        Confirm Return (origin: "return", non-taxable), same
+                        mechanism as Fuel Charge, so they flow into
+                        finalInvoiceTotal/Balance Due automatically. Paying them
+                        off through Record Payment posts to the Ledger as
+                        Rental Income the same way any other payment does. */}
+                    <div style={{ flex: "1 1 100%" }}>
+                      <div style={{ ...detailFieldLabelStyle, marginBottom: 6 }}>Additional Return Charges <span style={{ color: C.textMuted, fontWeight: 400 }}>(added to Balance Due, no VAT — recorded as Rental Income once paid)</span></div>
+                      {additionalReturnCharges.map((c) => (
+                        <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6, flexWrap: "wrap" }}>
+                          <div style={{ flex: "1 1 140px" }}>
+                            <input type="text" value={c.name} onChange={(e) => updateReturnCharge(c.id, "name", e.target.value)} placeholder="Charge Name" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "2 1 200px" }}>
+                            <input type="text" value={c.description} onChange={(e) => updateReturnCharge(c.id, "description", e.target.value)} placeholder="Description" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "0 1 110px" }}>
+                            <input type="number" min="0" value={c.amount} onChange={(e) => updateReturnCharge(c.id, "amount", e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                          </div>
+                          <Btn onClick={() => removeReturnCharge(c.id)} style={{ color: C.red }}>Delete</Btn>
+                        </div>
+                      ))}
+                      <Btn onClick={addReturnCharge}>+ Add Charge</Btn>
+                    </div>
+
                     <Btn primary onClick={handleConfirmReturn}>Confirm Return & Generate Invoice</Btn>
                     <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
                       <strong style={{ color: C.navy }}>Customer Return Odo</strong> is the reading when the customer handed the car back — leave it blank if they returned it directly. Any extra distance up to the <strong style={{ color: C.navy }}>Final Odometer</strong> is counted as company/internal (drive-back), not customer usage.
@@ -1125,7 +1261,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             : "Held"}
                       </span>
                       {inv.deposit > 0 && !booking.depositRefunded && (
-                        <button onClick={handleMarkDepositRefunded} style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
+                        <button
+                          onClick={() => { setRefundAmount(String(inv.deposit)); setRefundReason(""); setShowRefund(true); }}
+                          style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
+                        >
                           Mark Refunded
                         </button>
                       )}
@@ -1223,7 +1362,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ marginBottom: 14, maxHeight: 180, overflowY: "auto" }}>
                       {inv.payments.map(p => (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", marginBottom: 6 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{fmt(Number(p.amount) || 0)} · {p.method}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{fmt(Number(p.amount) || 0)} · {p.method}{p.reference ? ` · Ref ${p.reference}` : ""}</div>
                           <div style={{ fontSize: 10.5, color: C.textMuted }}>{p.addedAt ? formatDateTime(p.addedAt) : ""}</div>
                         </div>
                       ))}
@@ -1438,7 +1577,12 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
       </div>
 
       <Card>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        {/* Horizontal scroll lives inside this box only — the table can never
+            spill past the Card's border. minWidth keeps every column at a
+            readable width; below that the box scrolls instead of squishing
+            or overlapping columns. */}
+        <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", minWidth: 1080, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bg }}>
               {["Booking ID", "Car", "Customer", "IC / Passport", "Contact", "Rental Period", "Days", "Rate", "Total", "Pickup", "Status", "Actions"].map(h => (
@@ -1455,17 +1599,16 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                   onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                   style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: "transparent", transition: "background 0.12s" }}>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navyMid }}>{b.id}</td>
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navyMid, whiteSpace: "nowrap" }}>{b.id}</td>
                   <td style={{ padding: "11px 12px" }}><PlateBadge plate={b.plate} small /></td>
                   <td style={{ padding: "11px 12px", fontSize: 12, fontWeight: 600 }}>{b.customer}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 10, color: C.textMuted }}>{b.ic}</td>
-              
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{b.ic}</td>
                   <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec }}>{b.contact}</td>
                   <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{formatDateTime(b.start)} → {formatDateTime(b.end)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 11, textAlign: "center" }}>{days}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11 }}>SGD {b.rate}/d</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.teal }}>{fmt(total)}</td>
-                  <td style={{ padding: "11px 12px", fontSize: 11, color: C.textMuted }}>{b.pickup}</td>
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, whiteSpace: "nowrap" }}>SGD {b.rate}/d</td>
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.teal, whiteSpace: "nowrap" }}>{fmt(total)}</td>
+                  <td style={{ padding: "11px 12px", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{b.pickup}</td>
                   <td style={{ padding: "11px 12px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <StatusTag status={b.status} />
@@ -1476,19 +1619,21 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: "11px 12px", display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                    <button data-testid="booking-row-view" onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
-                      style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
-                      View
-                    </button>
-                    <button data-testid="booking-row-edit" onClick={() => onEditBooking?.(b)}
-                      style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
-                      Edit
-                    </button>
-                    <button data-testid="booking-row-delete" onClick={() => handleDelete(b.id)}
-                      style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.red, cursor: "pointer", fontWeight: 600 }}>
-                      Delete
-                    </button>
+                  <td style={{ padding: "11px 12px" }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                      <button data-testid="booking-row-view" onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
+                        style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
+                        View
+                      </button>
+                      <button data-testid="booking-row-edit" onClick={() => onEditBooking?.(b)}
+                        style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
+                        Edit
+                      </button>
+                      <button data-testid="booking-row-delete" onClick={() => handleDelete(b.id)}
+                        style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.red, cursor: "pointer", fontWeight: 600 }}>
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -1498,6 +1643,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
         {filtered.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No bookings with status "{filter}"</div>
         )}
+        </div>
       </Card>
 
       {timelineCar && (
