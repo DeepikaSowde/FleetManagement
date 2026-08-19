@@ -32,12 +32,19 @@ import Settings from "./Settings";
 // isn't available to confirm it forwards those through.
 const bookingFieldLabelStyle = { fontSize: 11, fontWeight: 600, color: C.textSec, display: "block", marginBottom: 6 };
 const mono = { fontFamily: "'SF Mono', 'Consolas', 'Menlo', monospace" };
-const bookingFieldInputStyle = (readOnly) => ({
-  width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+const bookingFieldInputStyle = (readOnly, hasError) => ({
+  width: "100%", padding: "10px 12px", borderRadius: 8,
+  border: `1px solid ${hasError ? C.red : C.border}`,
   fontSize: 12.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box",
   background: readOnly ? C.bg : C.surface, color: readOnly ? C.textMuted : C.textPri,
   cursor: readOnly ? "not-allowed" : "text",
 });
+
+// Inline validation message shown directly under a field — replaces the old
+// alert()-based validation. Every booking-wizard field error renders with
+// this same look so Step 1–5 stay visually consistent.
+const FieldErr = ({ msg }) =>
+  msg ? <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>{msg}</div> : null;
 
 const CALENDAR_STATUS_BG = { Available: "#dcfce7", "On Rental": "#ffedd5", "Ending Today": "#ffedd5" };
 const CALENDAR_STATUS_TEXT = { Available: "#166534", "On Rental": "#9a3412", "Ending Today": "#9a3412" };
@@ -456,6 +463,26 @@ export default function FleetOpzApp() {
     fuelIn: "Full",
   });
   const [attachmentError, setAttachmentError] = useState("");
+  // Inline error for the Contact Number field (Step 1) only — deliberately
+  // never surfaced via alert() or in the Review & Confirm step, so the
+  // indication always stays right next to the field that's actually wrong.
+  const [contactError, setContactError] = useState("");
+
+  // All other booking-wizard field errors, keyed by field name, across every
+  // step (1–5). Populated by the validateStepN() functions below on Next /
+  // Submit and rendered inline via <FieldErr msg={fieldErrors.xyz} />. Kept as
+  // one flat object (rather than per-step state) so handleNewBookingSubmit
+  // can validate every step in one pass and jump straight to the first step
+  // that still has a problem.
+  const [fieldErrors, setFieldErrors] = useState({});
+  const clearFieldError = (key) => {
+    setFieldErrors(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
 
   // The New Booking modal is now a 2-step wizard: Step 1 is Customer Details
   // (IC-driven auto-fill), Step 2 is Booking Details (unchanged submit logic,
@@ -531,55 +558,154 @@ export default function FleetOpzApp() {
     });
   };
 
-  // Step 1 → Step 2. Requires Customer Name and a valid IC/passport before
-  // moving on, since Step 2's submit no longer touches these fields at all.
-  const handleBookingStep1Next = () => {
-    if (!newBookingData.customer.trim()) {
-      alert("Customer Name is required");
-      return;
-    }
+  // Currency for the New Booking wizard's pricing step is SGD.
+  const formatSGD = (n) => `SGD ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // ── Per-step validators ────────────────────────────────────────────────
+  // Every alert() that used to fire on Next/Submit now runs through one of
+  // these instead. Each returns a { fieldKey: message } object — empty means
+  // the step is clean. handleBookingStepNNext calls its own step's validator
+  // and blocks on any result; handleNewBookingSubmit calls all five in one
+  // pass so a problem left behind on an earlier step is caught (and shown
+  // exactly where it lives) even if the user jumped straight to Review.
+  const normalizeLicense = (v) => (v || "").trim().toUpperCase();
+
+  const validateStep1 = () => {
+    const errors = {};
+    if (!newBookingData.customer.trim()) errors.customer = "Customer Name is required";
     if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
-      alert("Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)");
-      return;
+      errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
     }
+    if (!isValidContactNumber(newBookingData.contact)) errors.contact = CONTACT_ERROR_MSG;
+    const restrictedMatch = restrictedLicenses.find(
+      r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
+    );
+    if (restrictedMatch) errors.license = "This driving license has an active criminal case. Booking cannot be created.";
+    return errors;
+  };
+
+  const validateStep2 = () => {
+    const errors = {};
+    if (!newBookingData.plate) errors.plate = "Please select a car";
+    if (!newBookingData.start || !newBookingData.end) {
+      errors.dates = "Pickup Date and Return Date are required";
+    } else if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
+      errors.returnTime = "Return Date & Time must be after the Pickup Date & Time";
+    }
+    if (!newBookingData.pickup.trim()) errors.pickup = "Pickup Location is required";
+    if (!newBookingData.drop.trim()) errors.drop = "Drop Location is required";
+    if (Number(newBookingData.rate) < 0) errors.rate = "Daily rate cannot be negative";
+    // Instant availability check — same for New and Edit Booking
+    // (editingBookingId is undefined when creating new, so nothing is
+    // excluded there). Detail is already shown by the always-on inline
+    // banner in Step 2, so this just blocks Next/Submit without repeating it.
+    if (!errors.dates && !errors.returnTime && newBookingData.plate) {
+      const conflict = fleetData.checkBookingConflict(newBookingData.plate, newBookingData.start, newBookingData.end, editingBookingId);
+      if (conflict) errors.conflict = "conflict";
+    }
+    return errors;
+  };
+
+  // Step 3's only failure mode (Security Deposit > Rate Charge) can't
+  // actually happen through the UI — the input clamps itself live — so this
+  // is a defensive safety net for edge cases like the Rate or dates changing
+  // after the deposit was set. Kept inline (not an alert) so it's consistent
+  // with everything else, and so it's still visible if it ever does fire.
+  const validateStep3 = () => {
+    const errors = {};
+    if (!editingBookingId && Number(newBookingData.deductible) > bookingRateCharge) {
+      errors.deductible = `Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`;
+    }
+    return errors;
+  };
+
+  const validateStep4 = () => {
+    const errors = {};
+    if (editingBookingId) return errors; // Step 4 is read-only while editing
+    const amountCollectedNow = Number(newBookingData.amountCollected) || 0;
+    if (amountCollectedNow > bookingTotal) {
+      errors.amountCollected = `Advance exceeds the Grand Total (${formatSGD(bookingTotal)}). Enter ${formatSGD(bookingTotal)} or less.`;
+    }
+    if (amountCollectedNow > 0 && (!newBookingData.amountCollectedDate || !newBookingData.amountCollectedTime)) {
+      errors.amountCollectedDateTime = "Enter the Payment Date & Time for the Advance";
+    }
+    const depositAmount = Number(newBookingData.deductible) || 0;
+    if (newBookingData.depositCollected && depositAmount > 0
+      && (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime)) {
+      errors.depositDateTime = "Enter the Deposit Date & Time (or untick \u201CSecurity deposit received\u201D).";
+    }
+    return errors;
+  };
+
+  // Shared by the create-flow's Step 5 handover block and the Edit Booking
+  // "Complete Handover" action — same two required fields either way.
+  const validateHandoverFields = () => {
+    const errors = {};
+    if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
+      errors.startingMileage = "Enter a valid Kilometer Out (Starting Mileage) to complete the handover";
+    }
+    if (!newBookingData.fuelLevel) errors.fuelLevel = "Select the Fuel Level to complete the handover";
+    return errors;
+  };
+
+  const validateStep5 = () => {
+    if (editingBookingId) return {}; // handled by handleCompleteHandover instead
+    const errors = {};
+    const startMs = newBookingData.start ? new Date(newBookingData.start).getTime() : NaN;
+    const endMs = newBookingData.end ? new Date(newBookingData.end).getTime() : NaN;
+    const hasStarted = !isNaN(startMs) && startMs <= Date.now();
+    const hasEnded = !isNaN(endMs) && endMs < Date.now();
+    const wantsImmediateHandover = hasStarted && (newBookingData.startingMileage !== "" || !!newBookingData.fuelLevel);
+    if (wantsImmediateHandover) Object.assign(errors, validateHandoverFields());
+    const wantsCompleted = wantsImmediateHandover && hasEnded && newBookingData.mileageIn !== "" && !errors.startingMileage;
+    if (wantsCompleted) {
+      const startKm = Number(newBookingData.startingMileage) || 0;
+      const finalKm = Number(newBookingData.mileageIn);
+      if (isNaN(finalKm) || finalKm < startKm) {
+        errors.mileageIn = `Final Odometer must be at least the Starting Mileage (${startKm}).`;
+      }
+      if (newBookingData.customerReturnMileage !== "") {
+        const b = Number(newBookingData.customerReturnMileage);
+        if (b < startKm || b > finalKm) {
+          errors.customerReturnMileage = `Customer Return Odometer must be between the Starting Mileage (${startKm}) and the Final Odometer (${finalKm}).`;
+        }
+      }
+    }
+    return errors;
+  };
+
+  // Step 1 → Step 2.
+  const handleBookingStep1Next = () => {
+    const errors = validateStep1();
+    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, ...errors }));
+    if (errors.contact) setContactError(errors.contact); else setContactError("");
+    if (Object.keys(errors).length) return;
     setBookingStep(2);
   };
 
-  // Step 2 → Step 3. Requires a car, a valid rental period, and both
-  // locations before moving into pricing — full validation (restricted
-  // license, booking conflict, negative rate, etc.) still happens once, on
-  // final submit in handleNewBookingSubmit, same as before.
+  // Step 2 → Step 3.
   const handleBookingStep2Next = () => {
-    if (!newBookingData.plate) {
-      alert("Please select a car");
-      return;
-    }
-    if (!newBookingData.start || !newBookingData.end) {
-      alert("Pickup Date and Return Date are required");
-      return;
-    }
-    if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
-      alert("Return Date & Time must be after the Pickup Date & Time");
-      return;
-    }
-    if (!newBookingData.pickup.trim() || !newBookingData.drop.trim()) {
-      alert("Pickup Location and Drop Location are required");
-      return;
-    }
-    // Instant availability check — applies the same way for New and Edit
-    // Booking (excludeBookingId is undefined when creating new, so nothing
-    // is excluded there). Blocks moving on rather than letting staff fill in
-    // Pricing/Payment/Review for a car+date range that's already taken.
-    const conflict = fleetData.checkBookingConflict(newBookingData.plate, newBookingData.start, newBookingData.end, editingBookingId);
-    if (conflict) {
-      alert(buildAvailabilityConflictMessage(conflict, newBookingData.start));
-      return;
-    }
+    const errors = validateStep2();
+    setFieldErrors(prev => ({ ...prev, plate: undefined, dates: undefined, returnTime: undefined, pickup: undefined, drop: undefined, rate: undefined, conflict: undefined, ...errors }));
+    if (Object.keys(errors).length) return;
     setBookingStep(3);
   };
 
-  // Currency for the New Booking wizard's pricing step is SGD.
-  const formatSGD = (n) => `SGD ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Step 3 → Step 4.
+  const handleBookingStep3Next = () => {
+    const errors = validateStep3();
+    setFieldErrors(prev => ({ ...prev, deductible: undefined, ...errors }));
+    if (Object.keys(errors).length) return;
+    setBookingStep(4);
+  };
+
+  // Step 4 → Step 5.
+  const handleBookingStep4Next = () => {
+    const errors = validateStep4();
+    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, ...errors }));
+    if (Object.keys(errors).length) return;
+    setBookingStep(5);
+  };
 
   // Set only once handleNewBookingSubmit succeeds (holds the created booking
   // + its car). The Review step's "Agreement" button stays disabled while
@@ -600,10 +726,9 @@ export default function FleetOpzApp() {
     // Prefill the Daily Rate from the car's target rate, exactly as the Car
     // (Plate) dropdown does — otherwise arriving here from Car Availability
     // leaves the rate blank even though the car is already chosen.
+    // No-target-rate warning is shown inline under the Car (Plate) field in
+    // Step 2 (derived live from the selected car), not alerted here.
     const car = fleetData.fleet.find(c => c.plate === plate);
-    if (plate && car && !car.targetRate) {
-      alert(`No target rental rate set for ${plate}. Please set a target rate in Fleet before booking this car.`);
-    }
     setNewBookingData(prev => ({
       ...prev,
       plate: plate || "",
@@ -703,6 +828,7 @@ export default function FleetOpzApp() {
     });
     setMatchedCustomer(null);
     setBookingStep(1);
+    setContactError("");
     setShowNewBooking(true);
   };
 
@@ -712,6 +838,7 @@ export default function FleetOpzApp() {
     setEditingBookingId(null);
     setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
+    setContactError("");
     setMatchedCustomer(null);
     setCreatedBookingInfo(null);
   };
@@ -953,6 +1080,10 @@ export default function FleetOpzApp() {
     return /^[A-Z0-9]{6,9}$/i.test(alnum);
   };
 
+  // Booking contact number: exactly 8 digits, starting with "65".
+  const isValidContactNumber = (v) => /^65\d{6}$/.test(v);
+  const CONTACT_ERROR_MSG = "Contact number must be 8 digits and start with 65";
+
   // Booking/Return now capture date + time (datetime-local, e.g.
   // "2026-07-21T14:30"), so format them for anything shown back to the user.
   const formatDateTime = (v) => {
@@ -964,54 +1095,21 @@ export default function FleetOpzApp() {
 
   const handleNewBookingSubmit = (e) => {
     e.preventDefault();
-    
-    if (newBookingData.contact.length !== 10) {
-      alert("Contact number must be exactly 10 digits");
+
+    // Re-run every step's validation in one pass — not just whatever step
+    // Review happens to be reached from. This catches anything left broken
+    // on an earlier step, jumps straight to the first step that still has a
+    // problem, and shows every error inline at its field rather than an
+    // alert popped from Review.
+    const stepErrors = [validateStep1(), validateStep2(), validateStep3(), validateStep4(), validateStep5()];
+    const firstBadStep = stepErrors.findIndex(errs => Object.keys(errs).length > 0);
+    if (firstBadStep !== -1) {
+      setFieldErrors(prev => ({ ...prev, ...stepErrors[0], ...stepErrors[1], ...stepErrors[2], ...stepErrors[3], ...stepErrors[4] }));
+      if (stepErrors[0].contact) setContactError(stepErrors[0].contact); else setContactError("");
+      setBookingStep(firstBadStep + 1);
       return;
     }
-    if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
-      alert("Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)");
-      return;
-    }
-    // Pickup/Drop Location are required — an empty or whitespace-only value
-    // isn't a real location, so trim before checking.
-    if (!newBookingData.pickup.trim()) {
-      alert("Pickup Location is required");
-      return;
-    }
-    if (!newBookingData.drop.trim()) {
-      alert("Drop Location is required");
-      return;
-    }
-    // Block booking outright if this driving license is on the restricted
-    // list (active criminal case, court restriction, etc). Checked
-    // case/whitespace-insensitively since Settings and this form both
-    // uppercase on entry, but stay defensive either way.
-    const normalizeLicense = (v) => (v || "").trim().toUpperCase();
-    const restrictedMatch = restrictedLicenses.find(
-      r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
-    );
-    if (restrictedMatch) {
-      alert("This driving license has an active criminal case. Booking cannot be created.");
-      return;
-    }
-    if (Number(newBookingData.rate) < 0) {
-      alert("Daily rate cannot be negative");
-      return;
-    }
-    // Security Deposit can never exceed the Rate Charge (Daily Rate x days).
-    // The Step 3 input already clamps this as the user types, but re-check
-    // here too in case Rate or the dates were lowered afterward, dropping
-    // bookingRateCharge below a deposit value that was valid when entered.
-    if (Number(newBookingData.deductible) > bookingRateCharge) {
-      alert(`Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`);
-      return;
-    }
-    // Return date/time must always be after the booking date/time.
-    if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
-      alert("Return Date & Time must be after the Booking Date & Time");
-      return;
-    }
+
     // The selected car must actually exist (defends against a stale dropdown
     // — e.g. it was deleted from the fleet while this modal was open). Its
     // current fleet status (Available/Upcoming/On Rental/Maintenance) is
@@ -1033,17 +1131,8 @@ export default function FleetOpzApp() {
     // real payments are recorded from Booking.jsx's Pricing & Payment tab.
     if (editingBookingId) {
       const original = fleetData.bookings.find(b => b.id === editingBookingId);
-      const carOrDatesChanged = !original
-        || original.plate !== newBookingData.plate
-        || original.start !== newBookingData.start
-        || original.end !== newBookingData.end;
-      if (carOrDatesChanged) {
-        const conflict = fleetData.checkBookingConflict(newBookingData.plate, newBookingData.start, newBookingData.end, editingBookingId);
-        if (conflict) {
-          alert(buildAvailabilityConflictMessage(conflict, newBookingData.start));
-          return;
-        }
-      }
+      // (Conflict check for changed car/dates already ran as part of
+      // validateStep2 above — the live banner in Step 2 shows the detail.)
       const { amountCollected, paymentMethod, referenceCode, amountCollectedDate, amountCollectedTime, depositCollected, depositCollectedMethod, depositReference, depositCollectedDate, depositCollectedTime, ...editableFields } = newBookingData;
       // Summarize what actually changed for the audit log.
       const changed = [];
@@ -1065,34 +1154,19 @@ export default function FleetOpzApp() {
       return;
     }
 
-    // Prevent double-booking: same car, overlapping dates.
-    const conflict = fleetData.checkBookingConflict(newBookingData.plate, newBookingData.start, newBookingData.end);
-    if (conflict) {
-      alert(buildAvailabilityConflictMessage(conflict, newBookingData.start));
-      return;
-    }
+    // (Double-booking already checked as part of validateStep2 above.)
     // Advance is the first payment on this booking — same rule
     // as Record Payment later (Booking.jsx): it can never exceed what's owed.
+    // (Advance-vs-total and payment date/time already checked by validateStep4 above.)
     const amountCollectedNow = Number(newBookingData.amountCollected) || 0;
-    if (amountCollectedNow > bookingTotal) {
-      alert(`Advance exceeds the Grand Total (${formatSGD(bookingTotal)}). Enter ${formatSGD(bookingTotal)} or less.`);
-      return;
-    }
-    if (amountCollectedNow > 0 && (!newBookingData.amountCollectedDate || !newBookingData.amountCollectedTime)) {
-      alert("Enter the Payment Date & Time for the Advance");
-      return;
-    }
      // Security deposit collection (deposit-first flow): when the deposit was
     // received, stamp a single collection timestamp. It's kept entirely separate
     // from `payments`/Balance Due (the deposit is refundable, not rental income)
     // — the same separation computeBookingInvoice already enforces.
+    // (Deposit date/time already checked by validateStep4 above.)
     const depositAmount = Number(newBookingData.deductible) || 0;
     let depositCollectedAt;
     if (newBookingData.depositCollected && depositAmount > 0) {
-      if (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime) {
-        alert("Enter the Deposit Date & Time (or untick “Security deposit received”).");
-        return;
-      }
       depositCollectedAt = `${newBookingData.depositCollectedDate}T${newBookingData.depositCollectedTime}`;
     }
     // Built explicitly here, once, as the booking's first Payment History
@@ -1118,37 +1192,10 @@ export default function FleetOpzApp() {
     const endMs = newBookingData.end ? new Date(newBookingData.end).getTime() : NaN;
     const hasStarted = !isNaN(startMs) && startMs <= Date.now();
     const hasEnded = !isNaN(endMs) && endMs < Date.now();
+    // (Handover and return-reading validation already checked by validateStep5 above.)
     const wantsImmediateHandover = hasStarted &&
       (newBookingData.startingMileage !== "" || !!newBookingData.fuelLevel);
-    if (wantsImmediateHandover) {
-      if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
-        alert("Enter a valid Kilometer Out (Starting Mileage) to complete the handover");
-        return;
-      }
-      if (!newBookingData.fuelLevel) {
-        alert("Select the Fuel Level to complete the handover");
-        return;
-      }
-    }
-    // Backdated, already-finished rental: handed over + rental period already
-    // ended + a Final Odometer entered → record it as a completed rental. The
-    // return readings are validated the same way the detail-view return does.
     const wantsCompleted = wantsImmediateHandover && hasEnded && newBookingData.mileageIn !== "";
-    if (wantsCompleted) {
-      const startKm = Number(newBookingData.startingMileage) || 0;
-      const finalKm = Number(newBookingData.mileageIn);
-      if (isNaN(finalKm) || finalKm < startKm) {
-        alert(`Final Odometer must be at least the Starting Mileage (${startKm}).`);
-        return;
-      }
-      if (newBookingData.customerReturnMileage !== "") {
-        const b = Number(newBookingData.customerReturnMileage);
-        if (b < startKm || b > finalKm) {
-          alert(`Customer Return Odometer must be between the Starting Mileage (${startKm}) and the Final Odometer (${finalKm}).`);
-          return;
-        }
-      }
-    }
     // Seed the audit log: a "created" entry, a "handover" entry when handed over
     // at creation, and a "returned" entry when recorded as completed. Payment is
     // derived from initialPayments below.
@@ -1219,14 +1266,9 @@ export default function FleetOpzApp() {
   // Completed/Closed status derivation and payment logic are untouched.
   const handleCompleteHandover = () => {
     if (!editingBookingId) return;
-    if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
-      alert("Enter a valid Starting Mileage");
-      return;
-    }
-    if (!newBookingData.fuelLevel) {
-      alert("Select the Fuel Level");
-      return;
-    }
+    const errors = validateHandoverFields();
+    setFieldErrors(prev => ({ ...prev, startingMileage: undefined, fuelLevel: undefined, ...errors }));
+    if (Object.keys(errors).length) return;
     const original = fleetData.bookings.find(b => b.id === editingBookingId);
     const car = fleetData.fleet.find(c => c.plate === newBookingData.plate);
     const updates = {
@@ -1469,16 +1511,17 @@ export default function FleetOpzApp() {
                     <input
                       type="text"
                       value={newBookingData.ic}
-                      onChange={handleICInputChange}
+                      onChange={(e) => { clearFieldError("ic"); handleICInputChange(e); }}
                       onBlur={handleICBlur}
                       placeholder=" S8901234A"
-                      style={bookingFieldInputStyle(false)}
+                      style={bookingFieldInputStyle(false, !!fieldErrors.ic)}
                     />
                     {matchedCustomer && (
                       <div style={{ fontSize: 10.5, color: C.teal, marginTop: 5, fontWeight: 600 }}>
                         ✓ Existing customer found — details auto-filled below and stay editable, so you can update anything before continuing.
                       </div>
                     )}
+                    <FieldErr msg={fieldErrors.ic} />
                   </div>
 
                   <div style={{ marginBottom: 14 }}>
@@ -1486,10 +1529,14 @@ export default function FleetOpzApp() {
                     <input
                       type="text"
                       value={newBookingData.customer}
-                      onChange={(e) => setNewBookingData({ ...newBookingData, customer: e.target.value })}
+                      onChange={(e) => {
+                        clearFieldError("customer");
+                        setNewBookingData({ ...newBookingData, customer: e.target.value });
+                      }}
                       placeholder=" Ahmed Al Mansoori"
-                      style={bookingFieldInputStyle(false)}
+                      style={bookingFieldInputStyle(false, !!fieldErrors.customer)}
                     />
+                    <FieldErr msg={fieldErrors.customer} />
                   </div>
 
                   <div style={{ marginBottom: 14 }}>
@@ -1498,12 +1545,27 @@ export default function FleetOpzApp() {
                       type="text"
                       value={newBookingData.contact}
                       onChange={(e) => {
-                        const v = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        const v = e.target.value.replace(/\D/g, "").slice(0, 8);
                         setNewBookingData({ ...newBookingData, contact: v });
+                        // Clear a stale error as soon as the value looks valid again;
+                        // don't nag mid-typing otherwise — full validation happens on
+                        // blur and on Next, same as elsewhere in this form.
+                        if (contactError && (v === "" || isValidContactNumber(v))) setContactError("");
                       }}
-                      placeholder=" 9501234567"
-                      style={bookingFieldInputStyle(false)}
+                      onBlur={() => {
+                        if (newBookingData.contact && !isValidContactNumber(newBookingData.contact)) {
+                          setContactError(CONTACT_ERROR_MSG);
+                        }
+                      }}
+                      placeholder=" 65012345"
+                      style={{
+                        ...bookingFieldInputStyle(false),
+                        ...(contactError ? { border: `1px solid ${C.red}` } : {}),
+                      }}
                     />
+                    {contactError && (
+                      <div style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{contactError}</div>
+                    )}
                   </div>
 
                 
@@ -1595,12 +1657,8 @@ export default function FleetOpzApp() {
                     onChange={(e) => {
                       const plate = e.target.value;
                       const car = fleetData.fleet.find(c => c.plate === plate);
-                      if (car && !car.targetRate) {
-                        alert(`No target rental rate set for ${plate}. Please set a target rate in Fleet before booking this car.`);
-                        setNewBookingData({ ...newBookingData, plate, rate: "" });
-                        return;
-                      }
-                      setNewBookingData({ ...newBookingData, plate, rate: car ? car.targetRate : "" });
+                      clearFieldError("plate");
+                      setNewBookingData({ ...newBookingData, plate, rate: car && car.targetRate ? car.targetRate : "" });
                     }}
                     options={
                       fleetData.fleet.length > 0
@@ -1608,19 +1666,30 @@ export default function FleetOpzApp() {
                         : [{ value: "", label: "No cars in fleet" }]
                     }
                   />
+                  <FieldErr msg={fieldErrors.plate} />
 
                   {/* Derived directly from fleetData.fleet + the currently selected
                       plate on every render (no separate state to fall out of sync) —
                       so it always reflects the live status and swaps instantly when
-                      a different car is picked. */}
+                      a different car is picked. Also carries the "no target rate"
+                      note (moved inline from an alert on selection) whenever the
+                      selected car has none set. */}
                   {newBookingData.plate && (() => {
                     const car = fleetData.fleet.find(c => c.plate === newBookingData.plate);
-                    return car ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "-8px 0 16px" }}>
-                        <span style={{ fontSize: 11, color: C.textMuted }}>Current Status:</span>
-                        <StatusTag status={car.status} />
-                      </div>
-                    ) : null;
+                    if (!car) return null;
+                    return (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "-8px 0 8px" }}>
+                          <span style={{ fontSize: 11, color: C.textMuted }}>Current Status:</span>
+                          <StatusTag status={car.status} />
+                        </div>
+                        {!car.targetRate && (
+                          <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, margin: "-4px 0 16px" }}>
+                            No target rental rate set for {car.plate}. Please set a target rate in Fleet before booking this car.
+                          </div>
+                        )}
+                      </>
+                    );
                   })()}
 
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, margin: "18px 0 14px" }}>📅 Rental Period</div>
@@ -1679,6 +1748,7 @@ export default function FleetOpzApp() {
                   ) : (
                     <div style={{ fontSize: 12, color: C.textMuted, padding: "10px 0" }}>Select a car above to see its availability and pick rental dates.</div>
                   )}
+                  <FieldErr msg={fieldErrors.dates} />
 
                   {/* Instant availability check — re-evaluates on every
                       render, so it reacts immediately to a plate or date
@@ -1713,25 +1783,39 @@ export default function FleetOpzApp() {
                       <TimeInput12h
                         value={newBookingData.returnTime}
                         onChange={(returnTime) => {
+                          clearFieldError("returnTime");
                           setNewBookingData(prev => ({ ...prev, returnTime, end: combineDateTime(prev.returnDate, returnTime) }));
                         }}
-                        style={bookingFieldInputStyle(false)}
+                        style={bookingFieldInputStyle(false, !!fieldErrors.returnTime)}
                       />
+                      <FieldErr msg={fieldErrors.returnTime} />
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
-                    <Input
-                      label="Pickup Location"
-                      value={newBookingData.pickup}
-                      onChange={(e) => setNewBookingData({ ...newBookingData, pickup: e.target.value })}
-                      placeholder="Dubai Marina"
-                    />
-                    <Input
-                      label="Drop Location"
-                      value={newBookingData.drop}
-                      onChange={(e) => setNewBookingData({ ...newBookingData, drop: e.target.value })}
-                      placeholder="Downtown Dubai"
-                    />
+                    <div>
+                      <Input
+                        label="Pickup Location"
+                        value={newBookingData.pickup}
+                        onChange={(e) => {
+                          clearFieldError("pickup");
+                          setNewBookingData({ ...newBookingData, pickup: e.target.value });
+                        }}
+                        placeholder="Dubai Marina"
+                      />
+                      <FieldErr msg={fieldErrors.pickup} />
+                    </div>
+                    <div>
+                      <Input
+                        label="Drop Location"
+                        value={newBookingData.drop}
+                        onChange={(e) => {
+                          clearFieldError("drop");
+                          setNewBookingData({ ...newBookingData, drop: e.target.value });
+                        }}
+                        placeholder="Downtown Dubai"
+                      />
+                      <FieldErr msg={fieldErrors.drop} />
+                    </div>
                   </div>
 
                   <Input
@@ -1742,10 +1826,12 @@ export default function FleetOpzApp() {
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v !== "" && Number(v) < 0) return;
+                      clearFieldError("rate");
                       setNewBookingData({ ...newBookingData, rate: v });
                     }}
                     placeholder="Select a car to auto-fill"
                   />
+                  <FieldErr msg={fieldErrors.rate} />
 
                   {/* Additional Drivers — optional, one or more people besides the
                       main customer who are permitted to drive during this rental.
@@ -1911,7 +1997,12 @@ export default function FleetOpzApp() {
 
                   <div style={{ marginBottom: 14 }}>
                     <label style={bookingFieldLabelStyle}>Rate Charge (Daily, {bookingDays} day{bookingDays === 1 ? "" : "s"}) — auto</label>
-                    <input type="text" readOnly value={formatSGD(bookingRateCharge)} style={bookingFieldInputStyle(true)} />
+                    {/* Stays auto-calculated (rate × days) and read-only — never
+                        directly typed into — but styled as an active/enabled
+                        field (not greyed out) since it does live-update the
+                        moment Return Date, Pickup Date, or Daily Rate change,
+                        e.g. when extending a booking during Edit. */}
+                    <input type="text" readOnly value={formatSGD(bookingRateCharge)} style={bookingFieldInputStyle(false)} />
                   </div>
 
                   {/* All the small numeric charge fields packed into one dense
@@ -1939,23 +2030,35 @@ export default function FleetOpzApp() {
                     </div>
                      <div>
                                           <label style={bookingFieldLabelStyle}>Security Deposit</label>
-                                          <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
-                                            onChange={(e) => {
-                                              const v = e.target.value;
-                                              if (v === "") { setNewBookingData({ ...newBookingData, deductible: v }); return; }
-                                              const n = Number(v);
-                                              if (n < 0) return;
-                                              // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
-                                              // clamp instead of alerting so staff simply can't type past the cap.
-                                              const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
-                                              setNewBookingData({ ...newBookingData, deductible: String(capped) });
-                                            }}
-                                            placeholder="0" style={bookingFieldInputStyle(false)} />
-                                          {bookingRateCharge > 0 && (
+                                          {editingBookingId ? (
+                                            // Locked while editing an existing booking — the deposit was
+                                            // already collected at creation and must stay exactly as-is,
+                                            // regardless of how Rate Charge moves (e.g. on extension).
+                                            <input type="text" readOnly value={formatSGD(Number(newBookingData.deductible) || 0)} style={bookingFieldInputStyle(true)} />
+                                          ) : (
+                                            <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                if (v === "") { setNewBookingData({ ...newBookingData, deductible: v }); return; }
+                                                const n = Number(v);
+                                                if (n < 0) return;
+                                                // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
+                                                // clamp instead of alerting so staff simply can't type past the cap.
+                                                const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
+                                                setNewBookingData({ ...newBookingData, deductible: String(capped) });
+                                              }}
+                                              placeholder="0" style={bookingFieldInputStyle(false)} />
+                                          )}
+                                          {editingBookingId ? (
+                                            <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
+                                              Locked — set at booking creation
+                                            </div>
+                                          ) : bookingRateCharge > 0 && (
                                             <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
                                               Max allowed: {formatSGD(bookingRateCharge)} (Rate Charge)
                                             </div>
                                           )}
+                                          <FieldErr msg={fieldErrors.deductible} />
                                         </div>
                       <div>
                                          <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
@@ -2079,8 +2182,11 @@ export default function FleetOpzApp() {
                                              <input
                                                type="date"
                                                value={newBookingData.depositCollectedDate}
-                                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedDate: e.target.value })}
-                                               style={bookingFieldInputStyle(false)}
+                                               onChange={(e) => {
+                                                 clearFieldError("depositDateTime");
+                                                 setNewBookingData({ ...newBookingData, depositCollectedDate: e.target.value });
+                                               }}
+                                               style={bookingFieldInputStyle(false, !!fieldErrors.depositDateTime)}
                                              />
                                            </div>
                                            <div>
@@ -2088,8 +2194,11 @@ export default function FleetOpzApp() {
                                              <input
                                                type="time"
                                                value={newBookingData.depositCollectedTime}
-                                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedTime: e.target.value })}
-                                               style={bookingFieldInputStyle(false)}
+                                               onChange={(e) => {
+                                                 clearFieldError("depositDateTime");
+                                                 setNewBookingData({ ...newBookingData, depositCollectedTime: e.target.value });
+                                               }}
+                                               style={bookingFieldInputStyle(false, !!fieldErrors.depositDateTime)}
                                              />
                                            </div>
                                          </div>
@@ -2098,6 +2207,7 @@ export default function FleetOpzApp() {
                                            ⚠ Deposit pending — you can still confirm the booking. Record the deposit later from the booking's <b>Pricing &amp; Payment</b> tab.
                                          </div>
                                        )}
+                                       <FieldErr msg={fieldErrors.depositDateTime} />
                  
                                        {/* Optional: collect rent now — e.g. same-day or backdated
                                            rentals. The normal flow collects rent at pickup. */}
@@ -2116,11 +2226,13 @@ export default function FleetOpzApp() {
                                             onChange={(e) => {
                                               const v = e.target.value;
                                               if (v !== "" && Number(v) < 0) return;
+                                              clearFieldError("amountCollected");
                                               setNewBookingData({ ...newBookingData, amountCollected: v });
                                             }}
                                             placeholder="0"
-                                            style={bookingFieldInputStyle(false)}
+                                            style={bookingFieldInputStyle(false, !!fieldErrors.amountCollected)}
                                           />
+                                          <FieldErr msg={fieldErrors.amountCollected} />
                                         </div>
                                         <div>
                                           <label style={bookingFieldLabelStyle}>Payment Method</label>
@@ -2140,8 +2252,11 @@ export default function FleetOpzApp() {
                                           <input
                                             type="date"
                                             value={newBookingData.amountCollectedDate}
-                                            onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })}
-                                            style={bookingFieldInputStyle(false)}
+                                            onChange={(e) => {
+                                              clearFieldError("amountCollectedDateTime");
+                                              setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value });
+                                            }}
+                                            style={bookingFieldInputStyle(false, !!fieldErrors.amountCollectedDateTime)}
                                           />
                                         </div>
                                         <div>
@@ -2149,11 +2264,15 @@ export default function FleetOpzApp() {
                                           <input
                                             type="time"
                                             value={newBookingData.amountCollectedTime}
-                                            onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value })}
-                                            style={bookingFieldInputStyle(false)}
+                                            onChange={(e) => {
+                                              clearFieldError("amountCollectedDateTime");
+                                              setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value });
+                                            }}
+                                            style={bookingFieldInputStyle(false, !!fieldErrors.amountCollectedDateTime)}
                                           />
                                         </div>
                                       </div>
+                                      <FieldErr msg={fieldErrors.amountCollectedDateTime} />
                                       <div style={{ marginBottom: 16 }}>
                                         <label style={bookingFieldLabelStyle}>Transaction ID</label>
                                         <input
@@ -2273,18 +2392,23 @@ export default function FleetOpzApp() {
                                   onChange={(e) => {
                                     const v = e.target.value;
                                     if (v !== "" && Number(v) < 0) return;
+                                    clearFieldError("startingMileage");
                                     setNewBookingData({ ...newBookingData, startingMileage: v });
                                   }}
                                   placeholder="9210"
-                                  style={bookingFieldInputStyle(false)}
+                                  style={bookingFieldInputStyle(false, !!fieldErrors.startingMileage)}
                                 />
+                                <FieldErr msg={fieldErrors.startingMileage} />
                               </div>
                               <div style={{ marginBottom: 14 }}>
                                 <label style={bookingFieldLabelStyle}>Fuel Level <span style={{ color: C.red }}>*</span></label>
                                 <select
                                   value={newBookingData.fuelLevel}
-                                  onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })}
-                                  style={bookingFieldInputStyle(false)}
+                                  onChange={(e) => {
+                                    clearFieldError("fuelLevel");
+                                    setNewBookingData({ ...newBookingData, fuelLevel: e.target.value });
+                                  }}
+                                  style={bookingFieldInputStyle(false, !!fieldErrors.fuelLevel)}
                                 >
                                   <option value="">Select fuel level</option>
                                   <option value="Empty">Empty</option>
@@ -2293,6 +2417,7 @@ export default function FleetOpzApp() {
                                   <option value="3/4">3/4</option>
                                   <option value="Full">Full</option>
                                 </select>
+                                <FieldErr msg={fieldErrors.fuelLevel} />
                               </div>
                               <div style={{ marginBottom: 16 }}>
                                 <label style={bookingFieldLabelStyle}>Vehicle Condition</label>
@@ -2333,12 +2458,13 @@ export default function FleetOpzApp() {
                                                      <div>
                                                        <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
                                                        <input type="number" min="0" value={newBookingData.startingMileage}
-                                                         onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, startingMileage: v }); }}
-                                                         placeholder="9210" style={bookingFieldInputStyle(false)} />
+                                                         onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("startingMileage"); setNewBookingData({ ...newBookingData, startingMileage: v }); }}
+                                                         placeholder="9210" style={bookingFieldInputStyle(false, !!fieldErrors.startingMileage)} />
+                                                       <FieldErr msg={fieldErrors.startingMileage} />
                                                      </div>
                                                      <div>
                                                        <label style={bookingFieldLabelStyle}>Fuel Level (at handover)</label>
-                                                       <select value={newBookingData.fuelLevel} onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })} style={bookingFieldInputStyle(false)}>
+                                                       <select value={newBookingData.fuelLevel} onChange={(e) => { clearFieldError("fuelLevel"); setNewBookingData({ ...newBookingData, fuelLevel: e.target.value }); }} style={bookingFieldInputStyle(false, !!fieldErrors.fuelLevel)}>
                                                          <option value="">Select fuel level</option>
                                                          <option value="Empty">Empty</option>
                                                          <option value="1/4">1/4</option>
@@ -2346,6 +2472,7 @@ export default function FleetOpzApp() {
                                                          <option value="3/4">3/4</option>
                                                          <option value="Full">Full</option>
                                                        </select>
+                                                       <FieldErr msg={fieldErrors.fuelLevel} />
                                                      </div>
                                                    </div>
                                                    {hasEnded && (
@@ -2353,14 +2480,16 @@ export default function FleetOpzApp() {
                                                        <div>
                                                          <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
                                                          <input type="number" min="0" value={newBookingData.customerReturnMileage}
-                                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, customerReturnMileage: v }); }}
-                                                           placeholder="only if staff drove it back" style={bookingFieldInputStyle(false)} />
+                                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("customerReturnMileage"); setNewBookingData({ ...newBookingData, customerReturnMileage: v }); }}
+                                                           placeholder="only if staff drove it back" style={bookingFieldInputStyle(false, !!fieldErrors.customerReturnMileage)} />
+                                                         <FieldErr msg={fieldErrors.customerReturnMileage} />
                                                        </div>
                                                        <div>
                                                          <label style={bookingFieldLabelStyle}>Final Odometer / Shed (km)</label>
                                                          <input type="number" min="0" value={newBookingData.mileageIn}
-                                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, mileageIn: v }); }}
-                                                           placeholder="9450" style={bookingFieldInputStyle(false)} />
+                                                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("mileageIn"); setNewBookingData({ ...newBookingData, mileageIn: v }); }}
+                                                           placeholder="9450" style={bookingFieldInputStyle(false, !!fieldErrors.mileageIn)} />
+                                                         <FieldErr msg={fieldErrors.mileageIn} />
                                                        </div>
                                                        <div>
                                                          <label style={bookingFieldLabelStyle}>Fuel In (at return)</label>
@@ -2397,8 +2526,12 @@ export default function FleetOpzApp() {
               </Btn>
               {bookingStep === 1 ? (
                 <Btn primary onClick={handleBookingStep1Next}>Next →</Btn>
-              ) : bookingStep < BOOKING_STEP_COUNT ? (
-                <Btn primary onClick={() => setBookingStep(bookingStep + 1)}>Next →</Btn>
+              ) : bookingStep === 2 ? (
+                <Btn primary onClick={handleBookingStep2Next}>Next →</Btn>
+              ) : bookingStep === 3 ? (
+                <Btn primary onClick={handleBookingStep3Next}>Next →</Btn>
+              ) : bookingStep === 4 ? (
+                <Btn primary onClick={handleBookingStep4Next}>Next →</Btn>
               ) : createdBookingInfo ? (
                 <Btn primary onClick={handleFinishBookingFlow}>Done</Btn>
               ) : (
