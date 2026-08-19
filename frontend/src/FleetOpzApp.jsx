@@ -2342,12 +2342,8 @@ export default function FleetOpzApp() {
                         ) : (
                           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
                             <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                              <span>Total</span>
+                              <span>Rental Total</span>
                               <span style={mono}>{formatSGD(bookingTotal)}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                              <span>Rental Amount</span>
-                              <span style={mono}>{formatSGD(bookingAmountCollected)}</span>
                             </div>
                             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
                               <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Balance</span>

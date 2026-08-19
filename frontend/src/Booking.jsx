@@ -460,6 +460,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [rentMethod, setRentMethod] = useState("Cash");
   const [rentDate, setRentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rentTime, setRentTime] = useState(() => new Date().toTimeString().slice(0, 5));
+  const [rentReference, setRentReference] = useState("");
+  // Shown after a payment (via Collect Now, or Save & Generate Agreement)
+  // brings the Balance Due to 0. Cleared as soon as the person edits the
+  // amount/method/reference again, so a stale confirmation never lingers.
+  const [fullyCollectedNotice, setFullyCollectedNotice] = useState(false);
   // Security Deposit refund modal (used at the bottom of this component).
   const [showRefund, setShowRefund] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
@@ -496,11 +501,18 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
     // --- FIX: fold "Collect Rent at Pickup" into a real payment record ----
     const rentAmt = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
+    // Receipt / Reference No. is mandatory for any non-cash rent payment
+    // (cash is self-evidencing, so it's optional there).
+    if (rentAmt > 0 && rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Receipt / Reference No. (required unless payment method is Cash).");
+      return;
+    }
     const rentPaymentEntry = rentAmt > 0
       ? [{
           id: `rent-${Date.now()}`,
           amount: rentAmt,
           method: rentMethod,
+          reference: rentReference.trim(),
           addedAt: `${rentDate}T${rentTime}`,
           by: actor,
         }]
@@ -515,6 +527,40 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     generateRentalAgreementPdf({ ...booking, ...updates }, car);
     setShowHandover(false);
     setRentAtPickup("");
+    setRentReference("");
+  };
+
+  // "Collect Now" — a standalone action separate from Save & Generate
+  // Agreement. It records a real payment for the *current* Balance Due
+  // immediately (doesn't touch handover/mileage/fuel), so staff can settle
+  // the full amount without stepping through the rest of the handover form.
+  const handleCollectNow = () => {
+    if (inv.balanceDue <= 0) return;
+    // Receipt / Reference No. is mandatory for any non-cash payment.
+    if (rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Receipt / Reference No. (required unless payment method is Cash).");
+      return;
+    }
+    if (!rentDate || !rentTime) {
+      alert("Enter the payment date & time");
+      return;
+    }
+    const amt = inv.balanceDue;
+    const newPayment = {
+      id: `collect-${Date.now()}`,
+      amount: amt,
+      method: rentMethod,
+      reference: rentReference.trim(),
+      addedAt: `${rentDate}T${rentTime}`,
+      by: actor,
+    };
+    onUpdateBooking(booking.id, {
+      payments: [...inv.payments, newPayment],
+      history: withHistory(histEntry("payment", `Collected ${fmt(amt)} (${rentMethod})${rentReference.trim() ? ` · Ref ${rentReference.trim()}` : ""} — full balance cleared`)),
+    });
+    setRentAtPickup("");
+    setRentReference("");
+    setFullyCollectedNotice(true);
   };
 
   // Balance Due coloring, per spec: green once fully paid, orange while
@@ -659,7 +705,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // overpayment is blocked right here at entry rather than silently
     // accepted and clamped away — the person gets a clear error instead of
     // money quietly vanishing from the numbers.
-    if (amt > inv.balanceDue) {
+    //
+    // Compare in integer cents (rounded), not raw floats: amt and
+    // inv.balanceDue are each the result of chained arithmetic and can carry
+    // binary floating-point noise (e.g. 0.6000000000000001 or
+    // 0.5999999999999999). A direct `amt > inv.balanceDue` can then reject a
+    // payment that's actually exactly equal to the Balance Due. Rounding
+    // both to the nearest cent before comparing makes "equal" mean equal.
+    const amtCents = Math.round(amt * 100);
+    const balanceDueCents = Math.round(inv.balanceDue * 100);
+    if (amtCents > balanceDueCents) {
       alert(`Amount exceeds the Balance Due (${fmt(inv.balanceDue)}). Enter ${fmt(inv.balanceDue)} or less.`);
       return;
     }
@@ -818,7 +873,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                    
                                        {/* Rent collected at pickup — the rental amount is taken here in
                                            the deposit-first flow. Optional (doesn't block handover). */}
-                                       {inv.balanceDue > 0 && (
+                                       {inv.balanceDue > 0 ? (
                                          <div style={{ marginTop: 12, borderTop: `1px dashed ${C.border}`, paddingTop: 12 }}>
                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
                                              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy }}>💵 Collect Rent at Pickup</div>
@@ -827,11 +882,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
                                              <div style={{ flex: "1 1 140px" }}>
                                                <div style={detailFieldLabelStyle}>Rent Amount</div>
-                                               <input type="number" min="0" max={inv.balanceDue} value={rentAtPickup} onChange={(e) => setRentAtPickup(e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                                               <input type="number" min="0" max={inv.balanceDue} value={rentAtPickup} onChange={(e) => { setRentAtPickup(e.target.value); setFullyCollectedNotice(false); }} placeholder="0.00" style={detailInputStyle} />
                                              </div>
                                              <div style={{ flex: "1 1 120px" }}>
                                                <div style={detailFieldLabelStyle}>Method</div>
-                                               <select value={rentMethod} onChange={(e) => setRentMethod(e.target.value)} style={detailInputStyle}>
+                                               <select value={rentMethod} onChange={(e) => { setRentMethod(e.target.value); setFullyCollectedNotice(false); }} style={detailInputStyle}>
                                                  {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
                                                </select>
                                              </div>
@@ -842,6 +897,18 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                              <div style={{ flex: "1 1 100px" }}>
                                                <div style={detailFieldLabelStyle}>Time</div>
                                                <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
+                                             </div>
+                                             <div style={{ flex: "1 1 160px" }}>
+                                               <div style={detailFieldLabelStyle}>
+                                                 Receipt / Reference No. {rentMethod !== "Cash" && <span style={{ color: C.red }}>*</span>}
+                                               </div>
+                                               <input
+                                                 type="text"
+                                                 value={rentReference}
+                                                 onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }}
+                                                 placeholder={rentMethod === "Cash" ? "Optional" : "Required"}
+                                                 style={detailInputStyle}
+                                               />
                                              </div>
                                            </div>
                                            {(() => {
@@ -854,9 +921,24 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                                </div>
                                              );
                                            })()}
+                                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                                             <Btn
+                                               onClick={handleCollectNow}
+                                               disabled={rentMethod !== "Cash" && !rentReference.trim()}
+                                               title={rentMethod !== "Cash" && !rentReference.trim() ? "Enter the Receipt / Reference No. first" : undefined}
+                                             >💰 Collect Now ({fmt(inv.balanceDue)})</Btn>
+                                             <div style={{ fontSize: 11, color: C.textMuted }}>Records the full Balance Due as paid right now.</div>
+                                           </div>
                                            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank, or collect part now; any remaining balance can be collected later (e.g. at return).</div>
                                          </div>
-                                       )}
+                                       ) : fullyCollectedNotice ? (
+                                         <div style={{
+                                           marginTop: 12, border: `1px solid ${C.teal}`, borderRadius: 10, padding: "10px 14px",
+                                           background: `${C.teal}0f`, fontSize: 12.5, fontWeight: 600, color: C.teal,
+                                         }}>
+                                           ✓ Full amount collected successfully.
+                                         </div>
+                                       ) : null}
                    
                                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                                          <Btn primary onClick={handleCompleteHandover}>Save &amp; Generate Agreement</Btn>
@@ -879,7 +961,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                      disabled={!pickupArrived}
                                      title={!pickupArrived ? `Available at the scheduled pickup time (${formatDateTime(booking.start)})` : undefined}
                                      style={!pickupArrived ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-                                     onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setShowHandover(true); }}
+                                     onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setFullyCollectedNotice(false); setShowHandover(true); }}
                                    >
                                      Complete Handover →
                                    </Btn>
@@ -1268,7 +1350,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ marginBottom: 14, maxHeight: 180, overflowY: "auto" }}>
                       {inv.payments.map(p => (
                         <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", marginBottom: 6 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{fmt(Number(p.amount) || 0)} · {p.method}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{fmt(Number(p.amount) || 0)} · {p.method}{p.reference ? ` · Ref ${p.reference}` : ""}</div>
                           <div style={{ fontSize: 10.5, color: C.textMuted }}>{p.addedAt ? formatDateTime(p.addedAt) : ""}</div>
                         </div>
                       ))}
