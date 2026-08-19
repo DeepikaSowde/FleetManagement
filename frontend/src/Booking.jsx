@@ -716,11 +716,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Enter the reason for returning less than the full deposit.");
       return;
     }
-    const isPartial = amount < inv.deposit;
-    if (isPartial && !refundReason.trim()) {
-      alert("A reason is required for a reduced refund.");
-      return;
-    }
     onUpdateBooking(booking.id, {
       depositRefunded: true,
       depositRefundedAmount: amount,

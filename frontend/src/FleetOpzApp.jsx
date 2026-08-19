@@ -1269,16 +1269,6 @@ export default function FleetOpzApp() {
     // as Record Payment later (Booking.jsx): it can never exceed what's owed.
     // (Advance-vs-total and payment date/time already checked by validateStep4 above.)
     const amountCollectedNow = Number(newBookingData.amountCollected) || 0;
-     // Security deposit collection (deposit-first flow): when the deposit was
-    // received, stamp a single collection timestamp. It's kept entirely separate
-    // from `payments`/Balance Due (the deposit is refundable, not rental income)
-    // — the same separation computeBookingInvoice already enforces.
-    // (Deposit date/time already checked by validateStep4 above.)
-    const depositAmount = Number(newBookingData.deductible) || 0;
-    let depositCollectedAt;
-    if (newBookingData.depositCollected && depositAmount > 0) {
-      depositCollectedAt = `${newBookingData.depositCollectedDate}T${newBookingData.depositCollectedTime}`;
-    }
     // Security deposit collection (deposit-first flow): when the deposit was
     // received, stamp a single collection timestamp. It's kept entirely separate
     // from `payments`/Balance Due (the deposit is refundable, not rental income)
