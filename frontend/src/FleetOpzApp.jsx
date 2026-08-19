@@ -636,7 +636,9 @@ export default function FleetOpzApp() {
         errors.contact = `Contact number must be exactly ${requiredDigits} digits`;
       }
     }
-    if (newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)) {
+    if (!newBookingData.license.trim()) {
+      errors.license = "Driving License Number is required";
+    } else if (!isValidDrivingLicenseFormat(newBookingData.license)) {
       errors.license = DRIVING_LICENSE_FORMAT_ERROR;
     } else {
       const restrictedMatch = restrictedLicenses.find(
@@ -1749,15 +1751,17 @@ export default function FleetOpzApp() {
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
                     <div>
-                      <label style={bookingFieldLabelStyle}>Driving License Number</label>
+                      <label style={bookingFieldLabelStyle}>Driving License Number <span style={{ color: C.red }}>*</span></label>
                       <input
                         type="text"
                         value={newBookingData.license}
                         onChange={(e) => { clearFieldError("license"); setNewBookingData({ ...newBookingData, license: e.target.value.toUpperCase() }); }}
                         placeholder="S1234567A"
-                        style={bookingFieldInputStyle(false, !!(newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)))}
+                        style={bookingFieldInputStyle(false, !!(newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)) || (!newBookingData.license.trim() && !!fieldErrors.license))}
                       />
-                      {newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license) ? (
+                      {!newBookingData.license.trim() && fieldErrors.license ? (
+                        <FieldErr msg={fieldErrors.license} />
+                      ) : newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license) ? (
                         <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
                           {DRIVING_LICENSE_FORMAT_ERROR}
                         </div>

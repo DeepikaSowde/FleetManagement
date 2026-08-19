@@ -167,6 +167,7 @@ const Customers = ({
     if (e && e.preventDefault) e.preventDefault();
     if (!form.ic.trim()) { setError("IC / ID is required"); return; }
     if (!form.name.trim()) { setError("Customer name is required"); return; }
+    if (!String(form.license || "").trim()) { setError("License Number is required"); return; }
     const payload = {
       ic: form.ic, name: form.name, contact: form.contact, email: form.email,
       license: form.license, licenseExpiry: form.licenseExpiry || null,
@@ -463,7 +464,7 @@ const Customers = ({
           <Input id="customer-nationality" label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} placeholder="e.g. Singaporean" />
           <Select id="customer-type" label="Customer Type" value={form.customerType} onChange={(e) => setForm({ ...form, customerType: e.target.value })} options={CUSTOMER_TYPES} />
           <Input id="customer-age" label="Age" type="number" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="e.g. 32" />
-          <Input id="customer-license" label="Driving License Number" value={form.license} onChange={(e) => setForm({ ...form, license: e.target.value })} placeholder="e.g. S1234567A" />
+          <Input id="customer-license" label="Driving License Number *" value={form.license} onChange={(e) => setForm({ ...form, license: e.target.value })} placeholder="e.g. S1234567A" readOnly={mode === "edit"} style={mode === "edit" ? { background: C.bg, color: C.textMuted, cursor: "not-allowed" } : undefined} />
           <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
           <Input id="customer-driving-experience" label="Driving Experience (years)" type="number" value={form.drivingExperience} onChange={(e) => setForm({ ...form, drivingExperience: e.target.value })} placeholder="e.g. 5" />
         </div>

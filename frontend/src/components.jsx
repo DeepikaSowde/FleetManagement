@@ -141,7 +141,7 @@ export const Modal = ({ open, title, children, onClose, onSubmit, submitText = "
   );
 };
 
-export const Input = ({ label, value, onChange, type = "text", placeholder, ...p }) => (
+export const Input = ({ label, value, onChange, type = "text", placeholder, style, ...p }) => (
   <div style={{ marginBottom: 16 }}>
     {label && <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>{label}</label>}
     <input
@@ -149,7 +149,7 @@ export const Input = ({ label, value, onChange, type = "text", placeholder, ...p
       value={value}
       onChange={onChange}
       placeholder={placeholder}
-      style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+      style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", ...style }}
       {...p}
     />
   </div>
