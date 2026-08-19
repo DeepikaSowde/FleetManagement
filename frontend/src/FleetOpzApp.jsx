@@ -577,10 +577,28 @@ export default function FleetOpzApp() {
       errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
     }
     if (!isValidContactNumber(newBookingData.contact)) errors.contact = CONTACT_ERROR_MSG;
-    const restrictedMatch = restrictedLicenses.find(
-      r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
+    if (newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)) {
+      errors.license = DRIVING_LICENSE_FORMAT_ERROR;
+    } else {
+      const restrictedMatch = restrictedLicenses.find(
+        r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
+      );
+      if (restrictedMatch) errors.license = "This driving license has an active criminal case. Booking cannot be created.";
+    }
+    const invalidDriver = newBookingData.additionalDrivers.find(
+      d => d.license.trim() && !isValidDrivingLicenseFormat(d.license)
     );
-    if (restrictedMatch) errors.license = "This driving license has an active criminal case. Booking cannot be created.";
+    if (invalidDriver) {
+      const idx = newBookingData.additionalDrivers.indexOf(invalidDriver);
+      errors.driverLicense = `Driver ${idx + 1}: ${DRIVING_LICENSE_FORMAT_ERROR}`;
+    }
+    const invalidDriverContact = newBookingData.additionalDrivers.find(
+      d => d.contact.trim() && !isValidContactNumber(d.contact)
+    );
+    if (invalidDriverContact) {
+      const idx = newBookingData.additionalDrivers.indexOf(invalidDriverContact);
+      errors.driverContact = `Driver ${idx + 1}: ${CONTACT_ERROR_MSG}`;
+    }
     return errors;
   };
 
@@ -615,6 +633,12 @@ export default function FleetOpzApp() {
     const errors = {};
     if (!editingBookingId && Number(newBookingData.deductible) > bookingRateCharge) {
       errors.deductible = `Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`;
+    }
+    // Additional Driver Charge becomes mandatory the moment at least one
+    // Additional Driver has been added on Step 1 — a driver was added but
+    // never priced otherwise slips through silently.
+    if (newBookingData.additionalDrivers.length > 0 && Number(newBookingData.additionalDriverCharge) <= 0) {
+      errors.additionalDriverCharge = "Additional Driver Charge is required when an additional driver has been added.";
     }
     return errors;
   };
@@ -677,7 +701,7 @@ export default function FleetOpzApp() {
   // Step 1 → Step 2.
   const handleBookingStep1Next = () => {
     const errors = validateStep1();
-    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, driverLicense: undefined, driverContact: undefined, ...errors }));
     if (errors.contact) setContactError(errors.contact); else setContactError("");
     if (Object.keys(errors).length) return;
     setBookingStep(2);
@@ -694,7 +718,7 @@ export default function FleetOpzApp() {
   // Step 3 → Step 4.
   const handleBookingStep3Next = () => {
     const errors = validateStep3();
-    setFieldErrors(prev => ({ ...prev, deductible: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, deductible: undefined, additionalDriverCharge: undefined, ...errors }));
     if (Object.keys(errors).length) return;
     setBookingStep(4);
   };
@@ -1079,6 +1103,13 @@ export default function FleetOpzApp() {
     const alnum = v.replace(/[^A-Z0-9]/gi, "");
     return /^[A-Z0-9]{6,9}$/i.test(alnum);
   };
+
+  // Driving License Number format: 1 letter + 7 digits + 1 letter (e.g.
+  // S1234567A). Applies to the main customer's Driving License Number and
+  // to each Additional Driver's License No. — IC Number is unaffected and
+  // keeps using isValidEmiratesIdOrPassport above.
+  const isValidDrivingLicenseFormat = (v) => /^[A-Za-z]\d{7}[A-Za-z]$/.test((v || "").trim());
+  const DRIVING_LICENSE_FORMAT_ERROR = "Enter a valid Driving License Number (1 letter + 7 digits + 1 letter, e.g. S1234567A)";
 
   // Booking contact number: exactly 8 digits, starting with "65".
   const isValidContactNumber = (v) => /^65\d{6}$/.test(v);
@@ -1576,11 +1607,15 @@ export default function FleetOpzApp() {
                       <input
                         type="text"
                         value={newBookingData.license}
-                        onChange={(e) => setNewBookingData({ ...newBookingData, license: e.target.value.toUpperCase() })}
-                        placeholder="DL-2024-88213"
-                        style={bookingFieldInputStyle(false)}
+                        onChange={(e) => { clearFieldError("license"); setNewBookingData({ ...newBookingData, license: e.target.value.toUpperCase() }); }}
+                        placeholder="S1234567A"
+                        style={bookingFieldInputStyle(false, !!(newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)))}
                       />
-                      {newBookingData.license && restrictedLicenses.some(
+                      {newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license) ? (
+                        <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
+                          {DRIVING_LICENSE_FORMAT_ERROR}
+                        </div>
+                      ) : newBookingData.license && restrictedLicenses.some(
                         r => r.licenseNumber.trim().toUpperCase() === newBookingData.license.trim().toUpperCase()
                       ) && (
                         <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
@@ -1895,11 +1930,16 @@ export default function FleetOpzApp() {
                               value={driver.license}
                               onChange={(e) => setNewBookingData({
                                 ...newBookingData,
-                                additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, license: e.target.value } : d),
+                                additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, license: e.target.value.toUpperCase() } : d),
                               })}
-                              placeholder="License number"
-                              style={bookingFieldInputStyle(false)}
+                              placeholder="S1234567A"
+                              style={bookingFieldInputStyle(false, !!(driver.license.trim() && !isValidDrivingLicenseFormat(driver.license)))}
                             />
+                            {driver.license.trim() && !isValidDrivingLicenseFormat(driver.license) && (
+                              <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
+                                {DRIVING_LICENSE_FORMAT_ERROR}
+                              </div>
+                            )}
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>License Expiry Date</label>
@@ -1930,9 +1970,14 @@ export default function FleetOpzApp() {
                                 ...newBookingData,
                                 additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contact: e.target.value } : d),
                               })}
-                              placeholder="Phone number"
-                              style={bookingFieldInputStyle(false)}
+                              placeholder=" 65012345"
+                              style={bookingFieldInputStyle(false, !!(driver.contact.trim() && !isValidContactNumber(driver.contact)))}
                             />
+                            {driver.contact.trim() && !isValidContactNumber(driver.contact) && (
+                              <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
+                                {CONTACT_ERROR_MSG}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2068,10 +2113,11 @@ export default function FleetOpzApp() {
                                        </div>
                                        {newBookingData.additionalDrivers.length > 0 && (
                                          <div>
-                                           <label style={bookingFieldLabelStyle}>Additional Driver Charge</label>
+                                           <label style={bookingFieldLabelStyle}>Additional Driver Charge <span style={{ color: C.red }}>*</span></label>
                                            <input type="number" min="0" value={newBookingData.additionalDriverCharge}
-                                             onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
-                                             placeholder="0" style={bookingFieldInputStyle(false)} />
+                                             onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("additionalDriverCharge"); setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
+                                             placeholder="0" style={bookingFieldInputStyle(false, !!fieldErrors.additionalDriverCharge)} />
+                                           <FieldErr msg={fieldErrors.additionalDriverCharge} />
                                          </div>
                                        )}
                                      </div>
