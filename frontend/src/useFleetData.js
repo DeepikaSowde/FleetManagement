@@ -27,6 +27,23 @@ const toDateStr = (v) => {
   return isNaN(d) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10);
 };
 
+// Single source of truth for "what date/time does this booking actually
+// block through" — used by computeCarAvailabilityTimeline (the calendar),
+// findOverlappingBooking (the conflict check), and buildAvailabilityConflictMessage
+// (the banner text), so all three can never disagree about a booking's
+// effective end:
+//   - Vehicle already returned (actualReturnAt is set — happens the moment
+//     forceCompleted is set via Confirm Return / Mark Done, regardless of
+//     whether the booking has since reached "Closed") → actualReturnAt wins,
+//     even if that's earlier than the originally scheduled end. This is what
+//     lets days immediately after an early return open back up right away,
+//     without waiting for the booking to reach "Closed".
+//   - Not yet returned → booking.end, i.e. the current scheduled drop-off.
+//     This is also what makes an EXTENSION work with no special-casing: when
+//     staff push booking.end from the 24th to the 26th, this helper simply
+//     reflects that new date immediately, since actualReturnAt still isn't set.
+export const getEffectiveBookingEnd = (booking) => booking.actualReturnAt || booking.end;
+
 // ── INVOICE CALC ─────────────────────────────────────────────────────────────
 // Single source of truth for a booking's full invoice picture — used by the
 // Bookings table/detail view, and by computeBookingStatus below to decide
@@ -204,22 +221,38 @@ const computeFleetStatus = (car, bookingsWithStatus) => {
 // instead of once for today.
 //   Maintenance   → projected using the car's maintenanceStartDate + MAINTENANCE_MAX_DAYS,
 //                   for a car manually placed into Maintenance (nothing automatic sets this)
-//   Ending Today  → a booking's computeBookingStatus for that day is "Ending Today"
-//   On Rental     → a booking's computeBookingStatus for that day is "Active", OR its
-//                   status is "Upcoming" but dateStr still falls within that booking's
-//                   own [start, end] range — computeBookingStatus returns "Upcoming"
-//                   both for a day genuinely before a booking starts AND for a day
-//                   inside a booking's range whose Vehicle Handover hasn't happened
-//                   yet (see computeBookingStatus's !booking.handoverAt check), so
-//                   this projection disambiguates the two directly off the booking's
-//                   own dates rather than trusting `st` alone. Treating every
-//                   "Upcoming" day as free was the bug: a booking pending Handover
-//                   showed as Available here while checkBookingConflict (a plain
-//                   date-range overlap, independent of handoverAt) correctly flagged
-//                   the same dates as booked — the calendar would let someone select
-//                   a day it had just shown as open, only to be rejected right after.
-//   Available     → none of the above (including every day genuinely before a
-//                   future booking's start — the car is free until then)
+//   Ending Today  → dateStr is exactly a booking's effective end date (see
+//                   getEffectiveBookingEnd — the actual return date once
+//                   returned, otherwise the current/latest scheduled end,
+//                   which is also whatever an extension has pushed it to)
+//   On Rental     → dateStr falls STRICTLY WITHIN a booking's (start, effective
+//                   end) range, regardless of status — Active, Upcoming-awaiting-
+//                   handover, Overdue-not-yet-returned, or even
+//                   Completed/Closed all reserve their own date range the
+//                   same way. Deliberately NOT derived from
+//                   computeBookingStatus's per-day status here: once a
+//                   booking's forceCompleted flag is set (Completed/Closed),
+//                   computeBookingStatus reports that status for every date
+//                   unconditionally, which made a completed booking
+//                   invisible to this timeline entirely — a booking marked
+//                   done still reserved real calendar days
+//                   (its [start, effective end) range) that checkBookingConflict
+//                   (a plain date-range overlap, independent of status) correctly
+//                   flagged as booked, so the calendar showed those days as
+//                   open only for a conflict message to appear right after
+//                   selecting one.
+//                   An overdue, not-yet-returned booking additionally blocks
+//                   every projected day beyond its effective end too — since
+//                   there's no actual return recorded yet, there's no known
+//                   date to stop blocking at.
+//   Available     → every other day, including the exact PICKUP day (car is
+//                   free until that booking's own start time, then out —
+//                   availableUntil carries that cutoff, symmetric to how the
+//                   exact effective-end day carries availableFrom) and the
+//                   exact effective-end day itself (free from the return
+//                   time onward). A day can carry both availableFrom AND
+//                   availableUntil if one booking returns and a different
+//                   one begins that same calendar day.
 // Exported so Booking.jsx renders from this, rather than re-deriving statuses itself.
 export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDateStr) => {
   const start = fromDateStr ? new Date(fromDateStr) : new Date();
@@ -236,11 +269,10 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
   // return time shown to the user matches what was entered (no UTC shift).
   const timeOf = (v) => (typeof v === "string" && v.includes("T") ? v.slice(11, 16) : "");
 
-  // Real "today" — used to tell a genuinely-overdue booking (its end date has
-  // already passed and no return was recorded, so the car is still out) apart
-  // from a booking that simply hasn't reached its scheduled end yet. Both make
-  // computeBookingStatus report "Ending Today" for days past the end date, but
-  // only the overdue one should keep future days blocked.
+  // Real "today" — used to tell a genuinely-overdue booking (its scheduled end
+  // has already passed with no return recorded, so the car is still out) apart
+  // from a booking that simply hasn't reached its scheduled end yet. Only the
+  // overdue one should keep future projected days blocked indefinitely.
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const timeline = [];
@@ -248,62 +280,64 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
     const dateStr = new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10);
 
     let status = "Available"; // days before a future booking's start default here
-    let availableFrom = null;  // set on a same-day turnover: car is free from this time
+    let availableFrom = null;  // set when a booking's effective end lands today: car is free FROM this time
+    let availableUntil = null; // set when a booking's start lands today: car is free UNTIL this time
 
     if (maintenanceEndStr && dateStr < maintenanceEndStr) {
       status = "Maintenance";
     } else {
-      let occupied = false;     // out all day (mid-rental, or overdue & not returned)
-      let turnoverTime = null;  // latest return time if a booking actually ends today
+      let occupied = false;         // out all day (mid-rental, or overdue & not returned)
+      let turnoverTime = null;      // latest return time if a booking's effective end lands today
+      let startTurnoverTime = null; // earliest pickup time if a booking's start lands today
       for (const b of carBookings) {
-        const st = computeBookingStatus(b, dateStr);
-        if (st === "Active") {
+        if (!b.start) continue;
+        const returned = !!b.actualReturnAt;
+        const effectiveEndSrc = getEffectiveBookingEnd(b);
+        if (!effectiveEndSrc) continue;
+        const bStart = toDateStr(b.start);
+        const bEffEnd = toDateStr(effectiveEndSrc);
+        // Genuinely overdue right now: not returned, and its (still
+        // scheduled) end has already passed in real time. Distinct from a
+        // booking whose scheduled end simply hasn't arrived yet — that one
+        // frees up normally on its own effective end date, handled by the
+        // turnover branch below.
+        const isOverdueNow = !returned && todayStr > toDateStr(b.end);
+
+        if (bStart === bEffEnd) {
+          // Picked up and effectively ended within the same calendar day —
+          // can't cleanly split into "available until"/"available from"
+          // windows without knowing the exact order relative to any other
+          // same-day booking, so keep this one simple: the whole day is out.
+          if (dateStr === bStart) occupied = true;
+          continue;
+        }
+
+        if (dateStr === bStart) {
+          // Pickup day: car is free until this booking's own start time, then
+          // out. If more than one booking starts today, take the EARLIEST
+          // pickup time so availability never claims past the point any of
+          // them begins.
+          const t = timeOf(b.start);
+          if (t && (startTurnoverTime === null || t < startTurnoverTime)) startTurnoverTime = t;
+        } else if (dateStr > bStart && dateStr < bEffEnd) {
           occupied = true;
-        } else if (st === "Upcoming") {
-          // computeBookingStatus returns "Upcoming" for two different reasons:
-          // (a) dateStr is genuinely before this booking's start — the car is
-          //     free until then, or
-          // (b) dateStr falls WITHIN this booking's own [start, end] range,
-          //     but Handover hasn't happened yet (the "Awaiting Handover"
-          //     case) — the car IS reserved for this day, just not yet
-          //     physically picked up.
-          // Those two cases are indistinguishable from `st` alone, so check
-          // dateStr against the booking's own start/end directly. Without
-          // this, a booking pending Handover was invisible to this timeline —
-          // every one of its days rendered as Available here even though
-          // checkBookingConflict (a plain date-range overlap, independent of
-          // handoverAt) correctly flagged the same dates as booked. That
-          // mismatch is what let the calendar show a day as available only
-          // for a conflict message to appear right after selecting it.
-          const bStart = toDateStr(b.start);
-          const bEnd = toDateStr(b.end);
-          if (dateStr >= bStart && dateStr <= bEnd) occupied = true;
-        } else if (st === "Ending Today") {
-          // The booking's REAL end date is a same-day turnover — the car comes
-          // back at b.end time and is free for the rest of that day. (For this
-          // projected day, dateStr always equals the booking's end date.)
-          const t = timeOf(b.end);
+        } else if (dateStr === bEffEnd) {
+          const t = timeOf(effectiveEndSrc);
           if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
-        } else if (st === "Overdue") {
-          // Projected day is AFTER this booking's scheduled end. Only keep the
-          // car blocked when the booking is genuinely overdue — its end date
-          // has already passed in real time and no return was recorded. For a
-          // booking that still ends today or in the future, every day AFTER its
-          // scheduled end is free (the car returns on schedule), so we must not
-          // block those — that's what was hiding post-return availability for
-          // an active, not-yet-returned rental.
-          if (toDateStr(b.end) < todayStr) occupied = true;
+        } else if (isOverdueNow && dateStr > bEffEnd) {
+          occupied = true;
         }
       }
       if (occupied) {
-        status = "On Rental"; // a full-day rental (or another booking) wins over a turnover
-      } else if (turnoverTime) {
+        status = "On Rental"; // a full-day rental (or another booking) wins over any turnover
+      } else {
         status = "Available";
-        availableFrom = turnoverTime; // e.g. "13:00" → UI shows "available from 1:00 PM"
+        if (turnoverTime) availableFrom = turnoverTime;   // e.g. "13:00" → UI shows "available from 1:00 PM"
+        if (startTurnoverTime) availableUntil = startTurnoverTime; // e.g. "14:00" → UI shows "available until 2:00 PM"
       }
     }
 
-    timeline.push({ date: dateStr, status, availableFrom });
+    timeline.push({ date: dateStr, status, availableFrom, availableUntil });
   }
   return timeline;
 };
@@ -320,6 +354,11 @@ const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bS
 // NEAREST one (earliest start) is returned — that's the one that actually
 // determines "the last available date" the validation message below needs,
 // since it's the first thing blocking the requested range.
+// Overlaps against getEffectiveBookingEnd, not the raw b.end — the same
+// helper computeCarAvailabilityTimeline uses — so a booking returned early
+// stops blocking new bookings the moment the return is recorded (no need to
+// wait for it to reach "Closed"), and a booking whose drop-off was extended
+// stays blocking through the new end date immediately.
 const findOverlappingBooking = (bookings, plate, start, end, excludeBookingId) => {
   if (!start || !end) return null;
   const newStart = new Date(start).getTime();
@@ -328,8 +367,8 @@ const findOverlappingBooking = (bookings, plate, start, end, excludeBookingId) =
     b.plate === plate &&
     b.id !== excludeBookingId &&
     !b.cancelled &&
-    b.start && b.end &&
-    rangesOverlap(newStart, newEnd, new Date(b.start).getTime(), new Date(b.end).getTime())
+    b.start && getEffectiveBookingEnd(b) &&
+    rangesOverlap(newStart, newEnd, new Date(b.start).getTime(), new Date(getEffectiveBookingEnd(b)).getTime())
   );
   if (conflicts.length === 0) return null;
   return conflicts.reduce((nearest, b) =>
@@ -359,7 +398,11 @@ const formatShortDate = (dateStr) =>
 // Builds the specific, actionable conflict message for the booking form —
 // built entirely from the nearest conflicting booking findOverlappingBooking
 // already found, so this is presentation only, not a second source of truth
-// for what conflicts. Two shapes:
+// for what conflicts. Reads getEffectiveBookingEnd (not conflict.end
+// directly) so the printed date always matches whatever findOverlappingBooking
+// actually blocked against — e.g. a booking returned early on the 22nd shows
+// "available again from the 23rd", not the original scheduled the 25th.
+// Two shapes:
 //   - requested start is BEFORE the conflict's start (a partial overlap,
 //     e.g. requesting Jul 22–Aug 3 against an Aug 1–Aug 12 booking): tell
 //     the person the last date they can still book through.
@@ -367,7 +410,7 @@ const formatShortDate = (dateStr) =>
 //     out for the whole requested window): tell them when it frees up next.
 export const buildAvailabilityConflictMessage = (conflict, requestedStart) => {
   const conflictStartStr = toDateStr(conflict.start);
-  const conflictEndStr = toDateStr(conflict.end);
+  const conflictEndStr = toDateStr(getEffectiveBookingEnd(conflict));
   const requestedStartStr = toDateStr(requestedStart);
 
   if (requestedStartStr < conflictStartStr) {

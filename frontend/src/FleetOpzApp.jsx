@@ -178,12 +178,14 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
 
   const timeline = computeCarAvailabilityTimeline(car, bookings, 120);
   const statusByDate = {};
-  const availableFromByDate = {}; // date -> "HH:MM" the car frees up on a same-day turnover
-  timeline.forEach(({ date, status, availableFrom }) => {
+  const availableFromByDate = {};  // date -> "HH:MM" the car frees up on a same-day turnover (a prior booking ends today)
+  const availableUntilByDate = {}; // date -> "HH:MM" the car is free until (a different booking's pickup starts today)
+  timeline.forEach(({ date, status, availableFrom, availableUntil }) => {
     statusByDate[date] = status;
     if (availableFrom) availableFromByDate[date] = availableFrom;
+    if (availableUntil) availableUntilByDate[date] = availableUntil;
   });
-  // "13:00" → "1:00 PM", for the turnover "available from" hint.
+  // "13:00" → "1:00 PM", for the turnover "available from"/"available until" hints.
   const fmtTime = (hhmm) => {
     if (!hhmm) return "";
     let [h, m] = hhmm.split(":").map(Number);
@@ -255,10 +257,12 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
       return;
     }
     setDayError("");
-    // Pass the day's turnover time (if the car returns this day) so the caller
-    // can default the pickup time to it — picking up before the car is back
-    // would otherwise conflict with the returning rental.
-    onSelect(iso, availableFromByDate[iso] || null);
+    // Pass the day's turnover times so the caller can react: availableFrom
+    // (car returns from a prior booking earlier today) is used to default the
+    // pickup time forward; availableUntil (a different booking's pickup
+    // starts later today) is informational — Next/Submit's checkBookingConflict
+    // is what actually enforces it, at full timestamp precision.
+    onSelect(iso, availableFromByDate[iso] || null, availableUntilByDate[iso] || null);
   };
 
   return (
@@ -288,6 +292,10 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
           Available after return time
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.teal, display: "inline-block" }} />
+          Available until next pickup
+        </div>
       </div>
 
       {/* Weekday header */}
@@ -313,14 +321,18 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
           // bookings) whose real overlap is caught by the conflict check.
           const clickable = minDate ? !belowMin : (isAvailableDay(d) || isPast(d));
           const dimmed = !clickable && !isSelected;
-          const af = availableFromByDate[iso]; // turnover: car returns this day, free after
+          const af = availableFromByDate[iso];  // turnover: car returns from a prior booking this day, free after
+          const au = availableUntilByDate[iso]; // turnover: a different booking picks up this day, free until then
+          const titleParts = [];
+          if (af) titleParts.push(`Available from ${fmtTime(af)} — car returns this day`);
+          if (au) titleParts.push(`Available until ${fmtTime(au)} — next pickup this day`);
           return (
             <button
               type="button"
               key={iso}
               disabled={!clickable && !isSelected}
               onClick={() => handleDayClick(day)}
-              title={af ? `Available from ${fmtTime(af)} — car returns this day` : status}
+              title={titleParts.length ? titleParts.join(" · ") : status}
               style={{
                 position: "relative",
                 padding: "4px 0", fontSize: 10.5, borderRadius: 4,
@@ -334,6 +346,7 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
             >
               {day}
               {af && <span style={{ position: "absolute", top: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: C.amber }} />}
+              {au && <span style={{ position: "absolute", bottom: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: C.teal }} />}
             </button>
           );
         })}
@@ -348,6 +361,9 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
               Selected: <strong style={{ color: C.navy }}>{selectedDate}</strong>
               {availableFromByDate[selectedDate] && (
                 <span style={{ color: C.amber, fontWeight: 700 }}> · available from {fmtTime(availableFromByDate[selectedDate])}</span>
+              )}
+              {availableUntilByDate[selectedDate] && (
+                <span style={{ color: C.teal, fontWeight: 700 }}> · available until {fmtTime(availableUntilByDate[selectedDate])}</span>
               )}
             </>
           ) : "No date selected"}
@@ -631,7 +647,7 @@ export default function FleetOpzApp() {
     const errors = {};
     if (!newBookingData.customer.trim()) errors.customer = "Customer Name is required";
     if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
-      errors.ic = "Enter a valid Emirates ID  ";
+      errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
     }
     {
       const requiredDigits = contactDigitsRequired(newBookingData.contactCountryCode);
