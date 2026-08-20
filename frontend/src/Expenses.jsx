@@ -11,7 +11,8 @@ const CATEGORIES = [
   "Vehicle Purchase", "New Vehicle Advance Paid", "Insurance", "Road Tax & Transfer Fee",
   "LTA Fee", "LTA Transfer", "Registration", "Inspection", "Internal Sticker", "Fuel",
   "Parking Fee", "External Pickup/Drop", "Repairs & Maintenance", "PR Payment", "Advertisement",
-  "Other / Miscellaneous",
+  // Other Expenses — business overhead, not tied to a specific vehicle.
+  "Office", "Tools", "Other / Miscellaneous",
 ];
 
 // Validated categorical hues (dataviz reference palette; red dropped so it
@@ -44,6 +45,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
   const [showForm, setShowForm] = useState(false);
   const [catFilter, setCatFilter] = useState("all");
   const [newExpense, setNewExpense] = useState({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false });
+  const [topRange, setTopRange] = useState("6m"); // "1m" | "6m" | "1y"
 
   const total = expenses.reduce((s, e) => s + (e.amount || 0), 0);
 
@@ -82,11 +84,20 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => ({ label: monthLabel(k), total: v }));
   }, [expenses]);
 
+  // Top 5 vehicles by expense within the selected window (1 / 6 / 12 months).
+  // "General / Overhead" (non-vehicle) rows are excluded — this ranks cars only.
   const topCars = useMemo(() => {
+    const months = { "1m": 1, "6m": 6, "1y": 12 }[topRange] || 6;
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
     const map = {};
-    expenses.forEach((e) => { const p = e.plate || "—"; map[p] = (map[p] || 0) + (e.amount || 0); });
-    return Object.entries(map).map(([plate, amt]) => ({ plate, total: amt })).sort((a, b) => b.total - a.total).slice(0, 6);
-  }, [expenses]);
+    expenses.forEach((e) => {
+      if (!e.plate || e.plate === "General") return;
+      if (e.date && new Date(e.date) < cutoff) return;
+      map[e.plate] = (map[e.plate] || 0) + (e.amount || 0);
+    });
+    return Object.entries(map).map(([plate, amt]) => ({ plate, total: amt })).sort((a, b) => b.total - a.total).slice(0, 5);
+  }, [expenses, topRange]);
 
   const now = new Date();
   const curMonth = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
@@ -133,6 +144,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                 <div style={fieldLabel}>Car (Plate)</div>
                 <select id="expense-plate" value={newExpense.plate} onChange={e => setNewExpense({ ...newExpense, plate: e.target.value })} style={fieldInput}>
                   <option value="">-- Select --</option>
+                  <option value="General">General / Overhead (no vehicle)</option>
                   {fleet.map(c => <option key={c.plate} value={c.plate}>{c.plate}</option>)}
                 </select>
               </div>
@@ -240,8 +252,42 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
         </Card>
       </div>
 
-      {/* Records + top cars — stacked full-width, one after the other */}
+      {/* Top 5 vehicles ABOVE the records, then the Expense Records table */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
+        {/* Top 5 spending vehicles — filtered by period (1 / 6 / 12 months) */}
+        <Card>
+          <CardHeader
+            title="Top 5 Vehicles by Expense"
+            subtitle="Highest-cost vehicles in the selected period"
+            right={
+              <div style={{ display: "flex", gap: 4 }}>
+                {[["1m", "1 Month"], ["6m", "6 Months"], ["1y", "1 Year"]].map(([val, lbl]) => (
+                  <button key={val} onClick={() => setTopRange(val)}
+                    style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, borderRadius: 7, cursor: "pointer", border: `1px solid ${topRange === val ? C.red : C.border}`, background: topRange === val ? C.redFaint : C.surface, color: topRange === val ? C.red : C.textSec }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <div style={{ padding: "12px 10px 10px", height: 260 }}>
+            {topCars.length === 0 ? (
+              <EmptyViz icon="🚗" text="No vehicle costs in this period." />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topCars} margin={{ top: 10, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
+                  <XAxis dataKey="plate" interval={0} tick={{ fontSize: 9, fill: C.textSec }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} angle={-25} textAnchor="end" height={56} />
+                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={40} tickFormatter={yTick} />
+                  <Tooltip formatter={(v) => fmt(Math.round(v))} cursor={{ fill: C.bg }} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                  <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={28} fill={C.red} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        {/* Expense Records */}
         <Card>
           <CardHeader
             title="Expense Records"
@@ -300,25 +346,6 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
           )}
         </Card>
 
-        {/* Top spending cars */}
-        <Card>
-          <CardHeader title="Top Spending Cars" subtitle="Cost by vehicle" />
-          <div style={{ padding: "12px 10px 10px", height: 260 }}>
-            {topCars.length === 0 ? (
-              <EmptyViz icon="🚗" text="No car costs yet." />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topCars} margin={{ top: 10, right: 8, left: 0, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EEE" vertical={false} />
-                  <XAxis dataKey="plate" interval={0} tick={{ fontSize: 9, fill: C.textSec }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} angle={-25} textAnchor="end" height={56} />
-                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={40} tickFormatter={yTick} />
-                  <Tooltip formatter={(v) => fmt(Math.round(v))} cursor={{ fill: C.bg }} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
-                  <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={28} fill={C.red} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </Card>
       </div>
     </div>
   );
