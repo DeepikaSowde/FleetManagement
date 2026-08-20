@@ -1075,6 +1075,7 @@ export default function FleetOpzApp() {
         fleet={fleetData.fleet}
         employees={fleetData.employees}
         onUpdateBooking={fleetData.updateBooking}
+        onAddExpense={fleetData.addExpense}
         onNewBooking={openNewBookingModal}
         onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
       />

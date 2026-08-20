@@ -12,7 +12,7 @@ const CATEGORIES = [
   "LTA Fee", "LTA Transfer", "Registration", "Inspection", "Internal Sticker", "Fuel",
   "Parking Fee", "External Pickup/Drop", "Repairs & Maintenance", "PR Payment", "Advertisement",
   // Other Expenses — business overhead, not tied to a specific vehicle.
-  "Office", "Tools", "Other / Miscellaneous",
+  "Salary", "Office", "Tools", "Other / Miscellaneous",
 ];
 
 // Validated categorical hues (dataviz reference palette; red dropped so it
