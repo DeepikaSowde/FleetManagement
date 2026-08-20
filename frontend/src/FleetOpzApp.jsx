@@ -2311,6 +2311,7 @@ export default function FleetOpzApp() {
                                           )}
                                           <FieldErr msg={fieldErrors.deductible} />
                                         </div>
+                      {newBookingData.additionalDrivers.length > 0 && (
                       <div>
                         <label style={bookingFieldLabelStyle}>Additional Driver Charge <span style={{ color: C.red }}>*</span></label>
                         <input type="number" min="0" value={newBookingData.additionalDriverCharge}

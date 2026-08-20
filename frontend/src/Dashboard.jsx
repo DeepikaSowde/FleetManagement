@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { fmt } from "./theme";
+import { computeBookingInvoice } from "./useFleetData";
 import { useViewport } from "./useViewport";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -161,7 +162,12 @@ const Dashboard = ({
   // ── Today's revenue (daily accrual from cars out on rent) ────────────────────
   const dayRevenue = (dayStr) => bookings
     .filter((b) => b.start && b.end && b.start.slice(0, 10) <= dayStr && dayStr <= b.end.slice(0, 10) && (b.status === "Active" || b.status === "Ending Today" || b.status === "Overdue"))
-    .reduce((s, b) => s + (Number(b.rate) || 0), 0);
+    .reduce((s, b) => {
+      // Day's share of the actual rental (Total Rental Amount ÷ days), not the
+      // suggested daily rate. Same-day/hourly bookings (days 0) accrue in full.
+      const inv = computeBookingInvoice(b);
+      return s + (inv.days > 0 ? inv.rateCharge / inv.days : inv.rateCharge);
+    }, 0);
   const todayRevenue = dayRevenue(todayStr);
   const yestRevenue = dayRevenue(yesterdayStr);
   const revDelta = yestRevenue > 0 ? ((todayRevenue - yestRevenue) / yestRevenue) * 100 : null;
@@ -541,7 +547,7 @@ const Dashboard = ({
 
         {/* Vehicle Performance */}
         <Card style={{ padding: 18 }}>
-          <SectionHead title="Vehicle Performance" note={`(${refMonthLabel})`} right={<LinkBtn onClick={() => onNavigate?.("fleet")}>View All Vehicles</LinkBtn>} />
+          <SectionHead title="Vehicle Performance" note={`(${refMonthLabel})`} right={<LinkBtn onClick={() => onNavigate?.("pl", "utilization")}>View All Vehicles</LinkBtn>} />
           <div style={{ maxHeight: 300, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
               <thead>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { totalInv } from "./theme";
 import { flowForType } from "./Investors";
 import { forfeitedDepositIncome } from "./ledgerUtils";
@@ -69,7 +69,13 @@ export const computeBookingInvoice = (b) => {
   // not the originally planned end date/time.
   const effectiveEnd = b.actualReturnAt || b.end;
   const days = (b.start && effectiveEnd) ? Math.max(0, Math.round((new Date(effectiveEnd) - new Date(b.start)) / 86400000)) : 0;
-  const rateCharge = (Number(b.rate) || 0) * days;
+  // Rental charge is the stored Total Rental Amount when present (entered in
+  // Pricing & Charges — it already accounts for hourly/short rentals and any
+  // agreed price); older bookings without it fall back to daily rate × days.
+  // Kept in sync with Booking.jsx's copy of this function.
+  const rentalRaw = b.rentalAmount;
+  const hasRental = rentalRaw !== undefined && rentalRaw !== null && String(rentalRaw).trim() !== "" && !isNaN(Number(rentalRaw));
+  const rateCharge = hasRental ? Number(rentalRaw) : (Number(b.rate) || 0) * days;
   const deliveryCharge = Number(b.deliveryCharge) || 0;
   const collectionCharge = Number(b.collectionCharge) || 0;
   const additionalDriverCharge = Number(b.additionalDriverCharge) || 0;
@@ -568,7 +574,7 @@ export const useFleetData = () => {
     let nextNum = Math.max(...earnings.map(e => parseInt(e.id.slice(3)) || 0), 0);
     const newRecords = missing.map(b => {
       nextNum += 1;
-      const days = Math.round((new Date(b.end) - new Date(b.start)) / 86400000);
+      const inv = computeBookingInvoice(b);
       return {
         id: `ER-${String(nextNum).padStart(3, "0")}`,
         bookingId: b.id,
@@ -576,9 +582,12 @@ export const useFleetData = () => {
         customer: b.customer,
         start: b.start,
         end: b.end,
-        days,
+        days: inv.days,
         rate: b.rate,
-        total: b.rate * days,
+        // Rental revenue = the actual rental charge (stored Total Rental Amount
+        // when set, else rate × days) — no longer the stale rate × days, so
+        // negotiated totals and hourly rentals are recorded correctly.
+        total: inv.rateCharge,
         locked: false,
       };
     });
@@ -586,6 +595,34 @@ export const useFleetData = () => {
     newRecords.forEach(r => api.post("/earnings", r).catch(onWriteError));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookings, loaded]);
+
+  // One-time reconciliation: older earnings rows stored `rate × days`, which is
+  // now wrong for bookings that carry a Total Rental Amount (and 0 for hourly
+  // rentals). Recompute UNLOCKED rows from the current invoice's rental charge so
+  // the Revenue Overview / monthly earnings reflect the real amounts. Locked or
+  // manually-adjusted rows are left untouched. Runs once per session.
+  const earningsReconciledRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || earningsReconciledRef.current || earnings.length === 0) return;
+    const bookingById = {};
+    bookings.forEach(b => { bookingById[b.id] = b; });
+    const corrected = [];
+    earnings.forEach(e => {
+      if (e.locked) return;
+      const b = bookingById[e.bookingId];
+      if (!b) return;
+      const correctTotal = computeBookingInvoice(b).rateCharge;
+      if (Math.abs((Number(e.total) || 0) - correctTotal) > 0.01) {
+        corrected.push({ id: e.id, total: correctTotal });
+      }
+    });
+    earningsReconciledRef.current = true;
+    if (corrected.length === 0) return;
+    const changed = new Map(corrected.map(c => [c.id, c.total]));
+    setEarnings(prev => prev.map(e => (changed.has(e.id) ? { ...e, total: changed.get(e.id) } : e)));
+    corrected.forEach(c => api.put(`/earnings/${c.id}`, { total: c.total }).catch(onWriteError));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, earnings, bookings]);
 
   // A car goes straight back to "Available" once one of its bookings'
   // derived status becomes "Completed" (whether that's because the end date
