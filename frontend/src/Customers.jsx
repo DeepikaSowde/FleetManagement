@@ -21,6 +21,9 @@ const CUSTOMER_TYPES = [
 
 const PAGE_SIZE = 8;
 
+// A customer becomes a "Repeated Customer" once they reach this many bookings.
+const REPEAT_THRESHOLD = 20;
+
 // Numeric DD/MM/YYYY to match the reference design (e.g. 01/08/2025).
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -100,7 +103,7 @@ const Customers = ({
   // ── KPI figures ───────────────────────────────────────────────────────────
   const total = enriched.length;
   const activeCount = enriched.filter((c) => c.status === "Active").length;
-  const repeatCount = enriched.filter((c) => c.stats.count >= 2).length;
+  const repeatCount = enriched.filter((c) => c.stats.count >= REPEAT_THRESHOLD).length;
   const pendingCustomers = enriched.filter((c) => c.stats.pendingAmount > 0);
   const pendingBookingsTotal = enriched.reduce((s, c) => s + c.stats.pendingBookings, 0);
 
@@ -123,7 +126,7 @@ const Customers = ({
       if (statusFilter === "active" && c.status !== "Active") return false;
       if (statusFilter === "inactive" && c.status !== "Inactive") return false;
       if (statusFilter === "pending" && c.stats.pendingAmount <= 0) return false;
-      if (repeatOnly && c.stats.count < 2) return false;
+      if (repeatOnly && c.stats.count < REPEAT_THRESHOLD) return false;
       if (!q) return true;
       return (
         (c.name || "").toLowerCase().includes(q) ||
@@ -168,6 +171,17 @@ const Customers = ({
     if (!form.ic.trim()) { setError("IC / ID is required"); return; }
     if (!form.name.trim()) { setError("Customer name is required"); return; }
     if (!String(form.license || "").trim()) { setError("License Number is required"); return; }
+    // One customer name maps to one IC — block reusing a name under a different IC.
+    {
+      const nameKey = form.name.trim().toLowerCase();
+      const icKey = normIC(form.ic);
+      const clash = customers.find(
+        (c) => c.id !== (formCustomer && formCustomer.id)
+          && (c.name || "").trim().toLowerCase() === nameKey
+          && normIC(c.ic) !== icKey
+      );
+      if (clash) { setError(`A customer named "${form.name.trim()}" already exists with IC ${clash.ic}. Use the same IC, or a different name.`); return; }
+    }
     const payload = {
       ic: form.ic, name: form.name, contact: form.contact, email: form.email,
       license: form.license, licenseExpiry: form.licenseExpiry || null,
@@ -286,7 +300,7 @@ const Customers = ({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Customer", "IC Number", "Phone", "Status", "Pending Amount", "Pending Bookings", "Last Booking", ""].map((h, i) => (
+                  {["Customer", "IC Number", "Phone", "Status", "Total Bookings", "Pending Amount", "Pending Bookings", "Last Booking", ""].map((h, i) => (
                     <th key={i} style={th}>{h}</th>
                   ))}
                 </tr>
@@ -313,6 +327,10 @@ const Customers = ({
                       <td style={{ ...td, ...mono, fontSize: 11 }}>{c.ic}</td>
                       <td style={{ ...td, whiteSpace: "nowrap" }}>{c.contact || "—"}</td>
                       <td style={td}><StatusPill status={c.status} /></td>
+                      <td style={{ ...td, textAlign: "center" }}>
+                        <span style={{ fontWeight: 700, color: C.navy }}>{c.stats.count}</span>
+                        {c.stats.count >= REPEAT_THRESHOLD && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: "#6D5BB3", background: "#EDE8F5", borderRadius: 999, padding: "1px 6px", whiteSpace: "nowrap" }}>Repeated</span>}
+                      </td>
                       <td style={{ ...td, ...mono, fontWeight: 700, color: pend > 0 ? C.red : C.green, whiteSpace: "nowrap" }}>{fmt(Math.round(pend))}</td>
                       <td style={{ ...td, textAlign: "center" }}>{c.stats.pendingBookings}</td>
                       <td style={{ ...td, whiteSpace: "nowrap", color: C.textMuted }}>{fmtDate(c.stats.lastBooking)}</td>
@@ -417,6 +435,7 @@ const Customers = ({
                   <button onClick={() => setHistoryFor(selected)} style={{ fontSize: 10.5, fontWeight: 600, color: C.teal, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>View All Bookings</button>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <SummaryStat label="Total Bookings" value={`${selected.stats.count}${selected.stats.count >= REPEAT_THRESHOLD ? " · Repeated" : ""}`} valueColor={selected.stats.count >= REPEAT_THRESHOLD ? "#6D5BB3" : undefined} />
                   <SummaryStat label="Total Pending Amount" value={fmt(Math.round(selected.stats.pendingAmount))} valueColor={selected.stats.pendingAmount > 0 ? C.red : C.green} />
                   <SummaryStat label="Pending Bookings" value={selected.stats.pendingBookings} />
                   <SummaryStat
