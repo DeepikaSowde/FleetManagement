@@ -646,6 +646,19 @@ export default function FleetOpzApp() {
   const validateStep1 = () => {
     const errors = {};
     if (!newBookingData.customer.trim()) errors.customer = "Customer Name is required";
+    // A customer name must map to a single IC — block reusing the same name
+    // with a different IC number. Matched case-insensitively and trimmed.
+    else {
+      const nameKey = newBookingData.customer.trim().toLowerCase();
+      const normIcLocal = (v) => (v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const currentIc = normIcLocal(newBookingData.ic);
+      const clash = (fleetData.customers || []).find(
+        c => (c.name || "").trim().toLowerCase() === nameKey && normIcLocal(c.ic) !== currentIc
+      );
+      if (clash) {
+        errors.customer = `A customer named "${newBookingData.customer.trim()}" already exists with IC ${clash.ic}. Use the same IC, or a different name.`;
+      }
+    }
     if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
       errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
     }
