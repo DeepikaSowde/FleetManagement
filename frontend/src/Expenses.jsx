@@ -44,7 +44,7 @@ const fieldInput = { width: "100%", padding: "8px 10px", borderRadius: 8, border
 const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, onDeleteExpense }) => {
   const [showForm, setShowForm] = useState(false);
   const [catFilter, setCatFilter] = useState("all");
-  const [newExpense, setNewExpense] = useState({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false });
+  const [newExpense, setNewExpense] = useState({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false, paidTo: "" });
   const [topRange, setTopRange] = useState("6m"); // "1m" | "6m" | "1y"
 
   const total = expenses.reduce((s, e) => s + (e.amount || 0), 0);
@@ -114,8 +114,19 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
       alert("Please fill in all required fields");
       return;
     }
-    onAddExpense({ ...newExpense, amount: parseFloat(newExpense.amount) });
-    setNewExpense({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false });
+    // External Pickup/Drop: capture who was paid so it's on record, then fold
+    // that name into the description so it carries through to the Expense record
+    // AND the Ledger (both show desc + category).
+    const isExternalPickup = newExpense.category === "External Pickup/Drop";
+    if (isExternalPickup && !newExpense.paidTo.trim()) {
+      alert("Enter the name of the external person paid for the pickup/drop.");
+      return;
+    }
+    const desc = isExternalPickup && newExpense.paidTo.trim()
+      ? `Paid to ${newExpense.paidTo.trim()}${newExpense.desc.trim() ? ` — ${newExpense.desc.trim()}` : ""}`
+      : newExpense.desc;
+    onAddExpense({ ...newExpense, desc, amount: parseFloat(newExpense.amount) });
+    setNewExpense({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false, paidTo: "" });
     setShowForm(false);
   };
 
@@ -160,6 +171,22 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                 </select>
               </div>
             </div>
+            {newExpense.category === "External Pickup/Drop" && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={fieldLabel}>Paid To — External Person *</div>
+                <input
+                  id="expense-paidto"
+                  type="text"
+                  placeholder="Name of the external person who handled the pickup/drop"
+                  value={newExpense.paidTo}
+                  onChange={e => setNewExpense({ ...newExpense, paidTo: e.target.value })}
+                  style={{ ...fieldInput, fontFamily: "inherit" }}
+                />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
+                  Recorded as an expense against this vehicle and reflected in the Ledger.
+                </div>
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <div style={fieldLabel}>Description</div>
