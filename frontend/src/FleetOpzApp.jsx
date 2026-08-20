@@ -2321,6 +2321,12 @@ export default function FleetOpzApp() {
                         <FieldErr msg={fieldErrors.additionalDriverCharge} />
                       </div>
                     )}
+                    <div>
+                      <label style={bookingFieldLabelStyle}>VAT Rate (%)</label>
+                      <input type="number" min="0" step="0.1" value={newBookingData.vatRate}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, vatRate: v }); }}
+                        placeholder="e.g., 9" style={bookingFieldInputStyle(false)} />
+                    </div>
                   </div>
                   <div style={{ marginBottom: 16, fontSize: 10.5, color: C.textMuted }}>
                     Security Deposit is refundable — collected upfront and included in the Grand Total, returned at the end of the rental.
