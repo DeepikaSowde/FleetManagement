@@ -264,7 +264,10 @@ const Customers = ({
       )}
 
       {/* Body: list + details */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.65fr 1fr", gap: 16, alignItems: "start" }}>
+      {/* Stacked layout: the Customer List spans the FULL width (all columns
+          visible, no side-scroll), and the selected customer's Details render
+          underneath it. */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
         {/* ── Customer list ─────────────────────────────────────────────── */}
         <Card>
           <div style={{ padding: "14px 18px 12px" }}>
