@@ -269,6 +269,10 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
       setEditError("Enter a valid Year.");
       return;
     }
+    if (!editForm.coe) {
+      setEditError("COE Expiry Date is required.");
+      return;
+    }
     if (typeof onUpdateCar !== "function") {
       setEditError("Saving isn't wired up yet.");
       return;
@@ -410,7 +414,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
                   <input type="date" value={editForm.inspectionExpiry} onChange={(e) => setEditForm({ ...editForm, inspectionExpiry: e.target.value })} style={fieldStyle} />
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>COE Expiry</div>
+                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>COE Expiry *</div>
                   <input type="date" value={editForm.coe} onChange={(e) => setEditForm({ ...editForm, coe: e.target.value })} style={fieldStyle} />
                 </div>
               </div>

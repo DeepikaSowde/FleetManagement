@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { totalInv } from "./theme";
 import { flowForType } from "./Investors";
 import { forfeitedDepositIncome } from "./ledgerUtils";
@@ -584,6 +584,8 @@ export const useFleetData = () => {
         end: b.end,
         days: inv.days,
         rate: b.rate,
+        // Categorises rental income in the Earnings ledger.
+        type: "Rental Earning",
         // Rental revenue = the actual rental charge (stored Total Rental Amount
         // when set, else rate × days) — no longer the stale rate × days, so
         // negotiated totals and hourly rentals are recorded correctly.
@@ -596,14 +598,15 @@ export const useFleetData = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookings, loaded]);
 
-  // One-time reconciliation: older earnings rows stored `rate × days`, which is
-  // now wrong for bookings that carry a Total Rental Amount (and 0 for hourly
-  // rentals). Recompute UNLOCKED rows from the current invoice's rental charge so
-  // the Revenue Overview / monthly earnings reflect the real amounts. Locked or
-  // manually-adjusted rows are left untouched. Runs once per session.
-  const earningsReconciledRef = useRef(false);
+  // Keep UNLOCKED earnings in sync with their booking's current invoice, so:
+  //  • older rows that stored the stale `rate × days` get corrected, and
+  //  • a rental EXTENSION (which just edits the booking's dates/total) is
+  //    reflected in Earnings automatically — the row's total grows to include it.
+  // Also backfills the "Rental Earning" type on older rows. Locked/manually
+  // adjusted rows are never touched, and only rows that actually changed are
+  // written — so once totals match it stops (no write loop).
   useEffect(() => {
-    if (!loaded || earningsReconciledRef.current || earnings.length === 0) return;
+    if (!loaded || earnings.length === 0) return;
     const bookingById = {};
     bookings.forEach(b => { bookingById[b.id] = b; });
     const corrected = [];
@@ -612,15 +615,15 @@ export const useFleetData = () => {
       const b = bookingById[e.bookingId];
       if (!b) return;
       const correctTotal = computeBookingInvoice(b).rateCharge;
-      if (Math.abs((Number(e.total) || 0) - correctTotal) > 0.01) {
-        corrected.push({ id: e.id, total: correctTotal });
-      }
+      const patch = {};
+      if (Math.abs((Number(e.total) || 0) - correctTotal) > 0.01) patch.total = correctTotal;
+      if (!e.type) patch.type = "Rental Earning";
+      if (Object.keys(patch).length) corrected.push({ id: e.id, patch });
     });
-    earningsReconciledRef.current = true;
     if (corrected.length === 0) return;
-    const changed = new Map(corrected.map(c => [c.id, c.total]));
-    setEarnings(prev => prev.map(e => (changed.has(e.id) ? { ...e, total: changed.get(e.id) } : e)));
-    corrected.forEach(c => api.put(`/earnings/${c.id}`, { total: c.total }).catch(onWriteError));
+    const changed = new Map(corrected.map(c => [c.id, c.patch]));
+    setEarnings(prev => prev.map(e => (changed.has(e.id) ? { ...e, ...changed.get(e.id) } : e)));
+    corrected.forEach(c => api.put(`/earnings/${c.id}`, c.patch).catch(onWriteError));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, earnings, bookings]);
 
