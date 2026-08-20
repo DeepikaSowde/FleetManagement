@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { fmt } from "./theme";
 import { computeBookingInvoice } from "./useFleetData";
+import { forfeitedDepositIncome } from "./ledgerUtils";
 import { useViewport } from "./useViewport";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -181,7 +182,10 @@ const Dashboard = ({
     if (revPeriod === "Year") {
       let cum = 0;
       const data = yearMonths.map((m, i) => {
-        cum += earnYear.filter((e) => e.start.slice(0, 7) === m).reduce((s, e) => s + (e.total || 0), 0);
+        // Actual Revenue = rental earnings + forfeited-deposit income, matching
+        // the "Achieved" figure (calculateMonthlyMetrics adds the same).
+        cum += earnYear.filter((e) => e.start.slice(0, 7) === m).reduce((s, e) => s + (e.total || 0), 0)
+          + forfeitedDepositIncome(bookings, { prefix: m });
         return { label: MONTH_LABELS[i], actual: cum };
       });
       const target = activeMonths.reduce((s, m) => s + calculateMonthlyTarget(m), 0);
@@ -191,7 +195,8 @@ const Dashboard = ({
       const data = [];
       for (let i = 6; i >= 0; i--) {
         const ds = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-        const day = earnYear.filter((e) => e.start.slice(0, 10) === ds).reduce((s, e) => s + (e.total || 0), 0);
+        const day = earnYear.filter((e) => e.start.slice(0, 10) === ds).reduce((s, e) => s + (e.total || 0), 0)
+          + forfeitedDepositIncome(bookings, { prefix: ds });
         data.push({ label: ds.slice(5), actual: day });
       }
       return { data, target: Math.round(monthlyTarget / 4) };
@@ -206,7 +211,11 @@ const Dashboard = ({
     let cum = 0;
     const data = [];
     for (let d = 1; d <= daysInMonth; d++) {
-      cum += monthEarn.filter((e) => Number(e.start.slice(8, 10)) === d).reduce((s, e) => s + (e.total || 0), 0);
+      const dd = String(d).padStart(2, "0");
+      // Actual Revenue = rental earnings + forfeited-deposit income (recognized
+      // on its settlement date), so the month-end total matches "Achieved".
+      cum += monthEarn.filter((e) => Number(e.start.slice(8, 10)) === d).reduce((s, e) => s + (e.total || 0), 0)
+        + forfeitedDepositIncome(bookings, { prefix: `${refMonth}-${dd}` });
       data.push({ label: `${d} ${MONTH_LABELS[mo - 1]}`, actual: cum });
     }
     return { data, target: monthlyTarget };
