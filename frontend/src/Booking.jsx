@@ -477,6 +477,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [rentMethod, setRentMethod] = useState("Cash");
   const [rentDate, setRentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rentTime, setRentTime] = useState(() => new Date().toTimeString().slice(0, 5));
+  // Receipt/Reference No. for the rent payment (required unless paying by Cash),
+  // and a transient "balance fully collected" confirmation. Both were part of
+  // the teammate's Collect Rent / Collect Now fix.
+  const [rentReference, setRentReference] = useState("");
+  const [fullyCollectedNotice, setFullyCollectedNotice] = useState(false);
   const returnRef = useRef(null);
 
   if (!booking) return null;
@@ -507,32 +512,32 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
 
-    // Rent at pickup — optional, not a gate. If an amount is entered it's
-    // recorded as a real payment (same shape as Record Payment), appended to
-    // the single `payments` source of truth so Balance Due updates itself.
-    // Overpayment is blocked at entry, exactly like handleRecordPayment.
-    const rentEntered = Number(rentAtPickup) || 0;
-    if (rentEntered < 0) { alert("Rent amount can't be negative"); return; }
-    if (rentEntered > inv.balanceDue) {
-      alert(`Rent exceeds the Balance Due (${fmt(inv.balanceDue)}). Enter ${fmt(inv.balanceDue)} or less.`);
+    // Rent at pickup — optional, not a gate. Clamp to Balance Due (no overpay);
+    // a non-cash payment needs a Receipt/Reference No. It's recorded as a real
+    // payment appended to the single `payments` source of truth so Balance Due
+    // updates itself.
+    const rentAmt = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
+    if (rentAmt > 0 && rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Receipt / Reference No. (required unless payment method is Cash).");
       return;
     }
-    if (rentEntered > 0 && (!rentDate || !rentTime)) { alert("Enter the rent payment date & time"); return; }
+    if (rentAmt > 0 && (!rentDate || !rentTime)) { alert("Enter the rent payment date & time"); return; }
 
+    const rentPaymentEntry = rentAmt > 0
+      ? [{
+          id: `rent-${Date.now()}`,
+          amount: rentAmt,
+          method: rentMethod,
+          reference: rentReference.trim(),
+          addedAt: `${rentDate}T${rentTime}`,
+          by: actor,
+        }]
+      : [];
     const updates = {
       startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
       ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
       history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
     };
-    if (rentEntered > 0) {
-      updates.payments = [...inv.payments, {
-        id: `rent-${Date.now()}`,
-        amount: rentEntered,
-        method: rentMethod,
-        addedAt: `${rentDate}T${rentTime}`,
-        by: actor,
-      }];
-    }
     onUpdateBooking(booking.id, updates);
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
     generateRentalAgreementPdf({ ...booking, ...updates }, car);
@@ -930,6 +935,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             <div style={detailFieldLabelStyle}>Time</div>
                             <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
                           </div>
+                          <div style={{ flex: "1 1 160px" }}>
+                            <div style={detailFieldLabelStyle}>Receipt / Ref No.{rentMethod !== "Cash" ? " *" : ""}</div>
+                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder={rentMethod === "Cash" ? "optional" : "required for non-cash"} style={detailInputStyle} />
+                          </div>
                         </div>
                         {(() => {
                           const entered = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
@@ -942,6 +951,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           );
                         })()}
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank, or collect part now; any remaining balance can be collected later (e.g. at return).</div>
+                        {/* Collect Now — settles the FULL balance immediately without
+                            stepping through the rest of the handover form. */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                          <Btn onClick={handleCollectNow}>Collect Full Balance Now ({fmt(inv.balanceDue)})</Btn>
+                          {fullyCollectedNotice && <span style={{ fontSize: 11.5, fontWeight: 600, color: C.teal }}>✓ Balance fully collected.</span>}
+                        </div>
                       </div>
                     )}
 
@@ -1033,22 +1048,22 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               {/* Payment Summary */}
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Payment Summary</SectionHeading>
+                {/* Teammate's Payment Summary: Security Deposit is folded into the
+                    Grand Total / Balance Due for THIS card only (per product
+                    request). Record Payment, the refund flow and ledgerUtils still
+                    use inv.finalInvoiceTotal/inv.balanceDue, which exclude it. */}
                 {[
-                  { label: "Grand Total", value: inv.finalInvoiceTotal, color: C.navy },
+                  { label: "Security Deposit", value: inv.deposit, color: C.navy },
+                  { label: "Total Rental", value: overviewTotalRental, color: C.navy },
+                  { label: "Grand Total", value: overviewGrandTotal, color: C.navy },
                   { label: "Total Paid", value: inv.totalPaid, color: C.teal },
-                  { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
+                  { label: "Balance Due", value: overviewBalanceDue, color: overviewBalanceColor },
                 ].map(row => (
                   <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
                     <span style={{ color: C.textSec }}>{row.label}</span>
                     <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
                   </div>
                 ))}
-                {/* Kept visually separate — Security Deposit is refundable and
-                    never part of Grand Total / Total Paid / Balance Due. */}
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
-                  <span>Security Deposit (refundable)</span>
-                  <span style={{ textAlign: "right", ...mono }}>{fmt(inv.deposit)}</span>
-                </div>
               </div>
 
               {/* Customer Summary */}

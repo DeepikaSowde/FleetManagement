@@ -365,6 +365,9 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
 
 export default function FleetOpzApp() {
   const [active, setActive] = useState("dashboard");
+  // Optional deep-link target tab for the P&L page (e.g. Dashboard → Vehicle
+  // Performance opens the Utilization tab). Reset to "fleet" once consumed.
+  const [plInitialView, setPlInitialView] = useState("fleet");
   const { isMobile } = useViewport();
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile sidebar drawer
   const [showNewBooking, setShowNewBooking] = useState(false);
@@ -985,7 +988,7 @@ export default function FleetOpzApp() {
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}
         getExpensesByCategory={fleetData.getExpensesByCategory}
         onNewBooking={openNewBookingModal}
-        onNavigate={setActive}
+        onNavigate={(page, view) => { if (page === "pl") setPlInitialView(view || "fleet"); setActive(page); }}
       />
     ),
     fleet: (
@@ -1109,6 +1112,8 @@ export default function FleetOpzApp() {
         calculateMetrics={fleetData.calculateMetrics}
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
+        initialView={plInitialView}
+        onInitialViewConsumed={() => setPlInitialView("fleet")}
       />
     ),
     alerts: (
@@ -2278,10 +2283,11 @@ export default function FleetOpzApp() {
                                           <FieldErr msg={fieldErrors.deductible} />
                                         </div>
                       <div>
-                        <label style={bookingFieldLabelStyle}>Additional Driver Charge</label>
+                        <label style={bookingFieldLabelStyle}>Additional Driver Charge <span style={{ color: C.red }}>*</span></label>
                         <input type="number" min="0" value={newBookingData.additionalDriverCharge}
-                          onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
-                          placeholder="0" style={bookingFieldInputStyle(false)} />
+                          onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("additionalDriverCharge"); setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
+                          placeholder="0" style={bookingFieldInputStyle(false, !!fieldErrors.additionalDriverCharge)} />
+                        <FieldErr msg={fieldErrors.additionalDriverCharge} />
                       </div>
                     )}
                   </div>
