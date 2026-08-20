@@ -1060,7 +1060,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                {[
                                  { label: "Customer Name", value: booking.customer || "—" },
                                  { label: "Driving License No.", value: booking.license || "—" },
-                                 { label: "Phone Number", value: booking.contact || "—" },
+                                 { label: "Phone Number", value: booking.contact ? `${booking.contactCountryCode || "+65"} ${booking.contact}` : "—" },
                                ].map(row => (
                                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
                                    <span style={{ color: C.textMuted }}>{row.label}</span>
