@@ -198,11 +198,10 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   // Step 1 — Purchase & Vehicle Details. COE moved to the Compliance step, so
   // it's no longer required here.
   const canProceedStep0 = car.plate && car.make && car.model && car.year && car.purchase;
-  // Step 2 — Compliance & Validity. Every field here (including COE Expiry) is
-  // OPTIONAL — users can continue without entering an expiry date.
-  // generateTargetOptions falls back to a default horizon when COE is blank, so
-  // nothing on this step blocks proceeding.
-  const canProceedStep1 = true;
+  // Step 2 — Compliance & Validity. COE Expiry is REQUIRED (it also drives the
+  // investment horizon / target-rate math); the other validity dates stay
+  // optional, so only COE gates proceeding from this step.
+  const canProceedStep1 = !!car.coe;
 
   const handleGenerate = () => {
     // theme.js's generateTargetOptions now targets a CAGR per tier (Conservative/
@@ -326,7 +325,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
                 <ComplianceField label="Road Tax Expiry" value={car.roadTaxExpiry} onChange={e => setField("roadTaxExpiry", e.target.value)} />
                 <ComplianceField label="Inspection Due" value={car.inspectionExpiry} onChange={e => setField("inspectionExpiry", e.target.value)} />
               </div>
-              <ComplianceField label="COE Expiry Date (optional)" value={car.coe} onChange={e => setField("coe", e.target.value)} />
+              <ComplianceField label="COE Expiry Date *" value={car.coe} onChange={e => setField("coe", e.target.value)} />
             </div>
           )}
 
