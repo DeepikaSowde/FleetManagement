@@ -238,8 +238,22 @@ const computeBookingInvoice = (b) => {
   // never part of what's "owed" on the rental invoice.
   const balanceDue = Math.max(0, finalInvoiceTotal - totalPaid);
 
+  // Deposit collected so far (partial allowed). Fallback for older bookings:
+  // the depositCollected flag being true → full deposit was taken; else 0.
+  const depositPaid = (b.depositPaid !== undefined && b.depositPaid !== null && String(b.depositPaid).trim() !== "")
+    ? Math.max(0, Math.min(Number(b.depositPaid) || 0, deposit))
+    : (b.depositCollected ? deposit : 0);
+  // "Grand" figures fold the refundable deposit together with the rental, so the
+  // Payment Summary shows one Grand Total / Balance Due covering both:
+  //   Grand Total = deposit + rental,  Paid = deposit paid + rent paid.
+  // (The deposit is still returned at vehicle return via the refund flow.)
+  const grandTotal = deposit + finalInvoiceTotal;
+  const grandTotalPaid = depositPaid + totalPaid;
+  const grandBalanceDue = Math.max(0, grandTotal - grandTotalPaid);
+
   return {
     days, rateCharge, deliveryCharge, collectionCharge, additionalDriverCharge, otherCharges, deposit, vatPct,
+    depositPaid, grandTotal, grandTotalPaid, grandBalanceDue,
     agreementSubtotal, agreementVatAmount, agreementTotal,
     charges, bookingCharges, postCharges,
     taxableChargesTotal, nonTaxableChargesTotal, taxableSubtotal, finalVatAmount, finalInvoiceTotal,
@@ -582,6 +596,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // Balance Due coloring, per spec: green once fully paid, orange while
   // partially paid, red while nothing's been paid against an outstanding balance.
   const balanceColor = inv.balanceDue <= 0 ? C.teal : inv.totalPaid > 0 ? "#d97706" : C.red;
+  // Folded (deposit + rental) balance colour for the Payment Summary cards.
+  const grandBalanceColor = inv.grandBalanceDue <= 0 ? C.teal : inv.grandTotalPaid > 0 ? "#d97706" : C.red;
 
   const handleConfirmReturn = () => {
     if (mileageIn === "" || Number(mileageIn) < 0) {
@@ -690,18 +706,22 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // Opens the refund modal, prefilled to a full refund. Supports full refunds,
   // partial refunds (a deduction for damage/fuel/cleaning), or a full forfeit (0).
   const handleMarkDepositRefunded = () => {
-    setRefundAmount(String(inv.deposit));
+    // Prefill to the amount actually held (what was collected), not the full
+    // deposit — you can only return money you received (partial deposit).
+    setRefundAmount(String(inv.depositPaid));
     setRefundReason("");
     setShowRefund(true);
   };
 
   const handleConfirmRefund = () => {
     const amount = Number(refundAmount);
-    if (refundAmount === "" || isNaN(amount) || amount < 0 || amount > inv.deposit) {
-      alert(`Enter an amount between ${fmt(0)} and ${fmt(inv.deposit)}.`);
+    // Cap the refund at what was actually collected (depositPaid), not the
+    // agreed deposit — returning more than was held would create phantom money.
+    if (refundAmount === "" || isNaN(amount) || amount < 0 || amount > inv.depositPaid) {
+      alert(`Enter an amount between ${fmt(0)} and ${fmt(inv.depositPaid)}.`);
       return;
     }
-    const isPartial = amount < inv.deposit;
+    const isPartial = amount < inv.depositPaid;
     const reason = refundReason.trim();
     // A reduced refund must say why — it's money withheld from the customer, so
     // the reason is required and recorded on the booking + in its history.
@@ -714,7 +734,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       depositRefundedAmount: amount,
       depositRefundedReason: isPartial ? reason : "",
       depositRefundedAt: new Date().toISOString(),
-      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.deposit)}${isPartial ? ` (partial) — ${reason}` : ""}`)),
+      history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.depositPaid)} held${isPartial ? ` (partial) — ${reason}` : ""}`)),
     });
     setShowRefund(false);
   };
@@ -1036,14 +1056,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               {/* Payment Summary */}
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Payment Summary</SectionHeading>
-                {/* Rental only. The Security Deposit is refundable and held
-                    separately — collected at confirmation, returned at vehicle
-                    return — so it is NEVER part of Grand Total / Balance Due.
-                    Shown below with its own status. */}
+                {/* Grand Total folds the refundable deposit together with the
+                    rental: Grand Total = deposit + rental; Paid = deposit paid +
+                    rent paid; Balance = the two combined. The deposit is still
+                    returned at vehicle return (refund flow). */}
                 {[
-                  { label: "Grand Total", value: inv.finalInvoiceTotal, color: C.navy },
-                  { label: "Total Paid", value: inv.totalPaid, color: C.teal },
-                  { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
+                  { label: "Total Rental", value: inv.finalInvoiceTotal, color: C.navy },
+                  { label: "Security Deposit", value: inv.deposit, color: C.navy },
+                  { label: "Grand Total", value: inv.grandTotal, color: C.navy },
+                  { label: "Total Paid", value: inv.grandTotalPaid, color: C.teal },
+                  { label: "Balance Due", value: inv.grandBalanceDue, color: grandBalanceColor },
                 ].map(row => (
                   <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
                     <span style={{ color: C.textSec }}>{row.label}</span>
@@ -1051,11 +1073,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
                 ))}
                 {inv.deposit > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11.5, color: C.textMuted }}>
-                    <span>Security Deposit <span style={{ color: C.textMuted }}>(refundable)</span></span>
-                    <span style={{ textAlign: "right", ...mono }}>
-                      {fmt(inv.deposit)} · {booking.depositRefunded ? "Returned" : booking.depositCollected === false ? "Pending" : "Held"}
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
+                    <span>Deposit {booking.depositRefunded ? "returned" : "held"} (refundable)</span>
+                    <span style={{ textAlign: "right", ...mono }}>{fmt(inv.depositPaid)} of {fmt(inv.deposit)} collected</span>
                   </div>
                 )}
               </div>
@@ -1259,14 +1279,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ ...mono }} title={booking.depositRefundedReason || undefined}>
                         {fmt(inv.deposit)} — {booking.depositRefunded
-                          ? `Returned ${fmt(booking.depositRefundedAmount ?? inv.deposit)}${(booking.depositRefundedAmount ?? inv.deposit) < inv.deposit ? " (partial)" : ""}`
-                          : booking.depositCollected === false
+                          ? `Returned ${fmt(booking.depositRefundedAmount ?? inv.depositPaid)}${(booking.depositRefundedAmount ?? inv.depositPaid) < inv.depositPaid ? " (partial)" : ""}`
+                          : inv.depositPaid <= 0
                             ? "Pending collection"
-                            : "Held"}
+                            : inv.depositPaid < inv.deposit
+                              ? `Held ${fmt(inv.depositPaid)} (partial)`
+                              : "Held"}
                       </span>
-                      {inv.deposit > 0 && !booking.depositRefunded && (
+                      {inv.depositPaid > 0 && !booking.depositRefunded && (
                         <button
-                          onClick={() => { setRefundAmount(String(inv.deposit)); setRefundReason(""); setShowRefund(true); }}
+                          onClick={() => { setRefundAmount(String(inv.depositPaid)); setRefundReason(""); setShowRefund(true); }}
                           style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}
                         >
                           Mark Refunded
@@ -1341,24 +1363,31 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
 
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 14 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: C.textSec }}>
-                      <span>Grand Total</span>
+                      <span>Total Rental</span>
                       <span style={{ textAlign: "right", ...mono }}>{fmt(inv.finalInvoiceTotal)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: C.textSec }}>
+                      <span>Security Deposit</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.deposit)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, fontWeight: 600, color: C.navy, borderTop: `1px dashed ${C.border}`, marginTop: 4, paddingTop: 8 }}>
+                      <span>Grand Total</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.grandTotal)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: C.textSec }}>
                       <span>Total Paid</span>
-                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.totalPaid)}</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.grandTotalPaid)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Balance Due</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: balanceColor, textAlign: "right", ...mono }}>{fmt(inv.balanceDue)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: grandBalanceColor, textAlign: "right", ...mono }}>{fmt(inv.grandBalanceDue)}</span>
                     </div>
-                    {/* Deliberately separated from the Grand Total/Total Paid/Balance
-                        Due block above by its own border — Security Deposit is
-                        refundable, not a rental charge, and never factors into
-                        that math (see computeBookingInvoice). */}
+                    {/* Grand Total already folds the deposit in above. This line
+                        just reminds how much of the refundable deposit has actually
+                        been collected (partial allowed) and whether it's still held. */}
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${C.border}`, fontSize: 11.5, color: C.textMuted }}>
-                      <span>Security Deposit (refundable, held separately)</span>
-                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.deposit)}</span>
+                      <span>Deposit {booking.depositRefunded ? "returned" : "held"} (refundable)</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.depositPaid)} of {fmt(inv.deposit)} collected</span>
                     </div>
                   </div>
 
@@ -1427,27 +1456,27 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           below the deposit held reveals a required "reason" field. */}
       {showRefund && (() => {
         const amount = Number(refundAmount);
-        const validNum = refundAmount !== "" && !isNaN(amount) && amount >= 0 && amount <= inv.deposit;
-        const isPartial = validNum && amount < inv.deposit;
+        const validNum = refundAmount !== "" && !isNaN(amount) && amount >= 0 && amount <= inv.depositPaid;
+        const isPartial = validNum && amount < inv.depositPaid;
         return (
           <>
             <div onClick={() => setShowRefund(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
             <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(440px, 92vw)", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" }}>
               <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Return Security Deposit</div>
-                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Deposit held: <strong style={{ color: C.navy }}>{fmt(inv.deposit)}</strong></div>
+                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Deposit held: <strong style={{ color: C.navy }}>{fmt(inv.depositPaid)}</strong>{inv.depositPaid < inv.deposit ? ` of ${fmt(inv.deposit)} agreed` : ""}</div>
               </div>
               <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
                   <div style={detailFieldLabelStyle}>Amount returning to customer</div>
-                  <input type="number" min="0" max={inv.deposit} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} style={detailInputStyle} autoFocus />
-                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{fmt(inv.deposit)} for a full refund, a lower amount for a partial refund, or 0 to forfeit.</div>
+                  <input type="number" min="0" max={inv.depositPaid} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} style={detailInputStyle} autoFocus />
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{fmt(inv.depositPaid)} for a full refund, a lower amount for a partial refund, or 0 to forfeit.</div>
                 </div>
                 {isPartial && (
                   <div>
                     <div style={detailFieldLabelStyle}>Reason for reduced refund <span style={{ color: C.red }}>*</span></div>
                     <textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} placeholder="e.g., deduction for a scratch on the rear bumper / fuel shortfall / cleaning fee" style={{ ...detailInputStyle, minHeight: 64, resize: "vertical" }} />
-                    <div style={{ fontSize: 11, color: "#d97706", marginTop: 4 }}>Deducting {fmt(inv.deposit - amount)} — a reason is required and recorded in the booking history.</div>
+                    <div style={{ fontSize: 11, color: "#d97706", marginTop: 4 }}>Deducting {fmt(inv.depositPaid - amount)} — a reason is required and recorded in the booking history.</div>
                   </div>
                 )}
               </div>

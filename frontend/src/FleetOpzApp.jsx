@@ -505,6 +505,10 @@ export default function FleetOpzApp() {
     // still be confirmed without it. These are collection metadata only — the
     // deposit figure itself stays on `deductible`.
     depositCollected: true,
+    // Amount of the deposit actually taken now — blank means "the full deposit"
+    // (the common case). A smaller number records a partial deposit (e.g. 100 of
+    // 200 agreed); the remainder shows as still owed in the Grand Total math.
+    depositPaid: "",
     depositCollectedMethod: "Cash",
     depositReference: "",
     depositCollectedDate: new Date().toISOString().slice(0, 10),
@@ -946,6 +950,7 @@ export default function FleetOpzApp() {
       // Deposit collection isn't edited here (Step 4 is read-only while editing);
       // seeded from defaults and excluded from the update in handleSubmitBooking.
       depositCollected: true,
+      depositPaid: booking.depositPaid ?? "",
       depositCollectedMethod: "Cash",
       depositReference: "",
       depositCollectedDate: new Date().toISOString().slice(0, 10),
@@ -1312,11 +1317,19 @@ export default function FleetOpzApp() {
     // — the same separation computeBookingInvoice already enforces.
     const depositAmount = Number(newBookingData.deductible) || 0;
     let depositCollectedAt;
+    // How much of the deposit was actually taken now: blank field → the full
+    // deposit; a number → that amount (clamped to the deposit). 0 / not collected
+    // → nothing held yet. Persisted as depositPaid so the Grand Total math and
+    // the return/refund cap both use what was really received (partial allowed).
+    let depositPaid = 0;
     if (newBookingData.depositCollected && depositAmount > 0) {
       if (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime) {
         alert("Enter the Deposit Date & Time (or untick “Security deposit received”).");
         return;
       }
+      depositPaid = String(newBookingData.depositPaid).trim() === ""
+        ? depositAmount
+        : Math.max(0, Math.min(Number(newBookingData.depositPaid) || 0, depositAmount));
       depositCollectedAt = `${newBookingData.depositCollectedDate}T${newBookingData.depositCollectedTime}`;
     }
     // Built explicitly here, once, as the booking's first Payment History
@@ -1352,7 +1365,7 @@ export default function FleetOpzApp() {
     const createHistory = [auditEntry("created", `${newBookingData.plate} · ${newBookingData.customer || "—"}`)];
     if (depositCollectedAt) {
       createHistory.push({
-        ...auditEntry("deposit_collected", `Deposit ${formatSGD(depositAmount)} · ${newBookingData.depositCollectedMethod}${newBookingData.depositReference ? ` · ${newBookingData.depositReference}` : ""}`),
+        ...auditEntry("deposit_collected", `Deposit ${formatSGD(depositPaid)}${depositPaid < depositAmount ? ` of ${formatSGD(depositAmount)} (partial)` : ""} · ${newBookingData.depositCollectedMethod}${newBookingData.depositReference ? ` · ${newBookingData.depositReference}` : ""}`),
         at: depositCollectedAt,
       });
     }
@@ -1385,8 +1398,10 @@ export default function FleetOpzApp() {
       // so the booking's invoice bills exactly what Pricing & Charges showed.
       rentalAmount: String(bookingRateCharge),
       // Deposit collection metadata (separate from `payments`). depositCollectedAt
-      // is set only when the deposit was actually received at confirmation.
+      // is set only when the deposit was actually received at confirmation;
+      // depositPaid is the amount really held (partial allowed).
       depositCollectedAt,
+      depositPaid: String(depositPaid),
       history: createHistory,
       payments: initialPayments,
     });
@@ -2407,6 +2422,33 @@ export default function FleetOpzApp() {
 
                       {newBookingData.depositCollected ? (
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <label style={bookingFieldLabelStyle}>Amount Collected Now</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max={bookingDeductible || undefined}
+                              value={newBookingData.depositPaid}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v !== "" && Number(v) < 0) return;
+                                // Cap at the agreed deposit — you can't collect more than the deposit.
+                                const capped = v !== "" && bookingDeductible > 0 ? String(Math.min(Number(v), bookingDeductible)) : v;
+                                setNewBookingData({ ...newBookingData, depositPaid: capped });
+                              }}
+                              placeholder={`Full deposit (${formatSGD(bookingDeductible)})`}
+                              style={bookingFieldInputStyle(false)}
+                            />
+                            <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
+                              {(() => {
+                                const paidNow = String(newBookingData.depositPaid).trim() === "" ? bookingDeductible : Math.min(Number(newBookingData.depositPaid) || 0, bookingDeductible);
+                                const remaining = bookingDeductible - paidNow;
+                                return remaining > 0
+                                  ? `Partial deposit — ${formatSGD(remaining)} still owed (folds into Balance Due). Leave blank to collect the full ${formatSGD(bookingDeductible)}.`
+                                  : `Full deposit. Leave blank for the full amount, or enter less to collect a partial deposit now.`;
+                              })()}
+                            </div>
+                          </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>Deposit Method</label>
                             <select
