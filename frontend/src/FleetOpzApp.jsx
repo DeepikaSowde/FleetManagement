@@ -53,9 +53,9 @@ const FieldErr = ({ msg }) =>
 // fixed local prefix shown ahead of the editable digits and baked into the
 // stored value — Singapore's legacy format is "65" + 6 digits (8 total),
 // matching how Additional Driver contact numbers are already validated
-// elsewhere in this form (isValidContactNumber's /^65\d{6}$/).
+// elsewhere in this form (isValidContactNumber's /^65\d{8}$/).
 const CONTACT_COUNTRY_CODES = [
-  { code: "+65", country: "Singapore", flag: "🇸🇬", prefix: "65", digits: 6 },
+  { code: "+65", country: "Singapore", flag: "🇸🇬", prefix: "65", digits: 8 },
   { code: "+91", country: "India", flag: "🇮🇳", digits: 10 },
   { code: "+1", country: "US / Canada", flag: "🇺🇸", digits: 10 },
   { code: "+44", country: "United Kingdom", flag: "🇬🇧", digits: 10 },
@@ -581,7 +581,9 @@ export default function FleetOpzApp() {
   // otherwise fall back to Singapore with the raw digits as typed.
   const splitLegacyContact = (raw) => {
     const digits = (raw || "").replace(/\D/g, "");
-    if (digits.length === 8 && digits.startsWith("65")) {
+    // Strip a leading "65" country code when what's left is a full 8-digit
+    // Singapore number (stored as "65XXXXXXXX" = 10 digits).
+    if (digits.length === 10 && digits.startsWith("65")) {
       return { contactCountryCode: "+65", contact: digits.slice(2) };
     }
     return { contactCountryCode: "+65", contact: digits };
@@ -1232,8 +1234,8 @@ export default function FleetOpzApp() {
   const DRIVING_LICENSE_FORMAT_ERROR = "Enter a valid Driving License Number ";
 
   // Booking contact number: exactly 8 digits, starting with "65".
-  const isValidContactNumber = (v) => /^65\d{6}$/.test(v);
-  const CONTACT_ERROR_MSG = "Contact number must be 8 digits and start with 65";
+  const isValidContactNumber = (v) => /^65\d{8}$/.test(v);
+  const CONTACT_ERROR_MSG = "Contact number must be the 65 country code followed by 8 digits (e.g. 6598765432)";
 
   // Booking/Return now capture date + time (datetime-local, e.g.
   // "2026-07-21T14:30"), so format them for anything shown back to the user.
@@ -2168,7 +2170,7 @@ export default function FleetOpzApp() {
                                 ...newBookingData,
                                 additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contact: e.target.value } : d),
                               })}
-                              placeholder=" 65012345"
+                              placeholder=" 6598765432"
                               style={bookingFieldInputStyle(false, !!(driver.contact.trim() && !isValidContactNumber(driver.contact)))}
                             />
                             {driver.contact.trim() && !isValidContactNumber(driver.contact) && (
