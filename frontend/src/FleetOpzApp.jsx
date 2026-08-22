@@ -164,7 +164,45 @@ const TimeInput12h = ({ value, onChange, style }) => {
 //   it are disabled, and every day from minDate through the clicked day must
 //   be Available for the click to be accepted (a real bookable range can't
 //   cross an On Rental/Maintenance day).
-const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSelect, onClear }) => {
+// "2026-08-23" → { day: "23", mon: "Aug'26", weekday: "Sunday" } for the
+// MakeMyTrip-style pickup/return summary cards above the calendars.
+const formatTravelDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return null;
+  return {
+    day: String(d.getDate()),
+    mon: `${d.toLocaleDateString(undefined, { month: "short" })}'${String(d.getFullYear()).slice(2)}`,
+    weekday: d.toLocaleDateString(undefined, { weekday: "long" }),
+  };
+};
+
+// A single MakeMyTrip-style date card: small caption on top, big day + month,
+// weekday underneath. Shows a muted placeholder until a date is chosen.
+const TravelDateCard = ({ caption, iso }) => {
+  const f = formatTravelDate(iso);
+  return (
+    <div style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 16px", background: C.surface, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{caption}</div>
+      {f ? (
+        <>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={{ fontSize: 26, fontWeight: 800, color: C.navy, lineHeight: 1 }}>{f.day}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{f.mon}</span>
+          </div>
+          <div style={{ fontSize: 12, color: C.textSec, marginTop: 3 }}>{f.weekday}</div>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 20, fontWeight: 700, color: C.textMuted, lineHeight: 1.3 }}>— —</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginTop: 3 }}>Select a date</div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSelect, onClear, rangeStart, rangeEnd }) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const initial = selectedDate ? new Date(selectedDate + "T00:00:00")
@@ -266,47 +304,27 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
   };
 
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", marginTop: 4, marginBottom: 4, background: C.surface, maxWidth: 250 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: C.textSec, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</div>
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", marginTop: 4, marginBottom: 4, background: C.surface, boxShadow: "0 2px 10px rgba(15,23,42,0.05)" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
 
-      {/* Header: month/year + up/down nav */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <div style={{ fontSize: 11.5, fontWeight: 700, color: C.navy }}>{monthLabel}</div>
-        <div style={{ display: "flex", gap: 2 }}>
-          <button type="button" disabled={!canGoPrev} onClick={goPrev}
-            style={{ background: "none", border: "none", cursor: canGoPrev ? "pointer" : "default", opacity: canGoPrev ? 1 : 0.3, fontSize: 11, color: C.navy, padding: 2 }}>↑</button>
-          <button type="button" onClick={goNext}
-            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.navy, padding: 2 }}>↓</button>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-        {["Available", "On Rental"].map(s => (
-          <div key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: CALENDAR_STATUS_BG[s], border: `1px solid ${CALENDAR_STATUS_TEXT[s]}22`, display: "inline-block" }} />
-            {s}
-          </div>
-        ))}
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
-          Available after return time
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.teal, display: "inline-block" }} />
-          Available until next pickup
-        </div>
+      {/* Header: month/year + ‹ › chevron nav (MakeMyTrip style) */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <button type="button" disabled={!canGoPrev} onClick={goPrev} aria-label="Previous month"
+          style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: C.bg, border: `1px solid ${C.border}`, cursor: canGoPrev ? "pointer" : "default", opacity: canGoPrev ? 1 : 0.3, fontSize: 15, lineHeight: 1, color: C.navy, fontWeight: 700 }}>‹</button>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{monthLabel}</div>
+        <button type="button" onClick={goNext} aria-label="Next month"
+          style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: C.bg, border: `1px solid ${C.border}`, cursor: "pointer", fontSize: 15, lineHeight: 1, color: C.navy, fontWeight: 700 }}>›</button>
       </div>
 
       {/* Weekday header */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 2 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 4 }}>
         {CALENDAR_WEEKDAYS.map((w, i) => (
-          <div key={i} style={{ textAlign: "center", fontSize: 9, fontWeight: 600, color: C.textMuted, padding: "1px 0" }}>{w}</div>
+          <div key={i} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: C.textMuted, padding: "2px 0" }}>{w}</div>
         ))}
       </div>
 
       {/* Day grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px 0" }}>
         {cells.map((day, i) => {
           if (day === null) return <div key={`b${i}`} />;
           const d = new Date(viewYear, viewMonth, day);
@@ -315,64 +333,102 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
           const isSelected = iso === selectedDate;
           const isToday = iso === toISODate(today);
           const belowMin = isBeforeMin(d);
+          // Endpoints of the chosen pickup→return range (shown in BOTH calendars
+          // so the range reads consistently); inRange = the nights strictly
+          // between them, shaded as a connected band like MakeMyTrip.
+          const isEndpoint = (rangeStart && iso === rangeStart) || (rangeEnd && iso === rangeEnd);
+          const inRange = rangeStart && rangeEnd && iso > rangeStart && iso < rangeEnd;
+          const isRangeLeft = rangeStart && iso === rangeStart && rangeEnd;
+          const isRangeRight = rangeEnd && iso === rangeEnd && rangeStart;
           // Return calendar (minDate set): any day from minDate onward is
           // clickable — handleDayClick validates the whole range. Pickup
           // calendar (no minDate): Available days, plus past days (backdated
           // bookings) whose real overlap is caught by the conflict check.
           const clickable = minDate ? !belowMin : (isAvailableDay(d) || isPast(d));
-          const dimmed = !clickable && !isSelected;
+          const dimmed = !clickable && !isSelected && !isEndpoint;
           const af = availableFromByDate[iso];  // turnover: car returns from a prior booking this day, free after
           const au = availableUntilByDate[iso]; // turnover: a different booking picks up this day, free until then
           const titleParts = [];
           if (af) titleParts.push(`Available from ${fmtTime(af)} — car returns this day`);
           if (au) titleParts.push(`Available until ${fmtTime(au)} — next pickup this day`);
+          // Pill fill: endpoints solid teal; nights in between get a pale band.
+          const cellBg = isEndpoint ? C.teal : inRange ? C.tealFaint : status !== "Past" ? CALENDAR_STATUS_BG[status] : "transparent";
+          const cellColor = isEndpoint ? "#fff" : status === "Past" ? C.textMuted : CALENDAR_STATUS_TEXT[status];
+          // Connect the band to the endpoints by squaring the inner corners.
+          const radius = inRange ? 0
+            : isRangeLeft ? "18px 0 0 18px"
+            : isRangeRight ? "0 18px 18px 0"
+            : isEndpoint ? 18 : 9;
           return (
-            <button
-              type="button"
-              key={iso}
-              disabled={!clickable && !isSelected}
-              onClick={() => handleDayClick(day)}
-              title={titleParts.length ? titleParts.join(" · ") : status}
-              style={{
-                position: "relative",
-                padding: "4px 0", fontSize: 10.5, borderRadius: 4,
-                border: isSelected ? `2px solid ${C.navy}` : isToday ? `1px solid ${C.navy}` : "1px solid transparent",
-                fontFamily: "inherit", cursor: clickable ? "pointer" : "default", boxSizing: "border-box",
-                background: status !== "Past" ? CALENDAR_STATUS_BG[status] : "transparent",
-                color: status === "Past" ? C.textMuted : CALENDAR_STATUS_TEXT[status],
-                fontWeight: isSelected ? 700 : 500,
-                opacity: dimmed ? 0.4 : 1,
-              }}
-            >
-              {day}
-              {af && <span style={{ position: "absolute", top: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: C.amber }} />}
-              {au && <span style={{ position: "absolute", bottom: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: C.teal }} />}
-            </button>
+            <div key={iso} style={{ background: inRange || isRangeLeft || isRangeRight ? C.tealFaint : "transparent", padding: "2px 0", display: "flex", justifyContent: "center" }}>
+              <button
+                type="button"
+                disabled={!clickable && !isSelected && !isEndpoint}
+                onClick={() => handleDayClick(day)}
+                title={titleParts.length ? titleParts.join(" · ") : status}
+                style={{
+                  position: "relative",
+                  width: "100%", height: 34, fontSize: 12.5, borderRadius: radius,
+                  border: isToday && !isEndpoint ? `1.5px solid ${C.teal}` : "1.5px solid transparent",
+                  fontFamily: "inherit", cursor: clickable ? "pointer" : "default", boxSizing: "border-box",
+                  background: cellBg,
+                  color: cellColor,
+                  fontWeight: isEndpoint ? 700 : 500,
+                  opacity: dimmed ? 0.35 : 1,
+                  boxShadow: isEndpoint ? "0 2px 6px rgba(41,106,99,0.35)" : "none",
+                  transition: "background 0.12s",
+                }}
+              >
+                {day}
+                {af && !isEndpoint && <span style={{ position: "absolute", top: 3, right: 3, width: 5, height: 5, borderRadius: "50%", background: C.amber }} />}
+                {au && !isEndpoint && <span style={{ position: "absolute", bottom: 3, right: 3, width: 5, height: 5, borderRadius: "50%", background: C.teal }} />}
+              </button>
+            </div>
           );
         })}
       </div>
 
-      {dayError && <div style={{ fontSize: 10, color: C.red, marginTop: 6 }}>{dayError}</div>}
+      {/* Legend — kept for the availability meaning, condensed */}
+      <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+        {["Available", "On Rental"].map(s => (
+          <div key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: CALENDAR_STATUS_BG[s], border: `1px solid ${CALENDAR_STATUS_TEXT[s]}22`, display: "inline-block" }} />
+            {s}
+          </div>
+        ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, display: "inline-block" }} />
+          Free after return time
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.textSec }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.teal, display: "inline-block" }} />
+          Free until next pickup
+        </div>
+      </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-        <div style={{ fontSize: 10, color: C.textMuted }}>
+      {dayError && <div style={{ fontSize: 10.5, color: C.red, marginTop: 8 }}>{dayError}</div>}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 10.5, color: C.textMuted }}>
           {selectedDate ? (
             <>
-              Selected: <strong style={{ color: C.navy }}>{selectedDate}</strong>
               {availableFromByDate[selectedDate] && (
-                <span style={{ color: C.amber, fontWeight: 700 }}> · available from {fmtTime(availableFromByDate[selectedDate])}</span>
+                <span style={{ color: C.amber, fontWeight: 700 }}>Available from {fmtTime(availableFromByDate[selectedDate])}</span>
               )}
               {availableUntilByDate[selectedDate] && (
-                <span style={{ color: C.teal, fontWeight: 700 }}> · available until {fmtTime(availableUntilByDate[selectedDate])}</span>
+                <span style={{ color: C.teal, fontWeight: 700 }}>{availableFromByDate[selectedDate] ? " · " : ""}Available until {fmtTime(availableUntilByDate[selectedDate])}</span>
+              )}
+              {!availableFromByDate[selectedDate] && !availableUntilByDate[selectedDate] && (
+                <span>Selected: <strong style={{ color: C.navy }}>{selectedDate}</strong></span>
               )}
             </>
           ) : "No date selected"}
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 12 }}>
           <button type="button" onClick={() => { onClear(); setDayError(""); }}
-            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10.5, fontWeight: 600, color: C.teal, padding: 0 }}>Clear</button>
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: C.teal, padding: 0 }}>Clear</button>
           <button type="button" onClick={goToday}
-            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10.5, fontWeight: 600, color: C.teal, padding: 0 }}>Today</button>
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: C.teal, padding: 0 }}>Today</button>
         </div>
       </div>
     </div>
@@ -1940,12 +1996,32 @@ export default function FleetOpzApp() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, margin: "18px 0 14px" }}>📅 Rental Period</div>
 
                   {newBookingData.plate ? (
+                    <>
+                    {/* MakeMyTrip-style summary cards: chosen pickup / return with
+                        a nights chip between them. */}
+                    <div style={{ display: "flex", alignItems: "stretch", gap: 10, marginBottom: 14 }}>
+                      <TravelDateCard caption="Pickup" iso={newBookingData.pickupDate} />
+                      {(() => {
+                        const p = newBookingData.pickupDate, r = newBookingData.returnDate;
+                        const nights = p && r ? Math.max(0, Math.round((new Date(r + "T00:00:00") - new Date(p + "T00:00:00")) / 86400000)) : null;
+                        return (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 4px", minWidth: 56 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: nights != null ? C.teal : C.textMuted, background: nights != null ? C.tealFaint : "transparent", borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                              {nights != null ? `${nights} night${nights === 1 ? "" : "s"}` : "→"}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <TravelDateCard caption="Return" iso={newBookingData.returnDate} />
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                       <SingleDateCalendar
                         label="Pickup Date"
                         car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
                         bookings={calendarBookings}
                         selectedDate={newBookingData.pickupDate}
+                        rangeStart={newBookingData.pickupDate}
+                        rangeEnd={newBookingData.returnDate}
                         onSelect={(iso, availableFrom) => {
                           setNewBookingData(prev => {
                             // If the existing return date is now before the new
@@ -1978,6 +2054,8 @@ export default function FleetOpzApp() {
                         bookings={calendarBookings}
                         selectedDate={newBookingData.returnDate}
                         minDate={newBookingData.pickupDate}
+                        rangeStart={newBookingData.pickupDate}
+                        rangeEnd={newBookingData.returnDate}
                         onSelect={(iso) => {
                           setNewBookingData(prev => ({
                             ...prev,
@@ -1990,6 +2068,7 @@ export default function FleetOpzApp() {
                         }}
                       />
                     </div>
+                    </>
                   ) : (
                     <div style={{ fontSize: 12, color: C.textMuted, padding: "10px 0" }}>Select a car above to see its availability and pick rental dates.</div>
                   )}
