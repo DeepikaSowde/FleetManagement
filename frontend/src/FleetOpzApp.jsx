@@ -590,7 +590,11 @@ export default function FleetOpzApp() {
   const handleICInputChange = (e) => {
     let v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (v.length > 15) v = v.slice(0, 15);
-    setNewBookingData(prev => ({ ...prev, ic: v }));
+    // IC Number and Driving License Number are the same value, so mirror the IC
+    // straight into the license field as it's typed. The license field stays
+    // editable in case a record ever needs to differ, but by default they match.
+    clearFieldError("license");
+    setNewBookingData(prev => ({ ...prev, ic: v, license: v }));
   };
 
   // IC Number → check booking history for an existing customer once the
@@ -620,7 +624,9 @@ export default function FleetOpzApp() {
           customer: prev.customer || cust?.name || bookingMatch?.customer || "",
           ...splitLegacyContact(cust?.contact ?? bookingMatch?.contact ?? ""),
           passport: bookingMatch?.passport ?? prev.passport ?? "",
-          license: cust?.license ?? bookingMatch?.license ?? "",
+          // Fall back to the IC when the matched record has no stored license —
+          // they're the same number (see handleICInputChange).
+          license: cust?.license ?? bookingMatch?.license ?? prev.ic ?? "",
           licenseExpiry: bookingMatch?.licenseExpiry ?? prev.licenseExpiry ?? "",
           address: cust?.address ?? bookingMatch?.address ?? "",
           customerType: cust?.customerType ?? prev.customerType,
@@ -629,7 +635,9 @@ export default function FleetOpzApp() {
         };
       }
       if (matchedCustomer) {
-        return { ...prev, contact: "", contactCountryCode: "+65", passport: "", license: "", licenseExpiry: "", address: "", customerType: "Local", age: "", drivingExperience: "" };
+        // Clearing a stale match, but keep license mirrored to the current IC
+        // (they're the same number) rather than blanking it.
+        return { ...prev, contact: "", contactCountryCode: "+65", passport: "", license: prev.ic || "", licenseExpiry: "", address: "", customerType: "Local", age: "", drivingExperience: "" };
       }
       return prev;
     });
