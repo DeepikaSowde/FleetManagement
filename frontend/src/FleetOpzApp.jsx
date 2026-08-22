@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
@@ -179,10 +179,11 @@ const formatTravelDate = (iso) => {
 
 // A single MakeMyTrip-style date card: small caption on top, big day + month,
 // weekday underneath. Shows a muted placeholder until a date is chosen.
-const TravelDateCard = ({ caption, iso }) => {
+const TravelDateCard = ({ caption, iso, active, onClick }) => {
   const f = formatTravelDate(iso);
   return (
-    <div style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 16px", background: C.surface, minWidth: 0 }}>
+    <div onClick={onClick} role="button" tabIndex={0}
+      style={{ flex: 1, border: `1.5px solid ${active ? C.teal : C.border}`, borderRadius: 12, padding: "12px 16px", background: active ? C.tealFaint : C.surface, minWidth: 0, cursor: "pointer", transition: "border-color 0.12s, background 0.12s", boxShadow: active ? `0 0 0 3px ${C.teal}22` : "none" }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{caption}</div>
       {f ? (
         <>
@@ -609,6 +610,20 @@ export default function FleetOpzApp() {
   // reorganized fields). Reset to 1 whenever the modal is opened or closed
   // so it never reopens mid-wizard.
   const [bookingStep, setBookingStep] = useState(1);
+  // Which Rental Period calendar popover is open ("pickup" | "return" | null).
+  // The calendars are shown as dropdowns under the summary cards so the wizard
+  // doesn't need to scroll; opened by clicking a card, closed on select/outside.
+  const [openCalendar, setOpenCalendar] = useState(null);
+  // Close the open date popover when clicking anywhere outside the cards/popover.
+  const calendarWrapRef = useRef(null);
+  useEffect(() => {
+    if (!openCalendar) return;
+    const onDown = (e) => {
+      if (calendarWrapRef.current && !calendarWrapRef.current.contains(e.target)) setOpenCalendar(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [openCalendar]);
   const BOOKING_STEP_COUNT = 5;
   const BOOKING_STEP_LABELS = ["Customer Details", "Booking Details", "Pricing & Charges", "Payment", "Review & Confirm"];
 
@@ -1996,11 +2011,13 @@ export default function FleetOpzApp() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, margin: "18px 0 14px" }}>📅 Rental Period</div>
 
                   {newBookingData.plate ? (
-                    <>
-                    {/* MakeMyTrip-style summary cards: chosen pickup / return with
-                        a nights chip between them. */}
-                    <div style={{ display: "flex", alignItems: "stretch", gap: 10, marginBottom: 14 }}>
-                      <TravelDateCard caption="Pickup" iso={newBookingData.pickupDate} />
+                    <div ref={calendarWrapRef} style={{ position: "relative" }}>
+                    {/* MakeMyTrip-style summary cards: click a card to open its
+                        calendar as a dropdown (no scrolling); nights chip between. */}
+                    <div style={{ display: "flex", alignItems: "stretch", gap: 10 }}>
+                      <TravelDateCard caption="Pickup" iso={newBookingData.pickupDate}
+                        active={openCalendar === "pickup"}
+                        onClick={() => setOpenCalendar(openCalendar === "pickup" ? null : "pickup")} />
                       {(() => {
                         const p = newBookingData.pickupDate, r = newBookingData.returnDate;
                         const nights = p && r ? Math.max(0, Math.round((new Date(r + "T00:00:00") - new Date(p + "T00:00:00")) / 86400000)) : null;
@@ -2012,63 +2029,78 @@ export default function FleetOpzApp() {
                           </div>
                         );
                       })()}
-                      <TravelDateCard caption="Return" iso={newBookingData.returnDate} />
+                      <TravelDateCard caption="Return" iso={newBookingData.returnDate}
+                        active={openCalendar === "return"}
+                        onClick={() => setOpenCalendar(openCalendar === "return" ? null : "return")} />
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <SingleDateCalendar
-                        label="Pickup Date"
-                        car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
-                        bookings={calendarBookings}
-                        selectedDate={newBookingData.pickupDate}
-                        rangeStart={newBookingData.pickupDate}
-                        rangeEnd={newBookingData.returnDate}
-                        onSelect={(iso, availableFrom) => {
-                          setNewBookingData(prev => {
-                            // If the existing return date is now before the new
-                            // pickup date, clear it — it's no longer valid.
-                            const returnDate = prev.returnDate && prev.returnDate < iso ? "" : prev.returnDate;
-                            // On a turnover pickup day the car only frees up at
-                            // availableFrom (e.g. 10:00) — default the pickup time
-                            // to that so the booking doesn't overlap the returning
-                            // rental. Leave a time the user already set that's at
-                            // or after the return time untouched.
-                            let pickupTime = prev.pickupTime;
-                            if (availableFrom && (!pickupTime || pickupTime < availableFrom)) pickupTime = availableFrom;
-                            return {
-                              ...prev,
-                              pickupDate: iso,
-                              returnDate,
-                              pickupTime,
-                              start: combineDateTime(iso, pickupTime),
-                              end: combineDateTime(returnDate, prev.returnTime),
-                            };
-                          });
-                        }}
-                        onClear={() => {
-                          setNewBookingData(prev => ({ ...prev, pickupDate: "", returnDate: "", start: "", end: "" }));
-                        }}
-                      />
-                      <SingleDateCalendar
-                        label="Return Date"
-                        car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
-                        bookings={calendarBookings}
-                        selectedDate={newBookingData.returnDate}
-                        minDate={newBookingData.pickupDate}
-                        rangeStart={newBookingData.pickupDate}
-                        rangeEnd={newBookingData.returnDate}
-                        onSelect={(iso) => {
-                          setNewBookingData(prev => ({
-                            ...prev,
-                            returnDate: iso,
-                            end: combineDateTime(iso, prev.returnTime),
-                          }));
-                        }}
-                        onClear={() => {
-                          setNewBookingData(prev => ({ ...prev, returnDate: "", end: "" }));
-                        }}
-                      />
+
+                    {/* Calendar popover — only the clicked card's calendar shows,
+                        as a dropdown that closes on select or outside click. */}
+                    {openCalendar && (
+                      <div style={{ position: "absolute", top: "100%", marginTop: 8, zIndex: 50, width: "min(360px, 100%)", ...(openCalendar === "return" ? { right: 0 } : { left: 0 }) }}>
+                        {openCalendar === "pickup" ? (
+                          <SingleDateCalendar
+                            label="Pickup Date"
+                            car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
+                            bookings={calendarBookings}
+                            selectedDate={newBookingData.pickupDate}
+                            rangeStart={newBookingData.pickupDate}
+                            rangeEnd={newBookingData.returnDate}
+                            onSelect={(iso, availableFrom) => {
+                              setNewBookingData(prev => {
+                                // If the existing return date is now before the new
+                                // pickup date, clear it — it's no longer valid.
+                                const returnDate = prev.returnDate && prev.returnDate < iso ? "" : prev.returnDate;
+                                // On a turnover pickup day the car only frees up at
+                                // availableFrom (e.g. 10:00) — default the pickup time
+                                // to that so the booking doesn't overlap the returning
+                                // rental. Leave a time the user already set that's at
+                                // or after the return time untouched.
+                                let pickupTime = prev.pickupTime;
+                                if (availableFrom && (!pickupTime || pickupTime < availableFrom)) pickupTime = availableFrom;
+                                return {
+                                  ...prev,
+                                  pickupDate: iso,
+                                  returnDate,
+                                  pickupTime,
+                                  start: combineDateTime(iso, pickupTime),
+                                  end: combineDateTime(returnDate, prev.returnTime),
+                                };
+                              });
+                              // If a valid return date remains, close; otherwise jump
+                              // straight to the return calendar (MakeMyTrip flow).
+                              const keepsReturn = newBookingData.returnDate && !(newBookingData.returnDate < iso);
+                              setOpenCalendar(keepsReturn ? null : "return");
+                            }}
+                            onClear={() => {
+                              setNewBookingData(prev => ({ ...prev, pickupDate: "", returnDate: "", start: "", end: "" }));
+                            }}
+                          />
+                        ) : (
+                          <SingleDateCalendar
+                            label="Return Date"
+                            car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
+                            bookings={calendarBookings}
+                            selectedDate={newBookingData.returnDate}
+                            minDate={newBookingData.pickupDate}
+                            rangeStart={newBookingData.pickupDate}
+                            rangeEnd={newBookingData.returnDate}
+                            onSelect={(iso) => {
+                              setNewBookingData(prev => ({
+                                ...prev,
+                                returnDate: iso,
+                                end: combineDateTime(iso, prev.returnTime),
+                              }));
+                              setOpenCalendar(null);
+                            }}
+                            onClear={() => {
+                              setNewBookingData(prev => ({ ...prev, returnDate: "", end: "" }));
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
                     </div>
-                    </>
                   ) : (
                     <div style={{ fontSize: 12, color: C.textMuted, padding: "10px 0" }}>Select a car above to see its availability and pick rental dates.</div>
                   )}
