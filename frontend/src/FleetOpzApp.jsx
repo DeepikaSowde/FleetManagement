@@ -809,10 +809,12 @@ export default function FleetOpzApp() {
   // with everything else, and so it's still visible if it ever does fire.
   const validateStep3 = () => {
     const errors = {};
-    // Security Deposit is mandatory — staff must enter an amount (0 counts as
-    // a deliberate "no deposit" choice; blank does not) before moving on.
+    // Security Deposit is mandatory and must be greater than zero — every
+    // booking has to collect a refundable deposit.
     if (!editingBookingId && newBookingData.deductible === "") {
-      errors.deductible = "Security Deposit is required. Enter an amount (0 if no deposit is being collected).";
+      errors.deductible = "Security Deposit is required. Enter an amount greater than 0.";
+    } else if (!editingBookingId && Number(newBookingData.deductible) <= 0) {
+      errors.deductible = "Security Deposit must be greater than 0.";
     } else if (!editingBookingId && Number(newBookingData.deductible) > bookingRateCharge) {
       errors.deductible = `Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`;
     }
@@ -2423,7 +2425,7 @@ export default function FleetOpzApp() {
                                             // regardless of how Rate Charge moves (e.g. on extension).
                                             <input type="text" readOnly value={formatSGD(Number(newBookingData.deductible) || 0)} style={bookingFieldInputStyle(true)} />
                                           ) : (
-                                            <input type="number" min="0" max={bookingRateCharge || undefined} value={newBookingData.deductible}
+                                            <input type="number" min="1" max={bookingRateCharge || undefined} value={newBookingData.deductible}
                                               onChange={(e) => {
                                                 const v = e.target.value;
                                                 if (v === "") { clearFieldError("deductible"); setNewBookingData({ ...newBookingData, deductible: v }); return; }
@@ -2435,7 +2437,7 @@ export default function FleetOpzApp() {
                                                 clearFieldError("deductible");
                                                 setNewBookingData({ ...newBookingData, deductible: String(capped) });
                                               }}
-                                              placeholder="0" style={bookingFieldInputStyle(false, !!fieldErrors.deductible)} />
+                                              placeholder="e.g. 200" style={bookingFieldInputStyle(false, !!fieldErrors.deductible)} />
                                           )}
                                           {editingBookingId ? (
                                             <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
