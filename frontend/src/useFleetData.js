@@ -662,6 +662,17 @@ export const useFleetData = () => {
   // Every mutation follows the same pattern: update local state immediately
   // (optimistic — the UI feels instant), then persist to the backend; if the
   // write fails, onWriteError reloads authoritative state from the server.
+  // A car's all-in acquisition cost — what it cost to put the vehicle on the
+  // road. Recorded once as a single "Vehicle Purchase" expense per car so the
+  // Expenses/P&L totals reflect the capital deployed on the fleet.
+  const acquisitionCost = (c) =>
+    (parseFloat(c.purchase) || 0) + (parseFloat(c.insurance) || 0) +
+    (parseFloat(c.reg) || 0) + (parseFloat(c.otherCharges ?? c.other_charges) || 0);
+  // The auto-created purchase expense for a plate (matched by plate + category
+  // so it survives a reload — no extra column needed).
+  const findPurchaseExpense = (plate) =>
+    expenses.find(e => e.plate === plate && e.category === "Vehicle Purchase");
+
   const addFleet = (car) => {
     const newCar = {
       ...car,
@@ -673,16 +684,53 @@ export const useFleetData = () => {
     };
     setFleet(prev => [...prev, newCar]);
     api.post("/fleet", newCar).catch(onWriteError);
+    // Auto-post the acquisition cost as a "Vehicle Purchase" expense.
+    const amount = acquisitionCost(newCar);
+    if (amount > 0) {
+      addExpense({
+        plate: newCar.plate,
+        date: newCar.purchaseDate || new Date().toISOString().slice(0, 10),
+        category: "Vehicle Purchase",
+        desc: `${newCar.make || ""} ${newCar.model || ""}`.trim() || "Vehicle acquisition",
+        amount,
+        receipt: false,
+      });
+    }
   };
 
   const updateFleet = (plate, updates) => {
     setFleet(prev => prev.map(c => c.plate === plate ? { ...c, ...updates } : c));
     api.put(`/fleet/${encodeURIComponent(plate)}`, updates).catch(onWriteError);
+    // Keep the auto "Vehicle Purchase" expense in sync when any cost field moves.
+    const costChanged = ["purchase", "insurance", "reg", "otherCharges"].some(f => f in updates);
+    if (costChanged || "purchaseDate" in updates) {
+      const car = fleet.find(c => c.plate === plate);
+      const merged = { ...car, ...updates };
+      const exp = findPurchaseExpense(plate);
+      const nextAmount = acquisitionCost(merged);
+      if (exp) {
+        updateExpense(exp.id, {
+          amount: nextAmount,
+          ...(("purchaseDate" in updates) && merged.purchaseDate ? { date: merged.purchaseDate } : {}),
+        });
+      } else if (nextAmount > 0) {
+        // Older car with no purchase expense yet — create it now.
+        addExpense({
+          plate, date: merged.purchaseDate || new Date().toISOString().slice(0, 10),
+          category: "Vehicle Purchase",
+          desc: `${merged.make || ""} ${merged.model || ""}`.trim() || "Vehicle acquisition",
+          amount: nextAmount, receipt: false,
+        });
+      }
+    }
   };
 
   const deleteFleet = (plate) => {
     setFleet(prev => prev.filter(c => c.plate !== plate));
     api.del(`/fleet/${encodeURIComponent(plate)}`).catch(onWriteError);
+    // Remove the auto-created purchase expense alongside the car.
+    const exp = findPurchaseExpense(plate);
+    if (exp) deleteExpense(exp.id);
   };
 
   // Exposed to the booking form so it can block double-bookings before
