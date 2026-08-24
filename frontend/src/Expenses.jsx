@@ -105,13 +105,14 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
   const acquisition = useMemo(() => {
     const num = (v) => Number(v) || 0;
     const rows = fleet.map((c) => {
-      const purchase = num(c.purchase), insurance = num(c.insurance),
+      const purchase = num(c.purchase), advance = num(c.purchaseAdvance ?? c.purchase_advance),
+        insurance = num(c.insurance),
         reg = num(c.reg), other = num(c.otherCharges ?? c.other_charges);
       return {
         plate: c.plate,
         name: `${c.make || ""} ${c.model || ""}`.trim() || c.plate,
-        purchase, insurance, reg, other,
-        total: purchase + insurance + reg + other,
+        purchase, advance, insurance, reg, other,
+        total: purchase + advance + insurance + reg + other,
       };
     }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
     const totalInvested = rows.reduce((s, r) => s + r.total, 0);
@@ -387,6 +388,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                         {/* breakdown */}
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", fontSize: 10, color: C.textMuted, marginTop: 2 }}>
                           <span>Purchase <strong style={{ color: C.textSec }}>{fmt(r.purchase)}</strong></span>
+                          {r.advance > 0 && <span>Advance <strong style={{ color: C.textSec }}>{fmt(r.advance)}</strong></span>}
                           {r.insurance > 0 && <span>Ins <strong style={{ color: C.textSec }}>{fmt(r.insurance)}</strong></span>}
                           {r.reg > 0 && <span>Reg <strong style={{ color: C.textSec }}>{fmt(r.reg)}</strong></span>}
                           {r.other > 0 && <span>Other <strong style={{ color: C.textSec }}>{fmt(r.other)}</strong></span>}

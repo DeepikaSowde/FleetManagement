@@ -42,7 +42,10 @@ export const mono = { fontFamily: "'JetBrains Mono', 'Courier New', monospace" }
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 export const fmt = (n) => `SGD ${n.toLocaleString()}`;
-export const totalInv = (c) => c.purchase + c.insurance + c.reg + (c.otherCharges || 0);
+// Total Investment for one car = Purchase + Purchase Advance + Insurance +
+// Registration + Other Charges. Every field is guarded so a null column from
+// the DB can't turn the whole sum into NaN.
+export const totalInv = (c) => (c.purchase || 0) + (c.purchaseAdvance || 0) + (c.insurance || 0) + (c.reg || 0) + (c.otherCharges || 0);
 // Single source of truth for "today" across every date-driven calculation in
 // the app (COE/compliance countdowns here, and the target-option horizon in
 // generateTargetOptions below). Uses the real current date (date-only, at UTC

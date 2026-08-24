@@ -666,7 +666,8 @@ export const useFleetData = () => {
   // road. Recorded once as a single "Vehicle Purchase" expense per car so the
   // Expenses/P&L totals reflect the capital deployed on the fleet.
   const acquisitionCost = (c) =>
-    (parseFloat(c.purchase) || 0) + (parseFloat(c.insurance) || 0) +
+    (parseFloat(c.purchase) || 0) + (parseFloat(c.purchaseAdvance ?? c.purchase_advance) || 0) +
+    (parseFloat(c.insurance) || 0) +
     (parseFloat(c.reg) || 0) + (parseFloat(c.otherCharges ?? c.other_charges) || 0);
   // The auto-created purchase expense for a plate (matched by plate + category
   // so it survives a reload — no extra column needed).
@@ -677,6 +678,7 @@ export const useFleetData = () => {
     const newCar = {
       ...car,
       purchase: parseFloat(car.purchase),
+      purchaseAdvance: parseFloat(car.purchaseAdvance || 0),
       insurance: parseFloat(car.insurance),
       reg: parseFloat(car.reg),
       otherCharges: parseFloat(car.otherCharges || 0),
@@ -702,7 +704,7 @@ export const useFleetData = () => {
     setFleet(prev => prev.map(c => c.plate === plate ? { ...c, ...updates } : c));
     api.put(`/fleet/${encodeURIComponent(plate)}`, updates).catch(onWriteError);
     // Keep the auto "Vehicle Purchase" expense in sync when any cost field moves.
-    const costChanged = ["purchase", "insurance", "reg", "otherCharges"].some(f => f in updates);
+    const costChanged = ["purchase", "purchaseAdvance", "insurance", "reg", "otherCharges"].some(f => f in updates);
     if (costChanged || "purchaseDate" in updates) {
       const car = fleet.find(c => c.plate === plate);
       const merged = { ...car, ...updates };
@@ -1093,7 +1095,9 @@ export const useFleetData = () => {
     const carExpenses = expenses.filter(e => e.plate === plate).reduce((sum, e) => sum + (e.amount || 0), 0);
     const carBookings = bookings.filter(b => b.plate === plate).length;
     const car = fleet.find(c => c.plate === plate);
-    const totalInv = car ? (car.purchase + car.insurance + car.reg) : 0;
+    const totalInv = car
+      ? ((car.purchase || 0) + (car.purchaseAdvance || 0) + (car.insurance || 0) + (car.reg || 0) + (car.otherCharges || 0))
+      : 0;
     const recoveryPct = totalInv > 0 ? Math.round((carEarnings / totalInv) * 100) : 0;
 
     return {
