@@ -805,21 +805,16 @@ export default function FleetOpzApp() {
     return errors;
   };
 
-  // Step 3's only failure mode (Security Deposit > Rate Charge) can't
-  // actually happen through the UI — the input clamps itself live — so this
-  // is a defensive safety net for edge cases like the Rate or dates changing
-  // after the deposit was set. Kept inline (not an alert) so it's consistent
-  // with everything else, and so it's still visible if it ever does fire.
   const validateStep3 = () => {
     const errors = {};
     // Security Deposit is mandatory and must be greater than zero — every
-    // booking has to collect a refundable deposit.
+    // booking has to collect a refundable deposit. It may be any amount,
+    // including more than the Rate Charge (a high-value car can warrant a
+    // deposit larger than the rental itself).
     if (!editingBookingId && newBookingData.deductible === "") {
       errors.deductible = "Security Deposit is required. Enter an amount greater than 0.";
     } else if (!editingBookingId && Number(newBookingData.deductible) <= 0) {
       errors.deductible = "Security Deposit must be greater than 0.";
-    } else if (!editingBookingId && Number(newBookingData.deductible) > bookingRateCharge) {
-      errors.deductible = `Security Deposit (${formatSGD(Number(newBookingData.deductible))}) cannot exceed the Rate Charge (${formatSGD(bookingRateCharge)}). Please lower the Security Deposit.`;
     }
     // Additional Driver Charge becomes mandatory the moment at least one
     // Additional Driver has been added on Step 1 — a driver was added but
@@ -2428,27 +2423,22 @@ export default function FleetOpzApp() {
                                             // regardless of how Rate Charge moves (e.g. on extension).
                                             <input type="text" readOnly value={formatSGD(Number(newBookingData.deductible) || 0)} style={bookingFieldInputStyle(true)} />
                                           ) : (
-                                            <input type="number" min="1" max={bookingRateCharge || undefined} value={newBookingData.deductible}
+                                            <input type="number" min="1" value={newBookingData.deductible}
                                               onChange={(e) => {
                                                 const v = e.target.value;
                                                 if (v === "") { clearFieldError("deductible"); setNewBookingData({ ...newBookingData, deductible: v }); return; }
                                                 const n = Number(v);
                                                 if (n < 0) return;
-                                                // Security Deposit can never exceed the Rate Charge (Daily Rate x days) —
-                                                // clamp instead of alerting so staff simply can't type past the cap.
-                                                const capped = bookingRateCharge > 0 ? Math.min(n, bookingRateCharge) : n;
+                                                // Security Deposit is not capped by the Rate Charge — it can be any
+                                                // positive amount, including more than the total rental.
                                                 clearFieldError("deductible");
-                                                setNewBookingData({ ...newBookingData, deductible: String(capped) });
+                                                setNewBookingData({ ...newBookingData, deductible: String(n) });
                                               }}
                                               placeholder="e.g. 200" style={bookingFieldInputStyle(false, !!fieldErrors.deductible)} />
                                           )}
-                                          {editingBookingId ? (
+                                          {editingBookingId && (
                                             <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
                                               Locked — set at booking creation
-                                            </div>
-                                          ) : bookingRateCharge > 0 && (
-                                            <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>
-                                              Max allowed: {formatSGD(bookingRateCharge)} (Rate Charge)
                                             </div>
                                           )}
                                           <FieldErr msg={fieldErrors.deductible} />
