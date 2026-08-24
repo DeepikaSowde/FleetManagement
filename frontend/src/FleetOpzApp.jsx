@@ -755,8 +755,11 @@ export default function FleetOpzApp() {
     }
     if (!newBookingData.license.trim()) {
       errors.license = "Driving License Number is required";
-    } else if (!isValidDrivingLicenseFormat(newBookingData.license)) {
-      errors.license = DRIVING_LICENSE_FORMAT_ERROR;
+    } else if (!isValidEmiratesIdOrPassport(newBookingData.license)) {
+      // Driving License Number is the same value as the IC, so it's valid
+      // whenever the IC is (Emirates ID / passport format) — not the stricter
+      // Singapore driving-licence pattern, which would reject valid IC numbers.
+      errors.license = "Enter a valid Driving License Number (same as the IC Number)";
     } else {
       const restrictedMatch = restrictedLicenses.find(
         r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
@@ -1889,14 +1892,14 @@ export default function FleetOpzApp() {
                         type="text"
                         value={newBookingData.license}
                         onChange={(e) => { clearFieldError("license"); setNewBookingData({ ...newBookingData, license: e.target.value.toUpperCase() }); }}
-                        placeholder="S1234567A"
-                        style={bookingFieldInputStyle(false, !!(newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license)) || (!newBookingData.license.trim() && !!fieldErrors.license))}
+                        placeholder="Same as IC Number"
+                        style={bookingFieldInputStyle(false, !!(newBookingData.license.trim() && !isValidEmiratesIdOrPassport(newBookingData.license)) || (!newBookingData.license.trim() && !!fieldErrors.license))}
                       />
                       {!newBookingData.license.trim() && fieldErrors.license ? (
                         <FieldErr msg={fieldErrors.license} />
-                      ) : newBookingData.license.trim() && !isValidDrivingLicenseFormat(newBookingData.license) ? (
+                      ) : newBookingData.license.trim() && !isValidEmiratesIdOrPassport(newBookingData.license) ? (
                         <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
-                          {DRIVING_LICENSE_FORMAT_ERROR}
+                          Enter a valid Driving License Number (same as the IC Number)
                         </div>
                       ) : newBookingData.license && restrictedLicenses.some(
                         r => r.licenseNumber.trim().toUpperCase() === newBookingData.license.trim().toUpperCase()
