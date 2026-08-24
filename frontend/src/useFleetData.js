@@ -742,21 +742,51 @@ export const useFleetData = () => {
     findOverlappingBooking(bookings, plate, start, end, excludeBookingId);
 
   // ── BOOKING OPERATIONS ────────────────────────────────────────────────────
+  const nextBookingId = (list) =>
+    `BK-${String(Math.max(...list.map(b => parseInt(b.id.slice(3)) || 0), 0) + 1).padStart(3, "0")}`;
+
+  // Persists a booking, retrying with a freshly-computed ID if the server
+  // rejects it as a duplicate — this happens when two sessions submit a new
+  // booking at nearly the same moment and both compute the same "next" ID
+  // from their own (equally stale) local state. The customer directory is
+  // synced ONLY once the booking write is actually confirmed, so a booking
+  // that ultimately fails never leaves behind an orphan customer record.
+  const persistBooking = (toSave, attempt = 0) => {
+    api.post("/bookings", toSave)
+      .then(() => {
+        saveCustomer(toSave);
+      })
+      .catch((err) => {
+        const isDuplicateId = err?.status === 409
+          || /duplicate|already exists|conflict/i.test(err?.message || "");
+        if (isDuplicateId && attempt < 3) {
+          // Another session's booking landed on the same ID first. Re-check
+          // the server's current bookings, compute the real next-free ID,
+          // swap this booking over to it locally, and retry the write.
+          api.get("/bookings").then(serverBookings => {
+            const retried = { ...toSave, id: nextBookingId(serverBookings) };
+            setBookings(prev => prev.map(b => b.id === toSave.id ? retried : b));
+            persistBooking(retried, attempt + 1);
+          }).catch(() => onWriteError(err));
+          return;
+        }
+        onWriteError(err);
+      });
+  };
+
   const addBooking = (booking) => {
     // Built synchronously (not inside a setState updater) so it's ready to
     // return immediately — FleetOpzApp.jsx passes the returned booking straight
-    // into generateRentalAgreementPdf. The server POST happens in the background.
-    const nextId = `BK-${String(Math.max(...bookings.map(b => parseInt(b.id.slice(3))), 0) + 1).padStart(3, "0")}`;
+    // into generateRentalAgreementPdf. The server POST happens in the background;
+    // persistBooking above resolves an ID collision (and retries) if one occurs.
     const newBooking = {
       ...booking,
-      id: nextId,
+      id: nextBookingId(bookings),
       rate: parseFloat(booking.rate),
       status: booking.status || "Active",
     };
     setBookings(prev => [...prev, newBooking]);
-    api.post("/bookings", newBooking).catch(onWriteError);
-    // Keep the customer directory in sync — create/update this customer by IC.
-    saveCustomer(newBooking);
+    persistBooking(newBooking);
     return newBooking;
   };
 

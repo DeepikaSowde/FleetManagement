@@ -520,9 +520,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const STAGES = ["Upcoming", "Handover", "On Rental", "Returned", "Closed"];
 
   const handleCompleteHandover = () => {
-    // Handover can't happen before the customer is due to collect the car —
-    // gate it on the scheduled pickup time (real clock, same basis as pickupArrived).
-    if (!pickupArrived) { alert(`Vehicle Handover is allowed only at the scheduled pickup time or later (${formatDateTime(booking.start)}).`); return; }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
 
@@ -944,8 +941,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 160px" }}>
-                            <div style={detailFieldLabelStyle}>Receipt / Ref No.{rentMethod !== "Cash" ? " *" : ""}</div>
-                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder={rentMethod === "Cash" ? "optional" : "required for non-cash"} style={detailInputStyle} />
+                            <div style={detailFieldLabelStyle}>Receipt / Ref No. *</div>
+                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder="required" style={detailInputStyle} />
                           </div>
                         </div>
                         {(() => {

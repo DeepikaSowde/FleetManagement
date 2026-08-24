@@ -731,19 +731,6 @@ export default function FleetOpzApp() {
   const validateStep1 = () => {
     const errors = {};
     if (!newBookingData.customer.trim()) errors.customer = "Customer Name is required";
-    // A customer name must map to a single IC — block reusing the same name
-    // with a different IC number. Matched case-insensitively and trimmed.
-    else {
-      const nameKey = newBookingData.customer.trim().toLowerCase();
-      const normIcLocal = (v) => (v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-      const currentIc = normIcLocal(newBookingData.ic);
-      const clash = (fleetData.customers || []).find(
-        c => (c.name || "").trim().toLowerCase() === nameKey && normIcLocal(c.ic) !== currentIc
-      );
-      if (clash) {
-        errors.customer = `A customer named "${newBookingData.customer.trim()}" already exists with IC ${clash.ic}. Use the same IC, or a different name.`;
-      }
-    }
     if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
       errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
     }
@@ -765,20 +752,6 @@ export default function FleetOpzApp() {
         r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
       );
       if (restrictedMatch) errors.license = "This driving license has an active criminal case. Booking cannot be created.";
-    }
-    const invalidDriver = newBookingData.additionalDrivers.find(
-      d => d.license.trim() && !isValidDrivingLicenseFormat(d.license)
-    );
-    if (invalidDriver) {
-      const idx = newBookingData.additionalDrivers.indexOf(invalidDriver);
-      errors.driverLicense = `Driver ${idx + 1}: ${DRIVING_LICENSE_FORMAT_ERROR}`;
-    }
-    const invalidDriverContact = newBookingData.additionalDrivers.find(
-      d => d.contact.trim() && !isValidContactNumber(d.contact)
-    );
-    if (invalidDriverContact) {
-      const idx = newBookingData.additionalDrivers.indexOf(invalidDriverContact);
-      errors.driverContact = `Driver ${idx + 1}: ${CONTACT_ERROR_MSG}`;
     }
     return errors;
   };
@@ -2244,13 +2217,8 @@ export default function FleetOpzApp() {
                                 additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, license: e.target.value.toUpperCase() } : d),
                               })}
                               placeholder="S1234567A"
-                              style={bookingFieldInputStyle(false, !!(driver.license.trim() && !isValidDrivingLicenseFormat(driver.license)))}
+                              style={bookingFieldInputStyle(false)}
                             />
-                            {driver.license.trim() && !isValidDrivingLicenseFormat(driver.license) && (
-                              <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
-                                {DRIVING_LICENSE_FORMAT_ERROR}
-                              </div>
-                            )}
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>License Expiry Date</label>
@@ -2284,11 +2252,6 @@ export default function FleetOpzApp() {
                               placeholder=" 6598765432"
                               style={bookingFieldInputStyle(false, !!(driver.contact.trim() && !isValidContactNumber(driver.contact)))}
                             />
-                            {driver.contact.trim() && !isValidContactNumber(driver.contact) && (
-                              <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
-                                {CONTACT_ERROR_MSG}
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
