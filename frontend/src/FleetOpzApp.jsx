@@ -179,26 +179,34 @@ const formatTravelDate = (iso) => {
 
 // A single MakeMyTrip-style date card: small caption on top, big day + month,
 // weekday underneath. Shows a muted placeholder until a date is chosen.
-const TravelDateCard = ({ caption, iso, active, onClick }) => {
+// Compact date + time card: the date area (left) opens the calendar on click,
+// while the inline time selects (right) sit in the same row so date and time
+// share one line — no separate "Pickup/Return Time" row underneath. The time
+// controls stop click propagation so changing the time doesn't toggle the
+// calendar. When no onTimeChange is given it renders date-only (legacy use).
+const TravelDateCard = ({ caption, iso, active, onClick, timeValue, onTimeChange, timeStyle }) => {
   const f = formatTravelDate(iso);
   return (
-    <div onClick={onClick} role="button" tabIndex={0}
-      style={{ flex: 1, border: `1.5px solid ${active ? C.teal : C.border}`, borderRadius: 12, padding: "12px 16px", background: active ? C.tealFaint : C.surface, minWidth: 0, cursor: "pointer", transition: "border-color 0.12s, background 0.12s", boxShadow: active ? `0 0 0 3px ${C.teal}22` : "none" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{caption}</div>
-      {f ? (
-        <>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontSize: 26, fontWeight: 800, color: C.navy, lineHeight: 1 }}>{f.day}</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{f.mon}</span>
+    <div style={{ flex: 1, border: `1.5px solid ${active ? C.teal : C.border}`, borderRadius: 12, padding: "10px 14px", background: active ? C.tealFaint : C.surface, minWidth: 0, transition: "border-color 0.12s, background 0.12s", boxShadow: active ? `0 0 0 3px ${C.teal}22` : "none" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{caption}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div onClick={onClick} role="button" tabIndex={0} style={{ cursor: "pointer", flexShrink: 0 }}>
+          {f ? (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: C.navy, lineHeight: 1 }}>{f.day}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{f.mon}</span>
+              <span style={{ fontSize: 11, color: C.textSec, marginLeft: 2 }}>{f.weekday}</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.textMuted }}>Select date ▾</div>
+          )}
+        </div>
+        {onTimeChange && (
+          <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0 }}>
+            <TimeInput12h value={timeValue} onChange={onTimeChange} style={timeStyle} />
           </div>
-          <div style={{ fontSize: 12, color: C.textSec, marginTop: 3 }}>{f.weekday}</div>
-        </>
-      ) : (
-        <>
-          <div style={{ fontSize: 20, fontWeight: 700, color: C.textMuted, lineHeight: 1.3 }}>— —</div>
-          <div style={{ fontSize: 12, color: C.textMuted, marginTop: 3 }}>Select a date</div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 };
@@ -2045,7 +2053,10 @@ export default function FleetOpzApp() {
                     <div style={{ display: "flex", alignItems: "stretch", gap: 10 }}>
                       <TravelDateCard caption="Pickup" iso={newBookingData.pickupDate}
                         active={openCalendar === "pickup"}
-                        onClick={() => setOpenCalendar(openCalendar === "pickup" ? null : "pickup")} />
+                        onClick={() => setOpenCalendar(openCalendar === "pickup" ? null : "pickup")}
+                        timeValue={newBookingData.pickupTime}
+                        onTimeChange={(pickupTime) => setNewBookingData(prev => ({ ...prev, pickupTime, start: combineDateTime(prev.pickupDate, pickupTime) }))}
+                        timeStyle={bookingFieldInputStyle(false)} />
                       {(() => {
                         const p = newBookingData.pickupDate, r = newBookingData.returnDate;
                         const nights = p && r ? Math.max(0, Math.round((new Date(r + "T00:00:00") - new Date(p + "T00:00:00")) / 86400000)) : null;
@@ -2059,7 +2070,10 @@ export default function FleetOpzApp() {
                       })()}
                       <TravelDateCard caption="Return" iso={newBookingData.returnDate}
                         active={openCalendar === "return"}
-                        onClick={() => setOpenCalendar(openCalendar === "return" ? null : "return")} />
+                        onClick={() => setOpenCalendar(openCalendar === "return" ? null : "return")}
+                        timeValue={newBookingData.returnTime}
+                        onTimeChange={(returnTime) => { clearFieldError("returnTime"); setNewBookingData(prev => ({ ...prev, returnTime, end: combineDateTime(prev.returnDate, returnTime) })); }}
+                        timeStyle={bookingFieldInputStyle(false, !!fieldErrors.returnTime)} />
                     </div>
 
                     {/* Calendar popover — only the clicked card's calendar shows,
@@ -2151,30 +2165,8 @@ export default function FleetOpzApp() {
                     );
                   })()}
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
-                    <div>
-                      <label style={bookingFieldLabelStyle}>Pickup Time</label>
-                      <TimeInput12h
-                        value={newBookingData.pickupTime}
-                        onChange={(pickupTime) => {
-                          setNewBookingData(prev => ({ ...prev, pickupTime, start: combineDateTime(prev.pickupDate, pickupTime) }));
-                        }}
-                        style={bookingFieldInputStyle(false)}
-                      />
-                    </div>
-                    <div>
-                      <label style={bookingFieldLabelStyle}>Return Time</label>
-                      <TimeInput12h
-                        value={newBookingData.returnTime}
-                        onChange={(returnTime) => {
-                          clearFieldError("returnTime");
-                          setNewBookingData(prev => ({ ...prev, returnTime, end: combineDateTime(prev.returnDate, returnTime) }));
-                        }}
-                        style={bookingFieldInputStyle(false, !!fieldErrors.returnTime)}
-                      />
-                      <FieldErr msg={fieldErrors.returnTime} />
-                    </div>
-                  </div>
+                  <FieldErr msg={fieldErrors.returnTime} />
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
                     <div>
                       <Input
