@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell,
 } from "recharts";
-import { C, mono, fmt, totalInv, carAssetValue, fleetAssetValue } from "./theme";
+import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows, forfeitedDepositIncome } from "./ledgerUtils";
 import StatTiles from "./StatTiles";
@@ -80,10 +80,14 @@ const LedgerDashboard = ({
   //   Net Worth = Cash Balance + Fleet Asset Value
   // so the depreciating asset offsets the purchase expense and the true position
   // shows through. Only cars still in the fleet are counted.
+  const [depMethod, setDepMethod] = useState("coe");
+  const [depRate, setDepRate] = useState(20);
+  const methodDef = DEPRECIATION_METHODS.find((m) => m.id === depMethod) || DEPRECIATION_METHODS[0];
+
   const assetRows = useMemo(() =>
     fleet.map((c) => {
       const cost = totalInv(c);
-      const value = carAssetValue(c);
+      const value = carAssetValueBy(c, depMethod, depRate);
       return {
         plate: c.plate,
         model: `${c.make || ""} ${c.model || ""}`.trim() || c.plate,
@@ -93,8 +97,8 @@ const LedgerDashboard = ({
         depPct: cost > 0 ? ((cost - value) / cost) * 100 : 0,
       };
     }).filter((r) => r.cost > 0).sort((a, b) => b.value - a.value),
-  [fleet]);
-  const fleetValue = useMemo(() => fleetAssetValue(fleet), [fleet]);
+  [fleet, depMethod, depRate]);
+  const fleetValue = useMemo(() => fleetAssetValueBy(fleet, depMethod, depRate), [fleet, depMethod, depRate]);
   const totalCost = assetRows.reduce((s, r) => s + r.cost, 0);
   const netWorth = currentBalance + fleetValue;
 
@@ -204,7 +208,22 @@ const LedgerDashboard = ({
       {/* Balance Sheet — Assets & Net Worth */}
       <Card style={cardStyle}>
         <CardHeader title="Balance Sheet — Assets & Net Worth"
-          subtitle="Cars are assets: valued by straight-line depreciation to registration expiry" />
+          subtitle="Cars are assets — choose how they depreciate"
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <select style={selectStyle} value={depMethod} onChange={(e) => setDepMethod(e.target.value)}>
+                {DEPRECIATION_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+              {methodDef.needsRate && (
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input type="number" min="0" max="100" value={depRate}
+                    onChange={(e) => setDepRate(e.target.value === "" ? "" : Number(e.target.value))}
+                    style={{ ...selectStyle, width: 62 }} />
+                  <span style={{ fontSize: 11, color: C.textMuted }}>%/yr</span>
+                </div>
+              )}
+            </div>
+          } />
         <div style={{ padding: "0 16px 16px" }}>
           {/* Summary row: Cash + Fleet Asset Value = Net Worth */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
@@ -252,7 +271,9 @@ const LedgerDashboard = ({
           )}
 
           <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-            Each car starts at its Total Investment and depreciates straight-line to zero at its registration (COE) expiry.
+            {depMethod === "coe" && <>Each car starts at its Total Investment and depreciates <b>straight-line to zero at its registration (COE) expiry</b>. </>}
+            {depMethod === "wdv" && <>Each car loses <b>{depRate || 0}% of its remaining value per year</b> (reducing balance) since its purchase date. </>}
+            {depMethod === "slcost" && <>Each car loses <b>{depRate || 0}% of its original cost per year</b> since its purchase date, floored at zero. </>}
             Because the full purchase is booked as an expense, adding the current fleet value back gives your true <b>Net Worth</b>.
           </div>
         </div>

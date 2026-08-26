@@ -80,6 +80,42 @@ export const carAssetValue = (c) => {
 // Total current book value of every car still owned in the fleet.
 export const fleetAssetValue = (fleet = []) => fleet.reduce((s, c) => s + carAssetValue(c), 0);
 
+// ── Selectable depreciation methods ─────────────────────────────────────────
+// The Balance Sheet lets the user pick how a car's value is written down. All
+// methods work off data the app already stores (cost, purchase date, COE date),
+// so no extra inputs are needed beyond an annual % for the rate-based ones.
+export const DEPRECIATION_METHODS = [
+  { id: "coe",    label: "Straight-line → registration expiry", needsRate: false },
+  { id: "wdv",    label: "Reducing balance (WDV)",              needsRate: true, defaultRate: 20 },
+  { id: "slcost", label: "Straight-line, % of cost / year",     needsRate: true, defaultRate: 20 },
+];
+
+// Whole years elapsed (fractional) since a car was bought — drives the annual
+// rate methods. Missing/invalid purchase date → 0 (treated as brand new).
+const yearsOwned = (c) => {
+  const start = c.purchaseDate ? new Date(c.purchaseDate) : null;
+  if (!start || Number.isNaN(+start)) return 0;
+  return Math.max(0, (APP_NOW - start) / (365 * 86400000));
+};
+
+// One car's current value under the chosen method:
+//   coe    → straight-line to registration expiry (see carAssetValue)
+//   wdv    → reducing balance: cost × (1 − rate)^yearsOwned  (never reaches 0)
+//   slcost → straight-line on cost: cost × (1 − rate × yearsOwned), floored at 0
+export const carAssetValueBy = (c, method = "coe", ratePct = 20) => {
+  const cost = totalInv(c);
+  if (cost <= 0) return 0;
+  if (method === "coe") return carAssetValue(c);
+  const r = (Number(ratePct) || 0) / 100;
+  const yrs = yearsOwned(c);
+  if (method === "wdv") return Math.round(cost * Math.pow(Math.max(0, 1 - r), yrs));
+  if (method === "slcost") return Math.round(cost * Math.max(0, 1 - r * yrs));
+  return cost;
+};
+
+export const fleetAssetValueBy = (fleet = [], method = "coe", ratePct = 20) =>
+  fleet.reduce((s, c) => s + carAssetValueBy(c, method, ratePct), 0);
+
 // ── DAILY RATE BANDS (SGD/day) ──────────────────────────────────────────────
 // Reference ranges so daily rates can be set sensibly per vehicle category
 // instead of being an arbitrary number. Used as suggested min/max guardrails
