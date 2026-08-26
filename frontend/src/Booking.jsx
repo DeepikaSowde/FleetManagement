@@ -428,7 +428,7 @@ const BookingActivityTimeline = ({ booking, inv }) => {
 // Opens either from clicking "View" on a row in the Bookings table, or
 // automatically right after a new booking is created (see `detailBookingId`
 // prop on <Booking>).
-const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking, actor = "System" }) => {
+const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking, onExtendBooking, actor = "System" }) => {
   // One append-only audit entry, attributed to the real logged-in user.
   const histEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
   const withHistory = (entry) => [...(booking.history || []), entry];
@@ -812,6 +812,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Btn onClick={() => onEditBooking?.(booking)}>✏️ Edit</Btn>
+              {!booking.cancelled && onExtendBooking && (
+                <Btn onClick={() => onExtendBooking(booking)}>📅 Extend</Btn>
+              )}
               {/* Agreement needs the mileage/fuel/condition captured at
                   Vehicle Handover, so it only makes sense once handoverAt is
                   set — see hasHandedOver above. */}
@@ -1493,7 +1496,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   );
 };
 
-const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System" }) => {
+const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, onExtendBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System" }) => {
   const bkHistEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
   const [filter, setFilter] = useState("All");
   const [timelinePlate, setTimelinePlate] = useState(null);
@@ -1694,6 +1697,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
           onClose={() => setOpenDetailId(null)}
           onUpdateBooking={onUpdateBooking}
           onEditBooking={onEditBooking}
+          onExtendBooking={onExtendBooking}
           actor={actor}
         />
       )}

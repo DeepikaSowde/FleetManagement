@@ -452,6 +452,9 @@ export default function FleetOpzApp() {
   // labels/behavior (title, submit label, skip the Payment step, update
   // instead of create on submit) without forking into a second component.
   const [editingBookingId, setEditingBookingId] = useState(null);
+  // Extend mode is the same edit flow, but opened straight on the dates step with
+  // a banner making clear the already-collected deposit is NOT charged again.
+  const [extendMode, setExtendMode] = useState(false);
   // Set to a booking id right after Create Booking succeeds, so the
   // Bookings screen auto-opens that booking's Detail view (Overview tab).
   // Booking.jsx consumes it once and calls back to clear it — see
@@ -1016,10 +1019,21 @@ export default function FleetOpzApp() {
     setMatchedCustomer(null);
     setBookingStep(1);
     setContactError("");
+    setExtendMode(false);
     setShowNewBooking(true);
   };
 
+  // Extend an existing booking: reuse the edit flow (which already locks the
+  // deposit and never re-collects it), but jump straight to Booking Details so
+  // staff only touch the drop-off date, and flag extend mode for the banner.
+  const openExtendBookingModal = (booking) => {
+    openEditBookingModal(booking);
+    setExtendMode(true);
+    setBookingStep(2);
+  };
+
   const closeNewBookingModal = () => {
+    setExtendMode(false);
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
@@ -1111,6 +1125,7 @@ export default function FleetOpzApp() {
         detailBookingId={detailBookingId}
         onDetailBookingIdHandled={() => setDetailBookingId(null)}
         onEditBooking={openEditBookingModal}
+        onExtendBooking={openExtendBookingModal}
         actor={actorName}
       />
     ),
@@ -1714,9 +1729,14 @@ export default function FleetOpzApp() {
             {/* Header */}
             <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{editingBookingId ? `Edit Booking — ${editingBookingId}` : "New Booking"}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{extendMode ? `Extend Booking — ${editingBookingId}` : editingBookingId ? `Edit Booking — ${editingBookingId}` : "New Booking"}</div>
                 <button onClick={closeNewBookingModal} aria-label="Close" style={{ background: "none", border: "none", fontSize: 18, color: C.textMuted, cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
               </div>
+              {extendMode && (
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#E7F3EC", border: "1px solid #10B98155", fontSize: 12.5, color: "#1B5E20", lineHeight: 1.5 }}>
+                  🔁 <b>Extending this booking.</b> Change the drop-off date below — the extra rental is added to the Balance Due. The security deposit was already collected at booking and <b>will not be charged again</b>.
+                </div>
+              )}
               <div style={{ display: "flex", alignItems: "center", marginTop: 16 }}>
                 {BOOKING_STEP_LABELS.flatMap((label, i) => {
                   const stepNum = i + 1;
