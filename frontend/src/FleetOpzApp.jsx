@@ -1803,7 +1803,8 @@ export default function FleetOpzApp() {
                 <>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 16 }}>👤 Customer Information</div>
 
-                  <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div>
                     <label style={bookingFieldLabelStyle}>IC Number <span style={{ color: C.red }}>*</span></label>
                     <input
                       type="text"
@@ -1820,8 +1821,7 @@ export default function FleetOpzApp() {
                     )}
                     <FieldErr msg={fieldErrors.ic} />
                   </div>
-
-                  <div style={{ marginBottom: 14 }}>
+                  <div>
                     <label style={bookingFieldLabelStyle}>Customer Name <span style={{ color: C.red }}>*</span></label>
                     <input
                       type="text"
@@ -1835,8 +1835,10 @@ export default function FleetOpzApp() {
                     />
                     <FieldErr msg={fieldErrors.customer} />
                   </div>
+                  </div>
 
-                  <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div>
                     <label style={bookingFieldLabelStyle}>Contact Number</label>
                     <div style={{ display: "flex", gap: 8 }}>
                       <select
@@ -1905,8 +1907,7 @@ export default function FleetOpzApp() {
 
                 
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                    <div>
+                  <div>
                       <label style={bookingFieldLabelStyle}>Driving License Number <span style={{ color: C.red }}>*</span></label>
                       <input
                         type="text"
@@ -1929,7 +1930,10 @@ export default function FleetOpzApp() {
                         </div>
                       )}
                     </div>
-                    <div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div>
                       <label style={bookingFieldLabelStyle}>Customer Type</label>
                       <select
                         value={newBookingData.customerType}
@@ -1939,10 +1943,7 @@ export default function FleetOpzApp() {
                         {CUSTOMER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                    <div>
+                  <div>
                       <label style={bookingFieldLabelStyle}>Age</label>
                       <input
                         type="number"
@@ -1962,7 +1963,10 @@ export default function FleetOpzApp() {
                         </div>
                       )}
                     </div>
-                    <div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div>
                       <label style={bookingFieldLabelStyle}>Driving Experience (years)</label>
                       <input
                         type="number"
@@ -1977,8 +1981,6 @@ export default function FleetOpzApp() {
                         style={bookingFieldInputStyle(false)}
                       />
                     </div>
-                  </div>
-
                   <div>
                     <label style={bookingFieldLabelStyle}>Rental / Home Address</label>
                     <input
@@ -1988,6 +1990,7 @@ export default function FleetOpzApp() {
                       placeholder=" 02-81 Pandan Gardens, Block 410, Singapore"
                       style={bookingFieldInputStyle(false)}
                     />
+                  </div>
                   </div>
                 </>
               ) : bookingStep === 2 ? (
