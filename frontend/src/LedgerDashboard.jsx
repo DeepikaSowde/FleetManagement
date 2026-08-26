@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell,
 } from "recharts";
-import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS } from "./theme";
+import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows, forfeitedDepositIncome } from "./ledgerUtils";
 import StatTiles from "./StatTiles";
@@ -37,9 +37,32 @@ const prevMonthOf = (ym) => {
 };
 const pct = (cur, prev) => (!prev ? (cur > 0 ? 100 : 0) : ((cur - prev) / Math.abs(prev)) * 100);
 
+// Inline editor for a car's manual current value (used only under the "Manual
+// value" method). Keeps its own draft state and commits on blur / Enter so
+// typing doesn't fire a save on every keystroke. Blank clears the value.
+const inlineInput = { padding: "5px 8px", borderRadius: 7, border: "1px solid #D9D9D9", fontSize: 11, width: 108, textAlign: "right", fontFamily: "inherit", outline: "none" };
+const ManualValueCell = ({ value, cost, onCommit }) => {
+  const [v, setV] = useState(value == null ? "" : String(value));
+  useEffect(() => { setV(value == null ? "" : String(value)); }, [value]);
+  const commit = () => {
+    const t = v.trim();
+    const next = t === "" ? null : Number(t);
+    const prev = value == null ? null : Number(value);
+    if (next !== prev && !(next != null && Number.isNaN(next))) onCommit(next);
+  };
+  return (
+    <input type="number" min="0" value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      placeholder={String(Math.round(cost))}
+      style={inlineInput} />
+  );
+};
+
 const LedgerDashboard = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
-  calculateMetrics, calculateCarMetrics,
+  calculateMetrics, calculateCarMetrics, onUpdateCar,
 }) => {
   // Months that actually have data (income and/or expenses).
   const monthsPresent = useMemo(() => {
@@ -93,6 +116,7 @@ const LedgerDashboard = ({
         model: `${c.make || ""} ${c.model || ""}`.trim() || c.plate,
         cost,
         value,
+        manualValue: hasManualValue(c) ? Number(c.manualValue) : null,
         depreciation: Math.max(0, cost - value),
         depPct: cost > 0 ? ((cost - value) / cost) * 100 : 0,
       };
@@ -250,7 +274,11 @@ const LedgerDashboard = ({
                     <tr key={r.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
                       <td style={{ padding: "9px 12px" }}><PlateBadge plate={r.plate} small /></td>
                       <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: C.textSec, textAlign: "right" }}>{fmt(Math.round(r.cost))}</td>
-                      <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmt(Math.round(r.value))}</td>
+                      <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>
+                        {depMethod === "manual" && onUpdateCar
+                          ? <ManualValueCell value={r.manualValue} cost={r.cost} onCommit={(val) => onUpdateCar(r.plate, { manualValue: val })} />
+                          : fmt(Math.round(r.value))}
+                      </td>
                       <td style={{ padding: "9px 12px", textAlign: "right" }}>
                         <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: DOWN }}>−{fmt(Math.round(r.depreciation))}</span>
                         <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>({r.depPct.toFixed(0)}%)</span>
@@ -274,6 +302,7 @@ const LedgerDashboard = ({
             {depMethod === "coe" && <>Each car starts at its Total Investment and depreciates <b>straight-line to zero at its registration (COE) expiry</b>. </>}
             {depMethod === "wdv" && <>Each car loses <b>{depRate || 0}% of its remaining value per year</b> (reducing balance) since its purchase date. </>}
             {depMethod === "slcost" && <>Each car loses <b>{depRate || 0}% of its original cost per year</b> since its purchase date, floored at zero. </>}
+            {depMethod === "manual" && <>Type each car's <b>current market/resale value</b> in the Current Value column (saved automatically). Leave a cell blank to fall back to its cost. </>}
             Because the full purchase is booked as an expense, adding the current fleet value back gives your true <b>Net Worth</b>.
           </div>
         </div>

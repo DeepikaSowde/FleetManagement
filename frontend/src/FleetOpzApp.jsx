@@ -1171,6 +1171,7 @@ export default function FleetOpzApp() {
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
         getExpensesByCategory={fleetData.getExpensesByCategory}
+        onUpdateCar={fleetData.updateFleet}
       />
     ),
     investors: (

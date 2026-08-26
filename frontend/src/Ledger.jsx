@@ -37,6 +37,7 @@ const selectStyle = {
 const Ledger = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
+  onUpdateCar,
 }) => {
   const [view, setView] = useState("dashboard"); // "dashboard" | "ledger"
   const [period, setPeriod] = useState("all");   // "all" | "YYYY-MM"
@@ -146,6 +147,7 @@ const Ledger = ({
           calculateMonthlyMetrics={calculateMonthlyMetrics}
           calculateCarMetrics={calculateCarMetrics}
           getExpensesByCategory={getExpensesByCategory}
+          onUpdateCar={onUpdateCar}
         />
       ) : (
       <>

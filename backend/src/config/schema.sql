@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS cars (
   running_days_target        NUMERIC(12,2),
   profit_pct_target          NUMERIC(12,2),
   monthly_forecast           NUMERIC(12,2),   -- editable per-car monthly cash-receipt forecast
+  manual_value               NUMERIC(12,2),   -- manually-entered current market/resale value (overrides depreciation on the balance sheet)
   maintenance_start_date     TEXT,
   maintenance_completed_at   TEXT,
   maintenance_auto_released  BOOLEAN DEFAULT false,
@@ -138,6 +139,7 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS nationality    VARCHAR(80);
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ;
 ALTER TABLE cars      ADD COLUMN IF NOT EXISTS monthly_forecast NUMERIC(12,2);
 ALTER TABLE cars      ADD COLUMN IF NOT EXISTS purchase_advance NUMERIC(12,2);
+ALTER TABLE cars      ADD COLUMN IF NOT EXISTS manual_value NUMERIC(12,2);
 
 -- ── EMPLOYEES — staff who operations (pickups/returns) get assigned to ──────
 CREATE TABLE IF NOT EXISTS employees (

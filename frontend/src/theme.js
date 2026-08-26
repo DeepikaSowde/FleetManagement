@@ -88,7 +88,12 @@ export const DEPRECIATION_METHODS = [
   { id: "coe",    label: "Straight-line → registration expiry", needsRate: false },
   { id: "wdv",    label: "Reducing balance (WDV)",              needsRate: true, defaultRate: 20 },
   { id: "slcost", label: "Straight-line, % of cost / year",     needsRate: true, defaultRate: 20 },
+  { id: "manual", label: "Manual value (per car)",              needsRate: false },
 ];
+
+// True when a car has a manually-entered value set (not null / blank).
+export const hasManualValue = (c) =>
+  c.manualValue !== null && c.manualValue !== undefined && c.manualValue !== "" && Number.isFinite(Number(c.manualValue));
 
 // Whole years elapsed (fractional) since a car was bought — drives the annual
 // rate methods. Missing/invalid purchase date → 0 (treated as brand new).
@@ -106,6 +111,9 @@ export const carAssetValueBy = (c, method = "coe", ratePct = 20) => {
   const cost = totalInv(c);
   if (cost <= 0) return 0;
   if (method === "coe") return carAssetValue(c);
+  // Manual: use the user-entered value when set, otherwise fall back to cost so
+  // an un-valued car still contributes something to the total.
+  if (method === "manual") return hasManualValue(c) ? Math.round(Number(c.manualValue)) : cost;
   const r = (Number(ratePct) || 0) / 100;
   const yrs = yearsOwned(c);
   if (method === "wdv") return Math.round(cost * Math.pow(Math.max(0, 1 - r), yrs));
