@@ -2212,8 +2212,8 @@ export default function FleetOpzApp() {
                       Adding at least one driver here surfaces the Additional
                       Driver Charge field further down in Step 3 (Pricing &
                       Charges) — a single manual fee amount, not per-driver. */}
-                  <div style={{ marginTop: 18, marginBottom: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ marginTop: 10, marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>🧑‍🤝‍🧑 Additional Drivers <span style={{ fontWeight: 400, color: C.textMuted, fontSize: 11 }}>(optional)</span></div>
                       <button
                         type="button"
@@ -2317,8 +2317,10 @@ export default function FleetOpzApp() {
                     )}
                   </div>
 
-                  {/* File Attachment */}
-                  <div style={{ marginBottom: 14 }}>
+                  {/* File Attachment + Comments — paired into two columns to keep
+                      the step compact. */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
+                  <div>
                     <label style={{ fontSize: 11, fontWeight: 600, color: C.textSec, display: "block", marginBottom: 6 }}>
                       File Attachment <span style={{ fontWeight: 400, color: C.textMuted }}>( image or document, max 5MB)</span>
                     </label>
@@ -2363,6 +2365,7 @@ export default function FleetOpzApp() {
                       rows={3}
                       style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box" }}
                     />
+                  </div>
                   </div>
                 </>
               ) : bookingStep === 3 ? (
