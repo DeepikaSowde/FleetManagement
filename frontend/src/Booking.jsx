@@ -475,6 +475,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [startingMileage, setStartingMileage] = useState(booking.startingMileage || "");
   const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
   const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
+  // Return / drop-off location. Optional at booking, but mandatory here at
+  // handover — prefilled from the booking's drop if one was entered.
+  const [returnLocation, setReturnLocation] = useState(booking.drop || "");
   const [showHandover, setShowHandover] = useState(false);
   // Security-deposit refund modal (replaces the old window.prompt). A refund
   // lower than the deposit held requires a reason, captured here and recorded
@@ -522,6 +525,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const handleCompleteHandover = () => {
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
+    if (!returnLocation.trim()) { alert("Return Location is required to complete the handover."); return; }
 
     // Rent at pickup — optional, not a gate. Clamp to Balance Due (no overpay);
     // a non-cash payment needs a Receipt/Reference No. It's recorded as a real
@@ -545,7 +549,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         }]
       : [];
     const updates = {
-      startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
+      startingMileage, fuelLevel, vehicleCondition, drop: returnLocation.trim(), handoverAt: new Date().toISOString(), status: "Active",
       ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
       history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
     };
@@ -913,6 +917,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <select value={fuelLevel} onChange={(e) => setFuelLevel(e.target.value)} style={detailInputStyle}>
                           {FUEL_LEVELS.map((f) => <option key={f} value={f}>{f}</option>)}
                         </select>
+                      </div>
+                      <div style={{ flex: "1 1 180px" }}>
+                        <div style={detailFieldLabelStyle}>Return Location <span style={{ color: C.red }}>*</span></div>
+                        <input type="text" value={returnLocation} onChange={(e) => setReturnLocation(e.target.value)} placeholder="e.g., Clementi" style={detailInputStyle} />
                       </div>
                     </div>
                     <div style={{ marginTop: 10 }}>

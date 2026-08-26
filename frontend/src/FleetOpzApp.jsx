@@ -772,7 +772,8 @@ export default function FleetOpzApp() {
       errors.returnTime = "Return Date & Time must be after the Pickup Date & Time";
     }
     if (!newBookingData.pickup.trim()) errors.pickup = "Pickup Location is required";
-    if (!newBookingData.drop.trim()) errors.drop = "Drop Location is required";
+    // Drop / Return Location is optional at booking — it's confirmed (and made
+    // mandatory) later, at Vehicle Handover.
     if (Number(newBookingData.rate) < 0) errors.rate = "Daily rate cannot be negative";
     // Instant availability check — same for New and Edit Booking
     // (editingBookingId is undefined when creating new, so nothing is
@@ -2186,7 +2187,7 @@ export default function FleetOpzApp() {
                     </div>
                     <div>
                       <Input
-                        label="Drop Location"
+                        label="Drop Location (optional)"
                         value={newBookingData.drop}
                         onChange={(e) => {
                           clearFieldError("drop");
