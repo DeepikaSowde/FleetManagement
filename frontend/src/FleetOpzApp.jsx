@@ -313,11 +313,11 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
   };
 
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px", marginTop: 4, marginBottom: 4, background: C.surface, boxShadow: "0 2px 10px rgba(15,23,42,0.05)" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, padding: "10px 14px", marginTop: 4, marginBottom: 4, background: C.surface, boxShadow: "0 2px 10px rgba(15,23,42,0.05)" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
 
       {/* Header: month/year + ‹ › chevron nav (MakeMyTrip style) */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <button type="button" disabled={!canGoPrev} onClick={goPrev} aria-label="Previous month"
           style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: C.bg, border: `1px solid ${C.border}`, cursor: canGoPrev ? "pointer" : "default", opacity: canGoPrev ? 1 : 0.3, fontSize: 15, lineHeight: 1, color: C.navy, fontWeight: 700 }}>‹</button>
         <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{monthLabel}</div>
@@ -377,7 +377,7 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
                 title={titleParts.length ? titleParts.join(" · ") : status}
                 style={{
                   position: "relative",
-                  width: "100%", height: 34, fontSize: 12.5, borderRadius: radius,
+                  width: "100%", height: 28, fontSize: 12.5, borderRadius: radius,
                   border: isToday && !isEndpoint ? `1.5px solid ${C.teal}` : "1.5px solid transparent",
                   fontFamily: "inherit", cursor: clickable ? "pointer" : "default", boxSizing: "border-box",
                   background: cellBg,
@@ -2079,7 +2079,7 @@ export default function FleetOpzApp() {
                     {/* Calendar popover — only the clicked card's calendar shows,
                         as a dropdown that closes on select or outside click. */}
                     {openCalendar && (
-                      <div style={{ position: "absolute", top: "100%", marginTop: 8, zIndex: 50, width: "min(360px, 100%)", ...(openCalendar === "return" ? { right: 0 } : { left: 0 }) }}>
+                      <div style={{ position: "absolute", top: "100%", marginTop: 8, zIndex: 50, width: "min(360px, 100%)", maxHeight: "min(58vh, 380px)", overflowY: "auto", overflowX: "hidden", ...(openCalendar === "return" ? { right: 0 } : { left: 0 }) }}>
                         {openCalendar === "pickup" ? (
                           <SingleDateCalendar
                             label="Pickup Date"
