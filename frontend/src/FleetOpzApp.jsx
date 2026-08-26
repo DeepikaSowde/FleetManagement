@@ -455,6 +455,10 @@ export default function FleetOpzApp() {
   // Extend mode is the same edit flow, but opened straight on the dates step with
   // a banner making clear the already-collected deposit is NOT charged again.
   const [extendMode, setExtendMode] = useState(false);
+  // Baseline captured when Extend opens, so the rental can auto-reprice as
+  // New Rental = Original Rental + (extra days × daily rate) — preserving the
+  // originally agreed price and adding only the extension at the daily rate.
+  const [extendBaseline, setExtendBaseline] = useState(null);
   // Set to a booking id right after Create Booking succeeds, so the
   // Bookings screen auto-opens that booking's Detail view (Overview tab).
   // Booking.jsx consumes it once and calls back to clear it — see
@@ -1030,10 +1034,21 @@ export default function FleetOpzApp() {
     openEditBookingModal(booking);
     setExtendMode(true);
     setBookingStep(2);
+    // Capture the original period so the effect below can add only the extra
+    // days' rent at the daily rate, keeping the original agreed price intact.
+    const daysBetween = (s, e) => (s && e ? Math.max(0, Math.round((new Date(e) - new Date(s)) / 86400000)) : 0);
+    const origDays = daysBetween(booking.start, booking.end);
+    const rate = Number(booking.rate) || 0;
+    const rr = booking.rentalAmount;
+    const origRental = (rr !== undefined && rr !== null && String(rr).trim() !== "" && !isNaN(Number(rr)))
+      ? Number(rr)
+      : rate * origDays;
+    setExtendBaseline({ origDays, origRental, rate });
   };
 
   const closeNewBookingModal = () => {
     setExtendMode(false);
+    setExtendBaseline(null);
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
@@ -1043,6 +1058,21 @@ export default function FleetOpzApp() {
     setMatchedCustomer(null);
     setCreatedBookingInfo(null);
   };
+
+  // Auto-reprice the rental while extending: as the drop-off date moves, set the
+  // Total Rental Amount to the original price plus the extra days at the daily
+  // rate. Staff can still override it on Pricing & Charges. Skips when there's
+  // no stored daily rate, so a rate-less booking isn't zeroed out.
+  useEffect(() => {
+    if (!extendMode || !extendBaseline || extendBaseline.rate <= 0) return;
+    const { start, end } = newBookingData;
+    const nDays = (start && end)
+      ? Math.max(0, Math.round((new Date(end) - new Date(start)) / 86400000))
+      : extendBaseline.origDays;
+    const newRental = Math.max(0, Math.round(extendBaseline.origRental + (nDays - extendBaseline.origDays) * extendBaseline.rate));
+    setNewBookingData(prev => (String(newRental) === String(prev.rentalAmount) ? prev : { ...prev, rentalAmount: String(newRental) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extendMode, extendBaseline, newBookingData.start, newBookingData.end]);
 
   const [newUserData, setNewUserData] = useState({
     name: "",
@@ -1733,8 +1763,8 @@ export default function FleetOpzApp() {
                 <button onClick={closeNewBookingModal} aria-label="Close" style={{ background: "none", border: "none", fontSize: 18, color: C.textMuted, cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
               </div>
               {extendMode && (
-                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#E7F3EC", border: "1px solid #10B98155", fontSize: 12.5, color: "#1B5E20", lineHeight: 1.5 }}>
-                  🔁 <b>Extending this booking.</b> Change the drop-off date below — the extra rental is added to the Balance Due. The security deposit was already collected at booking and <b>will not be charged again</b>.
+                <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#E7F3EC", border: "1px solid #10B98155", fontSize: 12.5, color: "#1B5E20", lineHeight: 1.55 }}>
+                  🔁 <b>Extending this booking.</b> Change the drop-off date below — the <b>Total Rental Amount</b> recalculates automatically (original price + extra days at the daily rate) and the extra rent flows into the Balance Due. You can still fine-tune it on <b>Pricing &amp; Charges</b>. The security deposit was already collected and <b>will not be charged again</b>.
                 </div>
               )}
               <div style={{ display: "flex", alignItems: "center", marginTop: 16 }}>
