@@ -1622,9 +1622,19 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
         <table style={{ width: "100%", minWidth: 1080, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bg }}>
-              {["Booking ID", "Car", "Customer", "IC / Passport", "Contact", "Rental Period", "Days", "Rate", "Total", "Pickup", "Status", "Actions"].map(h => (
-                <th key={h} style={{ textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
-              ))}
+              {["Booking ID", "Car", "Customer", "IC / Passport", "Contact", "Rental Period", "Days", "Rate", "Total", "Pickup", "Status", "Actions"].map(h => {
+                // Pin the Actions column to the right edge so View/Edit/Delete
+                // stay visible without scrolling the wide table sideways.
+                const pinned = h === "Actions";
+                return (
+                  <th key={h} style={{
+                    textAlign: pinned ? "center" : "left", padding: "9px 12px", fontSize: 10, fontWeight: 600,
+                    color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5,
+                    borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap",
+                    ...(pinned ? { position: "sticky", right: 0, zIndex: 3, background: C.bg, boxShadow: `-8px 0 10px -8px rgba(15,23,42,0.18)` } : {}),
+                  }}>{h}</th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -1633,8 +1643,8 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
               return (
                 <tr key={b.id} data-testid="booking-row" data-booking-id={b.id}
                   onClick={() => setTimelinePlate(b.plate)}
-                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = C.bg; if (e.currentTarget.lastChild) e.currentTarget.lastChild.style.background = C.bg; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; if (e.currentTarget.lastChild) e.currentTarget.lastChild.style.background = C.surface; }}
                   style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: "transparent", transition: "background 0.12s" }}>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navyMid, whiteSpace: "nowrap" }}>{b.id}</td>
                   <td style={{ padding: "11px 12px" }}><PlateBadge plate={b.plate} small /></td>
@@ -1656,18 +1666,18 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: "11px 12px" }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                      <button data-testid="booking-row-view" onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
-                        style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
+                  <td style={{ padding: "9px 12px", position: "sticky", right: 0, zIndex: 2, background: C.surface, boxShadow: `-8px 0 10px -8px rgba(15,23,42,0.15)` }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, whiteSpace: "nowrap" }}>
+                      <button title="View booking" data-testid="booking-row-view" onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
+                        style={{ padding: "5px 10px", fontSize: 11, background: `${C.teal}12`, border: `1px solid ${C.teal}30`, borderRadius: 6, color: C.teal, cursor: "pointer", fontWeight: 600 }}>
                         View
                       </button>
-                      <button data-testid="booking-row-edit" onClick={() => onEditBooking?.(b)}
-                        style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 600 }}>
+                      <button title="Edit booking" data-testid="booking-row-edit" onClick={() => onEditBooking?.(b)}
+                        style={{ padding: "5px 10px", fontSize: 11, background: `${C.teal}12`, border: `1px solid ${C.teal}30`, borderRadius: 6, color: C.teal, cursor: "pointer", fontWeight: 600 }}>
                         Edit
                       </button>
-                      <button data-testid="booking-row-delete" onClick={() => handleDelete(b.id)}
-                        style={{ padding: "4px 8px", fontSize: 10, background: "none", border: "none", color: C.red, cursor: "pointer", fontWeight: 600 }}>
+                      <button title="Delete booking" data-testid="booking-row-delete" onClick={() => handleDelete(b.id)}
+                        style={{ padding: "5px 10px", fontSize: 11, background: `${C.red}10`, border: `1px solid ${C.red}30`, borderRadius: 6, color: C.red, cursor: "pointer", fontWeight: 600 }}>
                         Delete
                       </button>
                     </div>
