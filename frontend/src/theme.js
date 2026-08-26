@@ -58,6 +58,28 @@ const APP_NOW = new Date(new Date().toISOString().slice(0, 10));
 // label has been renamed to "Registration Expiry" — see Fleet.jsx / Alert.jsx.
 export const daysUntil = (d) => Math.ceil((new Date(d) - APP_NOW) / 86400000);
 
+// ── FLEET ASSET VALUE (depreciation) ────────────────────────────────────────
+// A car is worth its full Total Investment the day it's bought and ~nothing once
+// its registration (the `coe` field) expires, so we straight-line its book value
+// from the purchase date down to zero at the registration-expiry date. This is
+// the asset counterpart to the auto "Vehicle Purchase" expense: buying a car
+// doesn't destroy money, it converts cash into a depreciating asset.
+//   value = totalInv × (timeLeftToExpiry / totalLife),  clamped to [0, cost]
+// When the purchase/expiry dates are missing or nonsensical we hold the value at
+// cost rather than guessing a life.
+export const carAssetValue = (c) => {
+  const cost = totalInv(c);
+  if (cost <= 0) return 0;
+  const start = c.purchaseDate ? new Date(c.purchaseDate) : null;
+  const end = c.coe ? new Date(c.coe) : null;
+  if (!start || !end || Number.isNaN(+start) || Number.isNaN(+end) || end <= start) return cost;
+  const frac = Math.max(0, Math.min(1, (end - APP_NOW) / (end - start)));
+  return Math.round(cost * frac);
+};
+
+// Total current book value of every car still owned in the fleet.
+export const fleetAssetValue = (fleet = []) => fleet.reduce((s, c) => s + carAssetValue(c), 0);
+
 // ── DAILY RATE BANDS (SGD/day) ──────────────────────────────────────────────
 // Reference ranges so daily rates can be set sensibly per vehicle category
 // instead of being an arbitrary number. Used as suggested min/max guardrails

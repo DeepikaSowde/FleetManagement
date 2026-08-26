@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell,
 } from "recharts";
-import { C, mono, fmt } from "./theme";
+import { C, mono, fmt, totalInv, carAssetValue, fleetAssetValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows, forfeitedDepositIncome } from "./ledgerUtils";
 import StatTiles from "./StatTiles";
@@ -71,6 +71,32 @@ const LedgerDashboard = ({
   // now flows in via buildLedgerRows. Opening Balance is intentionally not shown.
   const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
   const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
+
+  // ── Balance sheet (assets & net worth) ─────────────────────────────────────
+  // The full car cost is booked as a "Vehicle Purchase" expense, which pulls the
+  // cash balance down — but the car is still an asset you own. We value each car
+  // by straight-line depreciation from its purchase date to its registration
+  // (COE) expiry, then:
+  //   Net Worth = Cash Balance + Fleet Asset Value
+  // so the depreciating asset offsets the purchase expense and the true position
+  // shows through. Only cars still in the fleet are counted.
+  const assetRows = useMemo(() =>
+    fleet.map((c) => {
+      const cost = totalInv(c);
+      const value = carAssetValue(c);
+      return {
+        plate: c.plate,
+        model: `${c.make || ""} ${c.model || ""}`.trim() || c.plate,
+        cost,
+        value,
+        depreciation: Math.max(0, cost - value),
+        depPct: cost > 0 ? ((cost - value) / cost) * 100 : 0,
+      };
+    }).filter((r) => r.cost > 0).sort((a, b) => b.value - a.value),
+  [fleet]);
+  const fleetValue = useMemo(() => fleetAssetValue(fleet), [fleet]);
+  const totalCost = assetRows.reduce((s, r) => s + r.cost, 0);
+  const netWorth = currentBalance + fleetValue;
 
   const kpis = [
     { label: "Current Balance", value: currentBalance, sub: "Investment + Income − Expenses", color: VIZ.aqua, icon: "💵", delta: null },
@@ -174,6 +200,63 @@ const LedgerDashboard = ({
           </Card>
         ))}
       </div>
+
+      {/* Balance Sheet — Assets & Net Worth */}
+      <Card style={cardStyle}>
+        <CardHeader title="Balance Sheet — Assets & Net Worth"
+          subtitle="Cars are assets: valued by straight-line depreciation to registration expiry" />
+        <div style={{ padding: "0 16px 16px" }}>
+          {/* Summary row: Cash + Fleet Asset Value = Net Worth */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
+            {[
+              { label: "Cash Balance", value: currentBalance, color: VIZ.aqua, sub: "Income − Expenses" },
+              { label: "Fleet Asset Value", value: fleetValue, color: VIZ.blue, sub: `Now worth of ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` },
+              { label: "Net Worth", value: netWorth, color: netWorth >= 0 ? UP : DOWN, sub: "Cash + Fleet Value", strong: true },
+            ].map((t) => (
+              <div key={t.label} style={{ padding: "12px 14px", borderRadius: 10, border: `1px solid ${t.strong ? tint(t.color) : "#EFEFEF"}`, background: t.strong ? tint(t.color) : "#FBFBFC" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{t.label}</div>
+                <div style={{ ...mono, fontSize: t.strong ? 21 : 18, fontWeight: 800, color: t.color, marginTop: 6 }}>{fmt(Math.round(t.value))}</div>
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{t.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-vehicle asset table */}
+          {assetRows.length > 0 ? (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr>{["Vehicle", "Invested", "Current Value", "Depreciation"].map((h, i) => <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {assetRows.map((r) => (
+                    <tr key={r.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                      <td style={{ padding: "9px 12px" }}><PlateBadge plate={r.plate} small /></td>
+                      <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: C.textSec, textAlign: "right" }}>{fmt(Math.round(r.cost))}</td>
+                      <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmt(Math.round(r.value))}</td>
+                      <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                        <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: DOWN }}>−{fmt(Math.round(r.depreciation))}</span>
+                        <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>({r.depPct.toFixed(0)}%)</span>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr style={{ borderTop: "2px solid #ECECEC" }}>
+                    <td style={{ padding: "9px 12px", fontSize: 11, fontWeight: 700, color: C.textPri }}>Total</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.textSec, textAlign: "right" }}>{fmt(Math.round(totalCost))}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 800, color: C.navy, textAlign: "right" }}>{fmt(Math.round(fleetValue))}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: DOWN, textAlign: "right" }}>−{fmt(Math.round(totalCost - fleetValue))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles with a recorded investment yet.</div>
+          )}
+
+          <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
+            Each car starts at its Total Investment and depreciates straight-line to zero at its registration (COE) expiry.
+            Because the full purchase is booked as an expense, adding the current fleet value back gives your true <b>Net Worth</b>.
+          </div>
+        </div>
+      </Card>
 
       {/* Revenue & Expense Analysis */}
       <Card style={cardStyle}>
