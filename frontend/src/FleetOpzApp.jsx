@@ -2370,9 +2370,9 @@ export default function FleetOpzApp() {
                 </>
               ) : bookingStep === 3 ? (
                 <>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 16 }}>🧾 Pricing & Charges</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 12 }}>🧾 Pricing & Charges</div>
 
-                  <div style={{ marginBottom: 14 }}>
+                  <div style={{ marginBottom: 10 }}>
                     <label style={bookingFieldLabelStyle}>
                       Total Rental Amount{bookingUnits > 0 ? ` — ${bookingUnits} ${bookingUnitLabel}${bookingUnits === 1 ? "" : "s"}` : ""}
                     </label>
@@ -2480,7 +2480,7 @@ export default function FleetOpzApp() {
                         placeholder="e.g., 9" style={bookingFieldInputStyle(false)} />
                     </div>
                   </div>
-                  <div style={{ marginBottom: 16, fontSize: 10.5, color: C.textMuted }}>
+                  <div style={{ marginBottom: 12, fontSize: 10.5, color: C.textMuted }}>
                     Security Deposit is refundable — collected upfront and included in the Grand Total, returned at the end of the rental.
                   </div>
 
@@ -2525,12 +2525,12 @@ export default function FleetOpzApp() {
               ) : bookingStep === 4 ? (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 6 }}>💰 Security Deposit</div>
-                  <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
                     Collect the refundable security deposit to confirm this booking. The rental amount is collected later, at Vehicle Handover on the pickup day.
                   </div>
 
                   {/* Rental amount (collected at pickup) + Security Deposit (collected now) */}
-                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 18 }}>
+                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 14 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
                       <span style={{ fontSize: 12.5, color: C.textSec }}>Total Rental Amount <span style={{ color: C.textMuted }}>· collected at pickup</span></span>
                       <span style={{ fontSize: 12.5, color: C.textSec, ...mono }}>{formatSGD(bookingTotal)}</span>
