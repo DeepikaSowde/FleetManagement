@@ -132,18 +132,19 @@ const to24h = (hour12, minute, ampm) => {
 // display depends on OS/browser locale rather than anything HTML lets us
 // force. Same label, same grid cell, same field width as before — only the
 // control itself changes.
-const TimeInput12h = ({ value, onChange, style }) => {
+const TimeInput12h = ({ value, onChange, style, disabled }) => {
   const { hour, minute, ampm } = to12h(value);
   const set = (nextHour, nextMinute, nextAmpm) => onChange(to24h(nextHour, nextMinute, nextAmpm));
+  const dstyle = disabled ? { ...style, opacity: 0.55, cursor: "not-allowed" } : style;
   return (
     <div style={{ display: "flex", gap: 6 }}>
-      <select value={hour} onChange={(e) => set(e.target.value, minute, ampm)} style={{ ...style, flex: 1 }}>
+      <select disabled={disabled} value={hour} onChange={(e) => set(e.target.value, minute, ampm)} style={{ ...dstyle, flex: 1 }}>
         {HOUR_OPTIONS_12.map(h => <option key={h} value={h}>{h}</option>)}
       </select>
-      <select value={minute} onChange={(e) => set(hour, e.target.value, ampm)} style={{ ...style, flex: 1 }}>
+      <select disabled={disabled} value={minute} onChange={(e) => set(hour, e.target.value, ampm)} style={{ ...dstyle, flex: 1 }}>
         {MINUTE_OPTIONS_60.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
-      <select value={ampm} onChange={(e) => set(hour, minute, e.target.value)} style={{ ...style, flex: "0 0 68px" }}>
+      <select disabled={disabled} value={ampm} onChange={(e) => set(hour, minute, e.target.value)} style={{ ...dstyle, flex: "0 0 68px" }}>
         <option value="AM">AM</option>
         <option value="PM">PM</option>
       </select>
@@ -184,13 +185,15 @@ const formatTravelDate = (iso) => {
 // share one line — no separate "Pickup/Return Time" row underneath. The time
 // controls stop click propagation so changing the time doesn't toggle the
 // calendar. When no onTimeChange is given it renders date-only (legacy use).
-const TravelDateCard = ({ caption, iso, active, onClick, timeValue, onTimeChange, timeStyle }) => {
+const TravelDateCard = ({ caption, iso, active, onClick, timeValue, onTimeChange, timeStyle, locked }) => {
   const f = formatTravelDate(iso);
   return (
-    <div style={{ flex: 1, border: `1.5px solid ${active ? C.teal : C.border}`, borderRadius: 12, padding: "10px 14px", background: active ? C.tealFaint : C.surface, minWidth: 0, transition: "border-color 0.12s, background 0.12s", boxShadow: active ? `0 0 0 3px ${C.teal}22` : "none" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{caption}</div>
+    <div style={{ flex: 1, border: `1.5px solid ${active ? C.teal : C.border}`, borderRadius: 12, padding: "10px 14px", background: locked ? C.bg : active ? C.tealFaint : C.surface, minWidth: 0, transition: "border-color 0.12s, background 0.12s", boxShadow: active ? `0 0 0 3px ${C.teal}22` : "none" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+        {caption}{locked && <span style={{ marginLeft: 6, fontWeight: 600, color: C.textMuted }}>🔒 Fixed</span>}
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div onClick={onClick} role="button" tabIndex={0} style={{ cursor: "pointer", flexShrink: 0 }}>
+        <div onClick={locked ? undefined : onClick} role="button" tabIndex={locked ? -1 : 0} title={locked ? "Pickup date is fixed while extending" : undefined} style={{ cursor: locked ? "default" : "pointer", flexShrink: 0 }}>
           {f ? (
             <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
               <span style={{ fontSize: 22, fontWeight: 800, color: C.navy, lineHeight: 1 }}>{f.day}</span>
@@ -198,12 +201,12 @@ const TravelDateCard = ({ caption, iso, active, onClick, timeValue, onTimeChange
               <span style={{ fontSize: 11, color: C.textSec, marginLeft: 2 }}>{f.weekday}</span>
             </div>
           ) : (
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.textMuted }}>Select date ▾</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.textMuted }}>{locked ? "— —" : "Select date ▾"}</div>
           )}
         </div>
         {onTimeChange && (
           <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0 }}>
-            <TimeInput12h value={timeValue} onChange={onTimeChange} style={timeStyle} />
+            <TimeInput12h value={timeValue} onChange={onTimeChange} style={timeStyle} disabled={locked} />
           </div>
         )}
       </div>
@@ -2052,6 +2055,7 @@ export default function FleetOpzApp() {
                         calendar as a dropdown (no scrolling); nights chip between. */}
                     <div style={{ display: "flex", alignItems: "stretch", gap: 10 }}>
                       <TravelDateCard caption="Pickup" iso={newBookingData.pickupDate}
+                        locked={extendMode}
                         active={openCalendar === "pickup"}
                         onClick={() => setOpenCalendar(openCalendar === "pickup" ? null : "pickup")}
                         timeValue={newBookingData.pickupTime}
@@ -2211,7 +2215,7 @@ export default function FleetOpzApp() {
                         type="button"
                         onClick={() => setNewBookingData({
                           ...newBookingData,
-                          additionalDrivers: [...newBookingData.additionalDrivers, { id: `${Date.now()}`, name: "", license: "", licenseExpiry: "", contact: "" }],
+                          additionalDrivers: [...newBookingData.additionalDrivers, { id: `${Date.now()}`, name: "", license: "", licenseExpiry: "", contact: "", contactCountryCode: newBookingData.contactCountryCode || "+65" }],
                         })}
                         style={{ fontSize: 11.5, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}
                       >
@@ -2289,16 +2293,52 @@ export default function FleetOpzApp() {
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>Contact Number</label>
-                            <input
-                              type="text"
-                              value={driver.contact}
-                              onChange={(e) => setNewBookingData({
-                                ...newBookingData,
-                                additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contact: e.target.value } : d),
-                              })}
-                              placeholder=" 6598765432"
-                              style={bookingFieldInputStyle(false, !!(driver.contact.trim() && !isValidContactNumber(driver.contact)))}
-                            />
+                            {(() => {
+                              // Same country-code dropdown + local-digits input as the
+                              // Customer Contact Number (Step 1) — each driver keeps its
+                              // own code (defaulted from the customer's) and can change it.
+                              const dCode = driver.contactCountryCode || "+65";
+                              const reqDigits = contactDigitsRequired(dCode);
+                              const badLen = !!(driver.contact.trim() && driver.contact.length !== reqDigits);
+                              return (
+                                <>
+                                  <div style={{ display: "flex", gap: 8 }}>
+                                    <select
+                                      value={dCode}
+                                      onChange={(e) => {
+                                        const newCode = e.target.value;
+                                        const clamped = (driver.contact || "").slice(0, contactDigitsRequired(newCode));
+                                        setNewBookingData({
+                                          ...newBookingData,
+                                          additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contactCountryCode: newCode, contact: clamped } : d),
+                                        });
+                                      }}
+                                      style={{ ...bookingFieldInputStyle(false), width: 96, flex: "0 0 auto", cursor: "pointer" }}
+                                    >
+                                      {CONTACT_COUNTRY_CODES.map(c => (
+                                        <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      type="text"
+                                      value={driver.contact}
+                                      onChange={(e) => {
+                                        const v = e.target.value.replace(/\D/g, "").slice(0, reqDigits);
+                                        setNewBookingData({
+                                          ...newBookingData,
+                                          additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contact: v } : d),
+                                        });
+                                      }}
+                                      placeholder={`${reqDigits}-digit number`}
+                                      style={{ ...bookingFieldInputStyle(false, badLen), flex: 1 }}
+                                    />
+                                  </div>
+                                  <div style={{ fontSize: 10, color: badLen ? C.red : C.textMuted, marginTop: 3 }}>
+                                    {reqDigits} digits required
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
