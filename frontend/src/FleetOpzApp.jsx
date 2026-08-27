@@ -2544,14 +2544,22 @@ export default function FleetOpzApp() {
                     </div>
                     {bookingDeductible > 0 && (
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                        <span>Security Deposit <span style={{ color: C.textMuted }}>(refundable)</span></span>
-                        <span style={mono}>{formatSGD(bookingDeductible)}</span>
+                        {/* On Extend the deposit was already collected at the original
+                            booking, so it's shown for reference but NOT added into the
+                            Grand Total again. New bookings still include it. */}
+                        <span>Security Deposit <span style={{ color: C.textMuted }}>{extendMode ? "(already collected)" : "(refundable)"}</span></span>
+                        <span style={{ ...mono, ...(extendMode ? { color: C.textMuted } : {}) }}>{formatSGD(bookingDeductible)}{extendMode ? " ✓" : ""}</span>
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
                       <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Grand Total</span>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal + bookingDeductible)}</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal + (extendMode ? 0 : bookingDeductible))}</span>
                     </div>
+                    {extendMode && bookingDeductible > 0 && (
+                      <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 6 }}>
+                        Deposit already held from the original booking — not charged again on extension.
+                      </div>
+                    )}
                   </div>
                 </>
               ) : bookingStep === 4 ? (
