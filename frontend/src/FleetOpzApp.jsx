@@ -2810,13 +2810,41 @@ export default function FleetOpzApp() {
                             <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal)}</span>
                           </div>
                         ) : (
+                          // Rental-only breakdown. The Security Deposit is collected in
+                          // Step 4 and is NOT part of bookingTotal, so it never appears
+                          // here. Grand Total = rent + charges + VAT; Balance Due =
+                          // Grand Total − rent already collected now.
                           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                              <span>Total Rental</span>
+                            {[
+                              { label: "Rental Vehicle Charge", value: bookingRateCharge },
+                              { label: "Delivery Charge", value: bookingDeliveryCharge },
+                              { label: "Collection Charge", value: bookingCollectionCharge },
+                              { label: "Additional Driver Charge", value: bookingAdditionalDriverCharge },
+                              { label: "Other Charges", value: bookingOtherCharges },
+                            ].filter(row => row.value > 0 || row.label === "Rental Vehicle Charge").map(row => (
+                              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5, color: C.textSec }}>
+                                <span>{row.label}</span>
+                                <span style={mono}>{formatSGD(row.value)}</span>
+                              </div>
+                            ))}
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.border}`, fontSize: 12.5, color: C.textSec }}>
+                              <span>Subtotal</span>
+                              <span style={mono}>{formatSGD(bookingSubtotal)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 12.5, color: C.textSec }}>
+                              <span>VAT ({bookingVatRatePct || 0}%)</span>
+                              <span style={mono}>{formatSGD(bookingVatAmount)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 13.5, fontWeight: 700, color: C.navy }}>
+                              <span>Grand Total</span>
                               <span style={mono}>{formatSGD(bookingTotal)}</span>
                             </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-                              <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Balance</span>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 0", fontSize: 12.5, color: C.textSec }}>
+                              <span>Amount Collected Now</span>
+                              <span style={mono}>{bookingAmountCollected > 0 ? `− ${formatSGD(bookingAmountCollected)}` : formatSGD(0)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+                              <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Balance Due</span>
                               <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingBalance)}</span>
                             </div>
                           </div>
