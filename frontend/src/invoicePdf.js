@@ -264,9 +264,32 @@ export const generateInvoicePdf = (booking, car, inv) => {
       { w: contentWidth * 0.3, text: amt > 0 ? money(amt) : "", align: "center" },
     ]);
   });
+  // Subtotal → VAT → Total → Amount Paid → Balance Due, all derived from
+  // computeBookingInvoice on the current booking. For an extended booking that
+  // record already covers the whole continuous period (original pickup → latest
+  // return, whole-period rental), so this is one cumulative invoice — no
+  // separate extension amount. Subtotal is derived as Total − VAT so it always
+  // reconciles regardless of taxable/non-taxable charge mix.
+  const invSubtotal = (Number(inv.finalInvoiceTotal) || 0) - (Number(inv.finalVatAmount) || 0);
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: "Subtotal", bold: true },
+    { w: contentWidth * 0.3, text: money(invSubtotal), align: "center" },
+  ]);
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: `VAT (${inv.vatPct || 0}%)` },
+    { w: contentWidth * 0.3, text: money(inv.finalVatAmount), align: "center" },
+  ]);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Total", bold: true },
     { w: contentWidth * 0.3, text: money(inv.finalInvoiceTotal), bold: true, align: "center" },
+  ], 9);
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: "Payments Collected" },
+    { w: contentWidth * 0.3, text: inv.totalPaid > 0 ? `- ${money(inv.totalPaid)}` : money(0), align: "center" },
+  ]);
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: "Balance Due", bold: true },
+    { w: contentWidth * 0.3, text: money(inv.balanceDue), bold: true, align: "center" },
   ], 9);
   y += 10;
 
