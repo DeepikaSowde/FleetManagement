@@ -811,7 +811,10 @@ export default function FleetOpzApp() {
     // Additional Driver Charge becomes mandatory the moment at least one
     // Additional Driver has been added on Step 1 — a driver was added but
     // never priced otherwise slips through silently.
-    if (newBookingData.additionalDrivers.length > 0 && Number(newBookingData.additionalDriverCharge) <= 0) {
+    // When extending, the Additional Driver Charge is not required even if a
+    // driver is on the booking — it was priced (or intentionally left free) at
+    // the original booking, so it must never block an extension.
+    if (!extendMode && newBookingData.additionalDrivers.length > 0 && Number(newBookingData.additionalDriverCharge) <= 0) {
       errors.additionalDriverCharge = "Additional Driver Charge is required when an additional driver has been added.";
     }
     return errors;
@@ -2552,7 +2555,7 @@ export default function FleetOpzApp() {
                                         </div>
                       {newBookingData.additionalDrivers.length > 0 && (
                       <div>
-                        <label style={bookingFieldLabelStyle}>Additional Driver Charge <span style={{ color: C.red }}>*</span></label>
+                        <label style={bookingFieldLabelStyle}>Additional Driver Charge {!extendMode && <span style={{ color: C.red }}>*</span>}{extendMode && <span style={{ color: C.textMuted, fontWeight: 400 }}>(optional)</span>}</label>
                         <input type="number" min="0" value={newBookingData.additionalDriverCharge}
                           onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("additionalDriverCharge"); setNewBookingData({ ...newBookingData, additionalDriverCharge: v }); }}
                           placeholder="0" style={bookingFieldInputStyle(false, !!fieldErrors.additionalDriverCharge)} />
