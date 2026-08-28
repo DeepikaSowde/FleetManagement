@@ -1071,18 +1071,20 @@ export default function FleetOpzApp() {
     setCreatedBookingInfo(null);
   };
 
-  // Auto-reprice the rental while extending: as the drop-off date moves, set the
-  // Total Rental Amount to the original price plus the extra days at the daily
-  // rate. Staff can still override it on Pricing & Charges. Skips when there's
-  // no stored daily rate, so a rate-less booking isn't zeroed out.
+  // Auto-suggest the EXTENSION rental while extending: as the drop-off date
+  // moves, set the (extension) rental to only the extra days × daily rate — the
+  // original booking days / previously agreed rental are NOT included. On save
+  // this becomes a separate "Extension Rental" charge line (see the edit branch
+  // of handleNewBookingSubmit), so the original rental stays intact and the
+  // invoice remains cumulative. Skips when there's no stored daily rate.
   useEffect(() => {
     if (!extendMode || !extendBaseline || extendBaseline.rate <= 0) return;
     const { start, end } = newBookingData;
     const nDays = (start && end)
       ? Math.max(0, Math.round((new Date(end) - new Date(start)) / 86400000))
       : extendBaseline.origDays;
-    const newRental = Math.max(0, Math.round(extendBaseline.origRental + (nDays - extendBaseline.origDays) * extendBaseline.rate));
-    setNewBookingData(prev => (String(newRental) === String(prev.rentalAmount) ? prev : { ...prev, rentalAmount: String(newRental) }));
+    const extension = Math.max(0, Math.round((nDays - extendBaseline.origDays) * extendBaseline.rate));
+    setNewBookingData(prev => (String(extension) === String(prev.rentalAmount) ? prev : { ...prev, rentalAmount: String(extension) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extendMode, extendBaseline, newBookingData.start, newBookingData.end]);
 
@@ -1412,8 +1414,35 @@ export default function FleetOpzApp() {
       // timestamp are identical — only the event type (and thus its label) differs.
       const datesChanged = original && (original.start !== newBookingData.start || original.end !== newBookingData.end);
       const historyEventType = extendMode && datesChanged ? "extended" : "updated";
+      // Extend mode: the rental value entered on Pricing is the EXTENSION only.
+      // Keep the original rentalAmount untouched and add the extension as its own
+      // "Extension Rental" charge line — so the invoice stays cumulative
+      // (original + extension) and the Balance Due grows by only the extension.
+      let extendUpdates = {};
+      if (extendMode) {
+        const nDays = (newBookingData.start && newBookingData.end)
+          ? Math.max(0, Math.round((new Date(newBookingData.end) - new Date(newBookingData.start)) / 86400000))
+          : (extendBaseline?.origDays || 0);
+        const extraDays = Math.max(0, nDays - (extendBaseline?.origDays || 0));
+        const extensionAmt = Number(newBookingData.rentalAmount) || 0;
+        const extensionCharge = extensionAmt > 0 ? [{
+          id: `ext-${Date.now()}`,
+          type: "extension_rental",
+          label: `Extension Rental (${extraDays} day${extraDays === 1 ? "" : "s"})`,
+          amount: extensionAmt,
+          taxable: true,
+          origin: "extension",
+          addedAt: new Date().toISOString(),
+          by: actorName,
+        }] : [];
+        extendUpdates = {
+          rentalAmount: original?.rentalAmount ?? newBookingData.rentalAmount,
+          charges: [...(original?.charges || []), ...extensionCharge],
+        };
+      }
       fleetData.updateBooking(editingBookingId, {
         ...editableFields,
+        ...extendUpdates,
         ageGroup: getAgeGroup(newBookingData.age),
         history: [...(original?.history || []), auditEntry(historyEventType, changed.length ? `Changed: ${changed.join(", ")}` : "Details edited")],
       });
@@ -1632,11 +1661,13 @@ export default function FleetOpzApp() {
   // in extend mode (and its field is hidden below) — the car is already with the
   // customer, there's nothing to deliver.
   const bookingDeliveryCharge = extendMode ? 0 : (Number(newBookingData.deliveryCharge) || 0);
-  // Collection Charge is optional: blank → 0, so it's only added to the subtotal/
-  // total when a real amount is entered.
-  const bookingCollectionCharge = Number(newBookingData.collectionCharge) || 0;
-  const bookingAdditionalDriverCharge = Number(newBookingData.additionalDriverCharge) || 0;
-  const bookingOtherCharges = Number(newBookingData.otherCharges) || 0;
+  // In Extend mode every non-rental charge is forced to 0 for the pricing math:
+  // the original booking already carries its own collection / other / driver
+  // charges (they stay on the invoice), so the extension breakdown/Grand Total
+  // reflects ONLY the extension rental + VAT — nothing is re-charged.
+  const bookingCollectionCharge = extendMode ? 0 : (Number(newBookingData.collectionCharge) || 0);
+  const bookingAdditionalDriverCharge = extendMode ? 0 : (Number(newBookingData.additionalDriverCharge) || 0);
+  const bookingOtherCharges = extendMode ? 0 : (Number(newBookingData.otherCharges) || 0);
   // Security Deposit is refundable, not a rental charge — kept out of the
   // subtotal/VAT/total math and shown only as an informational figure
   // (Step 4 Payment, and later the Charges & Payment tab).
@@ -1646,7 +1677,9 @@ export default function FleetOpzApp() {
   // through VAT with everything else, non-taxable ones are added flat on
   // top, matching how computeBookingInvoice treats origin: "booking" charges
   // once the booking is actually created.
-  const bookingCharges = newBookingData.charges || [];
+  const bookingCharges = extendMode ? [] : (newBookingData.charges || []);
+  // Extension days (Extend mode) = current period − original period, for labels.
+  const bookingExtensionDays = extendMode && extendBaseline ? Math.max(0, bookingUnits - extendBaseline.origDays) : 0;
   const bookingChargesTaxableTotal = bookingCharges.filter(c => c.taxable).reduce((s, c) => s + (Number(c.amount) || 0), 0);
   const bookingChargesNonTaxableTotal = bookingCharges.filter(c => !c.taxable).reduce((s, c) => s + (Number(c.amount) || 0), 0);
   const bookingFixedSubtotal = bookingRateCharge + bookingDeliveryCharge + bookingCollectionCharge + bookingAdditionalDriverCharge + bookingOtherCharges;
@@ -2414,9 +2447,16 @@ export default function FleetOpzApp() {
                 <>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 12 }}>🧾 Pricing & Charges</div>
 
+                  {extendMode && (
+                    <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: C.linen, fontSize: 11, color: C.textSec }}>
+                      Extension only — enter the rental for the <b>{bookingExtensionDays} extra {bookingUnitLabel}{bookingExtensionDays === 1 ? "" : "s"}</b> at {formatSGD(Number(newBookingData.rate) || 0)}/{bookingUnitLabel}. The original booking rental is unchanged; this is added as a separate line and grows the Balance Due.
+                    </div>
+                  )}
                   <div style={{ marginBottom: 10 }}>
                     <label style={bookingFieldLabelStyle}>
-                      Total Rental Amount{bookingUnits > 0 ? ` — ${bookingUnits} ${bookingUnitLabel}${bookingUnits === 1 ? "" : "s"}` : ""}
+                      {extendMode
+                        ? `Extension Rental Amount${bookingExtensionDays > 0 ? ` — ${bookingExtensionDays} extra ${bookingUnitLabel}${bookingExtensionDays === 1 ? "" : "s"}` : ""}`
+                        : `Total Rental Amount${bookingUnits > 0 ? ` — ${bookingUnits} ${bookingUnitLabel}${bookingUnits === 1 ? "" : "s"}` : ""}`}
                     </label>
                     <input
                       type="number"
@@ -2537,12 +2577,12 @@ export default function FleetOpzApp() {
                       rent / Balance Due math; only this displayed total adds the deposit. */}
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
                     {[
-                      { label: "Rental Vehicle Charge", value: bookingRateCharge },
+                      { label: extendMode ? "Extension Rental" : "Rental Vehicle Charge", value: bookingRateCharge },
                       { label: "Delivery Charge", value: bookingDeliveryCharge },
                       { label: "Collection Charge", value: bookingCollectionCharge },
                       { label: "Additional Driver Charge", value: bookingAdditionalDriverCharge },
                       { label: "Other Charges", value: bookingOtherCharges },
-                    ].filter(row => row.value > 0 || row.label === "Rental Vehicle Charge").map(row => (
+                    ].filter(row => row.value > 0 || row.label === "Rental Vehicle Charge" || row.label === "Extension Rental").map(row => (
                       <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
                         <span>{row.label}</span>
                         <span style={mono}>{formatSGD(row.value)}</span>

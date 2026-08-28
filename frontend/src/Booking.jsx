@@ -533,8 +533,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // payment appended to the single `payments` source of truth so Balance Due
     // updates itself.
     const rentAmt = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
-    if (rentAmt > 0 && rentMethod !== "Cash" && !rentReference.trim()) {
-      alert("Enter the Receipt / Reference No. (required unless payment method is Cash).");
+    // Receipt No. is mandatory whenever rent is collected at pickup — for every
+    // payment method, Cash included.
+    if (rentAmt > 0 && !rentReference.trim()) {
+      alert("Please enter the Receipt No. before confirming the handover.");
       return;
     }
     if (rentAmt > 0 && (!rentDate || !rentTime)) { alert("Enter the rent payment date & time"); return; }
