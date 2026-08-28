@@ -2556,13 +2556,15 @@ export default function FleetOpzApp() {
                       <span>VAT ({bookingVatRatePct || 0}%)</span>
                       <span style={mono}>{formatSGD(bookingVatAmount)}</span>
                     </div>
-                    {bookingDeductible > 0 && (
+                    {/* Security Deposit is excluded entirely on Extend — it was
+                        collected at the original booking, so it's neither shown in this
+                        breakdown nor added to the Grand Total. New bookings include it
+                        (refundable, folded into the Grand Total). The locked deposit
+                        field above still shows the amount for reference. */}
+                    {bookingDeductible > 0 && !extendMode && (
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, color: C.textSec }}>
-                        {/* On Extend the deposit was already collected at the original
-                            booking, so it's shown for reference but NOT added into the
-                            Grand Total again. New bookings still include it. */}
-                        <span>Security Deposit <span style={{ color: C.textMuted }}>{extendMode ? "(already collected)" : "(refundable)"}</span></span>
-                        <span style={{ ...mono, ...(extendMode ? { color: C.textMuted } : {}) }}>{formatSGD(bookingDeductible)}{extendMode ? " ✓" : ""}</span>
+                        <span>Security Deposit <span style={{ color: C.textMuted }}>(refundable)</span></span>
+                        <span style={mono}>{formatSGD(bookingDeductible)}</span>
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
