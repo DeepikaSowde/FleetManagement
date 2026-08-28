@@ -1623,7 +1623,12 @@ export default function FleetOpzApp() {
   const bookingRatePct = bookingSuggestedUnitRate > 0
     ? ((bookingImpliedUnitRate - bookingSuggestedUnitRate) / bookingSuggestedUnitRate) * 100
     : 0;
-  const bookingDeliveryCharge = Number(newBookingData.deliveryCharge) || 0;
+  // Delivery Charge never applies when extending a booking, so it's forced to 0
+  // in extend mode (and its field is hidden below) — the car is already with the
+  // customer, there's nothing to deliver.
+  const bookingDeliveryCharge = extendMode ? 0 : (Number(newBookingData.deliveryCharge) || 0);
+  // Collection Charge is optional: blank → 0, so it's only added to the subtotal/
+  // total when a real amount is entered.
   const bookingCollectionCharge = Number(newBookingData.collectionCharge) || 0;
   const bookingAdditionalDriverCharge = Number(newBookingData.additionalDriverCharge) || 0;
   const bookingOtherCharges = Number(newBookingData.otherCharges) || 0;
@@ -2450,14 +2455,18 @@ export default function FleetOpzApp() {
                       them a full row apiece just wasted space. Additional Driver
                       Charge only appears once a driver was added in Step 2. */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 6 }}>
+                    {/* Delivery Charge doesn't apply when extending — the car is
+                        already with the customer — so the field is hidden in extend mode. */}
+                    {!extendMode && (
                     <div>
                       <label style={bookingFieldLabelStyle}>Delivery Charge</label>
                       <input type="number" min="0" value={newBookingData.deliveryCharge}
                         onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, deliveryCharge: v }); }}
                         placeholder="0" style={bookingFieldInputStyle(false)} />
                     </div>
+                    )}
                     <div>
-                      <label style={bookingFieldLabelStyle}>Collection Charge</label>
+                      <label style={bookingFieldLabelStyle}>Collection Charge{extendMode ? " (optional)" : ""}</label>
                       <input type="number" min="0" value={newBookingData.collectionCharge}
                         onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, collectionCharge: v }); }}
                         placeholder="0" style={bookingFieldInputStyle(false)} />
