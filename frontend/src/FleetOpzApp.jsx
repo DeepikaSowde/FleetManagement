@@ -787,7 +787,10 @@ export default function FleetOpzApp() {
     } else if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
       errors.returnTime = "Return Date & Time must be after the Pickup Date & Time";
     }
-    if (!newBookingData.pickup.trim()) errors.pickup = "Pickup Location is required";
+    // Pickup Location is required for a new/edited booking, but NOT when
+    // extending — the pickup already happened, so extending only changes the
+    // drop-off date and shouldn't be blocked on the pickup location.
+    if (!extendMode && !newBookingData.pickup.trim()) errors.pickup = "Pickup Location is required";
     // Drop / Return Location is optional at booking — it's confirmed (and made
     // mandatory) later, at Vehicle Handover.
     if (Number(newBookingData.rate) < 0) errors.rate = "Daily rate cannot be negative";
@@ -1428,6 +1431,7 @@ export default function FleetOpzApp() {
       // Keep the original rentalAmount untouched and add the extension as its own
       // "Extension Rental" charge line — so the invoice stays cumulative
       // (original + extension) and the Balance Due grows by only the extension.
+      const historyEntries = [auditEntry(historyEventType, changed.length ? `Changed: ${changed.join(", ")}` : "Details edited")];
       let extendUpdates = {};
       if (extendMode) {
         const nDays = (newBookingData.start && newBookingData.end)
@@ -1449,12 +1453,26 @@ export default function FleetOpzApp() {
           rentalAmount: original?.rentalAmount ?? newBookingData.rentalAmount,
           charges: [...(original?.charges || []), ...extensionCharge],
         };
+        // "Extended Rent — Collect Now": record any amount taken during the
+        // extension as a payment on the SAME booking (no separate invoice), so
+        // it appends to Payment History and reduces the overall Balance Due.
+        const extRentCollected = Number(newBookingData.amountCollected) || 0;
+        if (extRentCollected > 0) {
+          const addedAt = (newBookingData.amountCollectedDate && newBookingData.amountCollectedTime)
+            ? `${newBookingData.amountCollectedDate}T${newBookingData.amountCollectedTime}`
+            : new Date().toISOString();
+          extendUpdates.payments = [
+            ...(original?.payments || []),
+            { id: `pay-${Date.now()}`, amount: extRentCollected, method: newBookingData.paymentMethod || "Cash", reference: newBookingData.referenceCode || "", addedAt, by: actorName },
+          ];
+          historyEntries.push(auditEntry("payment", `${formatSGD(extRentCollected)} · ${newBookingData.paymentMethod || "Cash"}${newBookingData.referenceCode ? ` · ${newBookingData.referenceCode}` : ""} (extension rent)`));
+        }
       }
       fleetData.updateBooking(editingBookingId, {
         ...editableFields,
         ...extendUpdates,
         ageGroup: getAgeGroup(newBookingData.age),
-        history: [...(original?.history || []), auditEntry(historyEventType, changed.length ? `Changed: ${changed.join(", ")}` : "Details edited")],
+        history: [...(original?.history || []), ...historyEntries],
       });
       closeNewBookingModal();
       setActive("bookings");
@@ -1550,6 +1568,11 @@ export default function FleetOpzApp() {
         returnedAt: new Date().toISOString(),
       } : {}),
       createdAt: new Date().toISOString(),
+      // Freeze the initial booking's Pick-up date/time so the Invoice always
+      // shows the ORIGINAL pickup even after the booking is edited or extended.
+      // Never overwritten later (it's not part of the edit's editableFields).
+      originalPickupDate: newBookingData.pickupDate,
+      originalPickupTime: newBookingData.pickupTime,
       // Persist the resolved Total Rental Amount (blank input → suggested total)
       // so the booking's invoice bills exactly what Pricing & Charges showed.
       rentalAmount: String(bookingRateCharge),
@@ -2629,6 +2652,77 @@ export default function FleetOpzApp() {
                   </div>
                 </>
               ) : bookingStep === 4 ? (
+                extendMode ? (
+                  <>
+                    {/* EXTEND: the deposit was already collected at the original
+                        booking and is never charged again — this step only
+                        collects payment for the newly added rental days. */}
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 6 }}>📅 Extended Rent — Collect Now</div>
+                    <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
+                      The security deposit was already collected at the original booking and is <b>not charged again</b>. Collect payment for the extra rental days below — it's recorded against this same booking and reduces the Balance Due. Optional: you can also collect it later from <b>Pricing &amp; Payment</b>.
+                    </div>
+
+                    {(() => {
+                      const nDays = (newBookingData.start && newBookingData.end)
+                        ? Math.max(0, Math.round((new Date(newBookingData.end) - new Date(newBookingData.start)) / 86400000))
+                        : (extendBaseline?.origDays || 0);
+                      const extraDays = Math.max(0, nDays - (extendBaseline?.origDays || 0));
+                      return (
+                        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 14 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                            <span style={{ fontSize: 12.5, color: C.textSec }}>Extension period</span>
+                            <span style={{ fontSize: 12.5, color: C.textSec, ...mono }}>{extraDays} day{extraDays === 1 ? "" : "s"}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Extension charge <span style={{ fontWeight: 400, color: C.textMuted }}>· added to this booking</span></span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: C.navy, ...mono }}>{formatSGD(bookingTotal)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                      <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "flex-end", gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={bookingFieldLabelStyle}>Extended Rent — Collect Now</label>
+                          <input type="number" min="0" max={bookingTotal || undefined} value={newBookingData.amountCollected}
+                            onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, amountCollected: v }); }}
+                            placeholder="0" style={bookingFieldInputStyle(false)} />
+                        </div>
+                        <button type="button" onClick={() => setNewBookingData({ ...newBookingData, amountCollected: String(bookingTotal) })}
+                          style={{ fontSize: 11, fontWeight: 600, color: C.teal, background: "none", border: `1px solid ${C.teal}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                          Full {formatSGD(bookingTotal)}
+                        </button>
+                      </div>
+                      <div>
+                        <label style={bookingFieldLabelStyle}>Payment Method</label>
+                        <select value={newBookingData.paymentMethod} onChange={(e) => setNewBookingData({ ...newBookingData, paymentMethod: e.target.value })} style={bookingFieldInputStyle(false)}>
+                          <option value="Cash">Cash</option>
+                          <option value="Card">Card</option>
+                          <option value="Bank Transfer">Bank Transfer</option>
+                          <option value="Online">Online</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={bookingFieldLabelStyle}>Transaction ID</label>
+                        <input type="text" value={newBookingData.referenceCode} onChange={(e) => setNewBookingData({ ...newBookingData, referenceCode: e.target.value })} placeholder="Optional — reference / txn ID" style={bookingFieldInputStyle(false)} />
+                      </div>
+                      <div>
+                        <label style={bookingFieldLabelStyle}>Payment Date</label>
+                        <input type="date" value={newBookingData.amountCollectedDate} onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })} style={bookingFieldInputStyle(false)} />
+                      </div>
+                      <div>
+                        <label style={bookingFieldLabelStyle}>Payment Time</label>
+                        <input type="time" value={newBookingData.amountCollectedTime} onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value })} style={bookingFieldInputStyle(false)} />
+                      </div>
+                    </div>
+
+                    <div style={{ border: `1px solid ${C.tealFaint}`, borderRadius: 10, padding: "14px 16px", background: C.tealFaint, display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: C.navy }}>Extension balance after this</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingBalance)}</span>
+                    </div>
+                  </>
+                ) : (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 6 }}>💰 Security Deposit</div>
                   <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
@@ -2814,6 +2908,7 @@ export default function FleetOpzApp() {
                     </>
                   )}
                 </>
+                )
               ) : (
                 <>
                   {createdBookingInfo ? (
