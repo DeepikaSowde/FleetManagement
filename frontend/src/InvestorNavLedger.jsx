@@ -1,13 +1,17 @@
 import React, { useMemo, useState } from "react";
 import { Users, TrendingUp, PiggyBank, Landmark, Coins } from "lucide-react";
+import { C } from "./theme";
 
+// Investor categorical colours, tuned to the app's "coastal atelier" palette
+// (earthy clay / teal / dusty blue / muted purple / sage / dusty rose) so the
+// ownership bars stay distinguishable while matching the rest of FleetOpz.
 const INVESTOR_COLORS = {
-  1: "#C9A227",
-  2: "#4FA8A0",
-  3: "#6FA8DC",
-  4: "#A98CD9",
-  5: "#8FBF6B",
-  6: "#D98FB0",
+  1: "#9D7A4C", // clay / amber
+  2: "#296A63", // brand teal
+  3: "#6C8D92", // dusty sea-blue
+  4: "#8A6D9E", // muted purple
+  5: "#6C8164", // sage
+  6: "#AE7B84", // dusty rose
 };
 
 const fmt = (n) =>
@@ -154,40 +158,40 @@ export default function InvestorNavLedger() {
   return (
     <div
       style={{
-        background: "#10161D",
-        color: "#ECE8DE",
-        minHeight: "100vh",
+        background: "transparent",
+        color: C.textPri,
         fontFamily: "'Inter', system-ui, sans-serif",
       }}
-      className="p-4 pb-10"
+      className="pb-10"
     >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap');
-        .serif { font-family: 'Source Serif 4', Georgia, serif; }
-        .mono { font-family: 'JetBrains Mono', monospace; }
-        input[type=number] {
-          background: #1B2430; border: 1px solid #2E3A48; color: #ECE8DE;
+        .navl-serif { font-family: 'Source Serif 4', Georgia, serif; }
+        .navl-mono { font-family: 'JetBrains Mono', monospace; }
+        .navl input[type=number] {
+          background: #FFFFFF; border: 1px solid ${C.border}; color: ${C.textPri};
           border-radius: 6px; padding: 4px 6px; width: 100%; font-family: 'JetBrains Mono', monospace;
           font-size: 13px;
         }
-        input[type=number]:focus { outline: 2px solid #C9A227; }
-        .panel { background: #1B2430; border: 1px solid #2E3A48; border-radius: 10px; }
-        table.ledger { border-collapse: collapse; width: 100%; font-size: 12px; }
-        table.ledger th, table.ledger td { padding: 6px 8px; text-align: right; white-space: nowrap; }
-        table.ledger th:first-child, table.ledger td:first-child { text-align: left; position: sticky; left: 0; background: #1B2430; }
-        table.ledger thead th { color: #8B95A1; font-weight: 500; border-bottom: 1px solid #2E3A48; }
-        table.ledger tbody tr:not(:last-child) td { border-bottom: 1px solid #212B38; }
+        .navl input[type=number]:focus { outline: 2px solid ${C.teal}; }
+        .navl .panel { background: ${C.surface}; border: 1px solid ${C.border}; border-radius: 10px; }
+        .navl table.ledger { border-collapse: collapse; width: 100%; font-size: 12px; }
+        .navl table.ledger th, .navl table.ledger td { padding: 6px 8px; text-align: right; white-space: nowrap; }
+        .navl table.ledger th:first-child, .navl table.ledger td:first-child { text-align: left; position: sticky; left: 0; background: ${C.surface}; }
+        .navl table.ledger thead th { color: ${C.textMuted}; font-weight: 600; border-bottom: 1px solid ${C.border}; }
+        .navl table.ledger tbody tr:not(:last-child) td { border-bottom: 1px solid ${C.linen}; }
       `}</style>
 
+      <div className="navl">
       {/* Header */}
       <div className="mb-5">
         <div className="flex items-center gap-2 mb-1">
-          <Landmark size={20} color="#C9A227" />
-          <h1 className="serif" style={{ fontSize: 22, fontWeight: 700 }}>
+          <Landmark size={20} color={C.teal} />
+          <h1 className="navl-serif" style={{ fontSize: 22, fontWeight: 700, color: C.navy }}>
             Investor NAV Ledger
           </h1>
         </div>
-        <p style={{ color: "#8B95A1", fontSize: 13 }}>
+        <p style={{ color: C.textMuted, fontSize: 13 }}>
           Founding capital → annual operations → reserves & enterprise value → new-round dilution → dividends.
           New investors buy in at that year's NAV per share, so incoming capital never dilutes existing
           investors' rupee value — only their percentage ownership.
@@ -195,9 +199,9 @@ export default function InvestorNavLedger() {
       </div>
 
       {/* Founding capital */}
-      <Section title="Founding Capital (Year 0)" icon={<Users size={16} color="#C9A227" />}>
+      <Section title="Founding Capital (Year 0)" icon={<Users size={16} color={C.amber} />}>
         <div className="flex items-center gap-2 mb-3">
-          <label style={{ fontSize: 12, color: "#8B95A1" }}>Issue price / share</label>
+          <label style={{ fontSize: 12, color: C.textMuted }}>Issue price / share</label>
           <input
             type="number"
             style={{ maxWidth: 100 }}
@@ -209,7 +213,7 @@ export default function InvestorNavLedger() {
           {founders.map((f) => (
             <Row key={f.id} color={INVESTOR_COLORS[f.id]} label={f.name}>
               <input type="number" value={f.amount} onChange={(e) => updateFounder(f.id, e.target.value)} />
-              <span className="mono" style={{ fontSize: 11, color: "#8B95A1", minWidth: 90, textAlign: "right" }}>
+              <span className="navl-mono" style={{ fontSize: 11, color: C.textMuted, minWidth: 90, textAlign: "right" }}>
                 {(f.amount / issuePrice).toLocaleString("en-IN", { maximumFractionDigits: 0 })} sh
               </span>
             </Row>
@@ -218,13 +222,13 @@ export default function InvestorNavLedger() {
       </Section>
 
       {/* New rounds */}
-      <Section title="New Capital Rounds" icon={<Coins size={16} color="#4FA8A0" />}>
+      <Section title="New Capital Rounds" icon={<Coins size={16} color={C.teal} />}>
         {newRounds.map((n) => (
           <div key={n.id} className="flex items-center gap-2 mb-2">
             <span style={{ width: 10, height: 10, borderRadius: 99, background: INVESTOR_COLORS[n.id], flexShrink: 0 }} />
             <span style={{ fontSize: 13, minWidth: 76 }}>{n.name}</span>
             <input type="number" value={n.amount} onChange={(e) => updateNewRound(n.id, "amount", e.target.value)} />
-            <span style={{ fontSize: 12, color: "#8B95A1" }}>after year</span>
+            <span style={{ fontSize: 12, color: C.textMuted }}>after year</span>
             <input
               type="number"
               style={{ maxWidth: 56 }}
@@ -233,13 +237,13 @@ export default function InvestorNavLedger() {
             />
           </div>
         ))}
-        <p style={{ fontSize: 11, color: "#8B95A1", marginTop: 4 }}>
+        <p style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
           Shares issued = investment ÷ NAV per share at end of that year (before the round is added).
         </p>
       </Section>
 
       {/* Annual operations */}
-      <Section title="Annual Operations & Policy" icon={<TrendingUp size={16} color="#6FA8DC" />}>
+      <Section title="Annual Operations & Policy" icon={<TrendingUp size={16} color={C.tealLight} />}>
         <div className="overflow-x-auto">
           <table className="ledger">
             <thead>
@@ -261,28 +265,28 @@ export default function InvestorNavLedger() {
       </Section>
 
       {/* Ownership ledger — signature visual */}
-      <Section title="Ownership Ledger by Year" icon={<PiggyBank size={16} color="#A98CD9" />}>
+      <Section title="Ownership Ledger by Year" icon={<PiggyBank size={16} color="#8A6D9E" />}>
         <div className="flex flex-wrap gap-3 mb-3">
           {allInvestorIds.map((id) => (
             <div key={id} className="flex items-center gap-1">
               <span style={{ width: 9, height: 9, borderRadius: 2, background: investorMeta[id].color }} />
-              <span style={{ fontSize: 11, color: "#8B95A1" }}>{investorMeta[id].name}</span>
+              <span style={{ fontSize: 11, color: C.textMuted }}>{investorMeta[id].name}</span>
             </div>
           ))}
         </div>
         <div className="grid gap-3">
           {yearResults.map((yr) => (
             <div key={yr.year}>
-              <div className="flex justify-between mb-1" style={{ fontSize: 11, color: "#8B95A1" }}>
+              <div className="flex justify-between mb-1" style={{ fontSize: 11, color: C.textMuted }}>
                 <span>
                   Year {yr.year}
                   {yr.injection ? ` — ${yr.injection.name} enters` : ""}
                 </span>
-                <span className="mono">
+                <span className="navl-mono">
                   NAV {fmt(yr.nav)} · {fmt(yr.navPerShare)}/sh
                 </span>
               </div>
-              <div style={{ display: "flex", height: 22, borderRadius: 5, overflow: "hidden", border: "1px solid #2E3A48" }}>
+              <div style={{ display: "flex", height: 22, borderRadius: 5, overflow: "hidden", border: `1px solid ${C.border}` }}>
                 {yr.holdings.map((h) => (
                   <div
                     key={h.id}
@@ -301,7 +305,7 @@ export default function InvestorNavLedger() {
       </Section>
 
       {/* NAV composition table */}
-      <Section title="Net Asset Value Composition" icon={<Landmark size={16} color="#C9A227" />}>
+      <Section title="Net Asset Value Composition" icon={<Landmark size={16} color={C.amber} />}>
         <div className="overflow-x-auto">
           <table className="ledger">
             <thead>
@@ -316,37 +320,37 @@ export default function InvestorNavLedger() {
               <tr>
                 <td>Paid-up capital</td>
                 {yearResults.map((y) => (
-                  <td key={y.year} className="mono">{fmt(y.paidUpCapital)}</td>
+                  <td key={y.year} className="navl-mono">{fmt(y.paidUpCapital)}</td>
                 ))}
               </tr>
               <tr>
                 <td>Reserves (retained profit)</td>
                 {yearResults.map((y) => (
-                  <td key={y.year} className="mono">{fmt(y.reserves)}</td>
+                  <td key={y.year} className="navl-mono">{fmt(y.reserves)}</td>
                 ))}
               </tr>
               <tr>
                 <td>Enterprise value add</td>
                 {yearResults.map((y) => (
-                  <td key={y.year} className="mono">{fmt(y.evCum)}</td>
+                  <td key={y.year} className="navl-mono">{fmt(y.evCum)}</td>
                 ))}
               </tr>
-              <tr style={{ fontWeight: 600 }}>
+              <tr style={{ fontWeight: 700 }}>
                 <td>Company NAV</td>
                 {yearResults.map((y) => (
-                  <td key={y.year} className="mono" style={{ color: "#C9A227" }}>{fmt(y.nav)}</td>
+                  <td key={y.year} className="navl-mono" style={{ color: C.amber }}>{fmt(y.nav)}</td>
                 ))}
               </tr>
               <tr>
                 <td>NAV / share</td>
                 {yearResults.map((y) => (
-                  <td key={y.year} className="mono">{fmt(y.navPerShare)}</td>
+                  <td key={y.year} className="navl-mono">{fmt(y.navPerShare)}</td>
                 ))}
               </tr>
               <tr>
                 <td>Total shares</td>
                 {yearResults.map((y) => (
-                  <td key={y.year} className="mono">{Math.round(y.totalShares).toLocaleString("en-IN")}</td>
+                  <td key={y.year} className="navl-mono">{Math.round(y.totalShares).toLocaleString("en-IN")}</td>
                 ))}
               </tr>
             </tbody>
@@ -355,7 +359,7 @@ export default function InvestorNavLedger() {
       </Section>
 
       {/* Dividends table */}
-      <Section title="Dividends Paid by Year" icon={<Coins size={16} color="#4FA8A0" />}>
+      <Section title="Dividends Paid by Year" icon={<Coins size={16} color={C.teal} />}>
         <div className="overflow-x-auto">
           <table className="ledger">
             <thead>
@@ -377,12 +381,12 @@ export default function InvestorNavLedger() {
                   {yearResults.slice(1).map((y) => {
                     const h = y.holdings.find((hh) => hh.id === id);
                     return (
-                      <td key={y.year} className="mono">
+                      <td key={y.year} className="navl-mono">
                         {h && h.dividendThisYear > 0 ? fmt(h.dividendThisYear) : "—"}
                       </td>
                     );
                   })}
-                  <td className="mono" style={{ color: "#4FA8A0" }}>
+                  <td className="navl-mono" style={{ color: C.teal, fontWeight: 600 }}>
                     {fmt(finalYear.holdings.find((h) => h.id === id)?.cumDividend || 0)}
                   </td>
                 </tr>
@@ -393,7 +397,7 @@ export default function InvestorNavLedger() {
       </Section>
 
       {/* Final position cards */}
-      <Section title={`Final Position — Year ${finalYear.year}`} icon={<Users size={16} color="#8FBF6B" />}>
+      <Section title={`Final Position — Year ${finalYear.year}`} icon={<Users size={16} color={C.green} />}>
         <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
           {finalYear.holdings.map((h) => (
             <div key={h.id} className="panel p-3">
@@ -401,15 +405,16 @@ export default function InvestorNavLedger() {
                 <span style={{ width: 8, height: 8, borderRadius: 99, background: investorMeta[h.id].color }} />
                 <span style={{ fontSize: 12, fontWeight: 600 }}>{h.name}</span>
               </div>
-              <div className="mono" style={{ fontSize: 18, color: "#ECE8DE" }}>{fmtPct(h.pct)}</div>
-              <div style={{ fontSize: 11, color: "#8B95A1" }}>
+              <div className="navl-mono" style={{ fontSize: 18, color: C.navy, fontWeight: 700 }}>{fmtPct(h.pct)}</div>
+              <div style={{ fontSize: 11, color: C.textMuted }}>
                 {Math.round(h.shares).toLocaleString("en-IN")} shares · value {fmt(h.value)}
               </div>
-              <div style={{ fontSize: 11, color: "#4FA8A0" }}>+{fmt(h.cumDividend)} dividends received</div>
+              <div style={{ fontSize: 11, color: C.teal }}>+{fmt(h.cumDividend)} dividends received</div>
             </div>
           ))}
         </div>
       </Section>
+      </div>
     </div>
   );
 }
@@ -419,7 +424,7 @@ function Section({ title, icon, children }) {
     <div className="panel p-4 mb-4">
       <div className="flex items-center gap-2 mb-3">
         {icon}
-        <h2 style={{ fontSize: 14, fontWeight: 600, letterSpacing: 0.2 }}>{title}</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.2, color: C.navy }}>{title}</h2>
       </div>
       {children}
     </div>
