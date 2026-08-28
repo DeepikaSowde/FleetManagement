@@ -1,4 +1,9 @@
 import { useState, useRef, useEffect } from "react";
+import {
+  LayoutDashboard, Car, CalendarCheck, CalendarDays, Users, ClipboardList,
+  BookOpen, Briefcase, Coins, Receipt, TrendingUp, ArrowLeftRight,
+  Bell, UserCog, Settings as SettingsIcon,
+} from "lucide-react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
@@ -1100,25 +1105,27 @@ export default function FleetOpzApp() {
 
   // Order matters: the sidebar groups by index — Operations = slice(0,4),
   // Finance = slice(4,8), System = slice(8).
+  // Nav icons are lucide-react components (rendered as <n.icon />), giving the
+  // sidebar a clean, consistent line-icon set instead of mixed emoji.
   const NAV = [
     // Operations
-    { id: "dashboard", label: "Dashboard", icon: "📊" },
-    { id: "fleet", label: "Fleet", icon: "🚗" },
-    { id: "car-availability", label: "Car Availability", icon: "🚙" },
-    { id: "bookings", label: "Bookings", icon: "📅" },
-    { id: "customers", label: "Customers", icon: "👥" },
-    { id: "today-ops", label: "Today's Operations", icon: "🗓️" },
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "fleet", label: "Fleet", icon: Car },
+    { id: "car-availability", label: "Car Availability", icon: CalendarCheck },
+    { id: "bookings", label: "Bookings", icon: CalendarDays },
+    { id: "customers", label: "Customers", icon: Users },
+    { id: "today-ops", label: "Today's Operations", icon: ClipboardList },
     // Finance
-    { id: "ledger", label: "Ledger", icon: "📒" },
-    { id: "investors", label: "Investors", icon: "💼" },
-    { id: "earnings", label: "Earnings", icon: "💰" },
-    { id: "expenses", label: "Expenses", icon: "📝" },
-    { id: "pl", label: "P&L", icon: "📈" },
-    { id: "cash-flow", label: "Cash Flow", icon: "💸" },
+    { id: "ledger", label: "Ledger", icon: BookOpen },
+    { id: "investors", label: "Investors", icon: Briefcase },
+    { id: "earnings", label: "Earnings", icon: Coins },
+    { id: "expenses", label: "Expenses", icon: Receipt },
+    { id: "pl", label: "P&L", icon: TrendingUp },
+    { id: "cash-flow", label: "Cash Flow", icon: ArrowLeftRight },
     // System
-    { id: "alerts", label: "Alerts", icon: "🔔", badge: fleetData.alerts.length },
-    { id: "usermgmt", label: "User Management", icon: "👤" },
-    { id: "settings", label: "Settings", icon: "⚙️" },
+    { id: "alerts", label: "Alerts", icon: Bell, badge: fleetData.alerts.length },
+    { id: "usermgmt", label: "User Management", icon: UserCog },
+    { id: "settings", label: "Settings", icon: SettingsIcon },
   ];
 
   const TAB_CONTENT = {
@@ -1732,7 +1739,7 @@ export default function FleetOpzApp() {
           {NAV.slice(0, 6).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
-              <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
               {n.label}
             </div>
           ))}
@@ -1741,7 +1748,7 @@ export default function FleetOpzApp() {
           {NAV.slice(6, 12).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
-              <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
               {n.label}
             </div>
           ))}
@@ -1750,7 +1757,7 @@ export default function FleetOpzApp() {
           {NAV.slice(12).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
-              <span style={{ width: 16, textAlign: "center" }}>{n.icon}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
               <span style={{ flex: 1 }}>{n.label}</span>
               {n.badge && <span style={{ background: C.red, color: "#fff", fontSize: 9, padding: "1px 6px", borderRadius: 10, fontWeight: 700 }}>{n.badge}</span>}
             </div>
