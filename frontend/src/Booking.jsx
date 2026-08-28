@@ -570,9 +570,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // the full amount without stepping through the rest of the handover form.
   const handleCollectNow = () => {
     if (inv.balanceDue <= 0) return;
-    // Receipt / Reference No. is mandatory for any non-cash payment.
-    if (rentMethod !== "Cash" && !rentReference.trim()) {
-      alert("Enter the Receipt / Reference No. (required unless payment method is Cash).");
+    // Receipt No. is mandatory for every payment method, Cash included.
+    if (!rentReference.trim()) {
+      alert("Please enter the Receipt No. before collecting the payment.");
       return;
     }
     if (!rentDate || !rentTime) {
