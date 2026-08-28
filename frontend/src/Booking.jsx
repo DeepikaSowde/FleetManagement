@@ -323,6 +323,7 @@ const SectionHeading = ({ children, size = "md", style }) => (
 const ACTIVITY_META = {
   created: { icon: "🆕", label: "Booking Created", color: C.teal },
   updated: { icon: "✏️", label: "Booking Edited", color: "#f59e0b" },
+  extended: { icon: "📅", label: "Booking Extended", color: "#f59e0b" },
   handover: { icon: "🔑", label: "Vehicle Handover", color: "#0ea5e9" },
   charge: { icon: "🧾", label: "Additional Charge Added", color: "#f97316" },
   payment: { icon: "💳", label: "Payment Recorded", color: "#16a34a" },

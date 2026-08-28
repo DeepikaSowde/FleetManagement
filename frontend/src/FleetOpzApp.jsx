@@ -1407,10 +1407,15 @@ export default function FleetOpzApp() {
         if (original.customer !== newBookingData.customer) changed.push("customer");
         if ((original.pickup || "") !== (newBookingData.pickup || "") || (original.drop || "") !== (newBookingData.drop || "")) changed.push("locations");
       }
+      // When the dates were changed via the Extend Booking action, log this as
+      // "Booking Extended" instead of "Booking Edited". The description and
+      // timestamp are identical — only the event type (and thus its label) differs.
+      const datesChanged = original && (original.start !== newBookingData.start || original.end !== newBookingData.end);
+      const historyEventType = extendMode && datesChanged ? "extended" : "updated";
       fleetData.updateBooking(editingBookingId, {
         ...editableFields,
         ageGroup: getAgeGroup(newBookingData.age),
-        history: [...(original?.history || []), auditEntry("updated", changed.length ? `Changed: ${changed.join(", ")}` : "Details edited")],
+        history: [...(original?.history || []), auditEntry(historyEventType, changed.length ? `Changed: ${changed.join(", ")}` : "Details edited")],
       });
       closeNewBookingModal();
       setActive("bookings");
