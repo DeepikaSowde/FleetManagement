@@ -992,16 +992,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Next step: Complete Vehicle Handover</div>
                       <div style={{ fontSize: 11.5, color: C.textMuted }}>
-                        {pickupArrived
-                          ? "Collect the rent, record starting mileage, fuel & condition to activate the rental and generate the Rental Agreement."
-                          : `Handover opens at the scheduled pickup time — ${formatDateTime(booking.start)}.`}
+                        Collect the rent, record starting mileage, fuel &amp; condition to activate the rental and generate the Rental Agreement.
+                        {!pickupArrived && booking.start ? ` (Scheduled pickup: ${formatDateTime(booking.start)} — early handover is allowed.)` : ""}
                       </div>
                     </div>
                     <Btn
                       primary
-                      disabled={!pickupArrived}
-                      title={!pickupArrived ? `Available at the scheduled pickup time (${formatDateTime(booking.start)})` : undefined}
-                      style={!pickupArrived ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
                       onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setShowHandover(true); }}
                     >
                       Complete Handover →
