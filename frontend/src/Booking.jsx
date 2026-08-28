@@ -476,8 +476,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [startingMileage, setStartingMileage] = useState(booking.startingMileage || "");
   const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
   const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
-  // Return / drop-off location. Optional at booking, but mandatory here at
-  // handover — prefilled from the booking's drop if one was entered.
+  // Drop-off / return location. Optional at booking, but mandatory at Vehicle
+  // Return (before confirming and generating the invoice) — prefilled from the
+  // booking's drop if one was entered earlier.
   const [returnLocation, setReturnLocation] = useState(booking.drop || "");
   const [showHandover, setShowHandover] = useState(false);
   // Security-deposit refund modal (replaces the old window.prompt). A refund
@@ -526,7 +527,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const handleCompleteHandover = () => {
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
-    if (!returnLocation.trim()) { alert("Return Location is required to complete the handover."); return; }
 
     // Rent at pickup — optional, not a gate. Clamp to Balance Due (no overpay);
     // a non-cash payment needs a Receipt/Reference No. It's recorded as a real
@@ -550,7 +550,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         }]
       : [];
     const updates = {
-      startingMileage, fuelLevel, vehicleCondition, drop: returnLocation.trim(), handoverAt: new Date().toISOString(), status: "Active",
+      startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
       ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
       history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
     };
@@ -624,6 +624,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Enter the Actual Return Date & Time");
       return;
     }
+    if (!returnLocation.trim()) {
+      alert("Drop Location is required to confirm the return.");
+      return;
+    }
     if (fuelCharge !== "" && Number(fuelCharge) < 0) {
       alert("Fuel Charge cannot be negative");
       return;
@@ -690,6 +694,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const compKm = Math.max(0, Number(mileageIn) - custB);
     onUpdateBooking(booking.id, {
       mileageIn, customerReturnMileage, fuelIn, actualReturnAt, charges,
+      drop: returnLocation.trim(),
       forceCompleted: true,
       returnedAt: new Date().toISOString(),
       history: withHistory(histEntry("returned", `Final odo ${mileageIn} km · ${custKm.toLocaleString()} customer / ${compKm.toLocaleString()} company km · Fuel ${fuelIn}`)),
@@ -699,7 +704,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // post-return booking locally to invoice off the actual return date
     // (and the Fuel Charge just computed) immediately rather than waiting a
     // render behind.
-    const returnedBooking = { ...booking, mileageIn, fuelIn, actualReturnAt, charges };
+    const returnedBooking = { ...booking, mileageIn, fuelIn, actualReturnAt, charges, drop: returnLocation.trim() };
     const finalInv = computeBookingInvoice(returnedBooking);
     generateInvoicePdf(returnedBooking, car, finalInv);
   };
@@ -918,10 +923,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <select value={fuelLevel} onChange={(e) => setFuelLevel(e.target.value)} style={detailInputStyle}>
                           {FUEL_LEVELS.map((f) => <option key={f} value={f}>{f}</option>)}
                         </select>
-                      </div>
-                      <div style={{ flex: "1 1 180px" }}>
-                        <div style={detailFieldLabelStyle}>Return Location <span style={{ color: C.red }}>*</span></div>
-                        <input type="text" value={returnLocation} onChange={(e) => setReturnLocation(e.target.value)} placeholder="e.g., Clementi" style={detailInputStyle} />
                       </div>
                     </div>
                     <div style={{ marginTop: 10 }}>
@@ -1220,6 +1221,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <select value={fuelIn} onChange={(e) => setFuelIn(e.target.value)} style={detailInputStyle}>
                         {FUEL_LEVELS.map(f => <option key={f} value={f}>{f}</option>)}
                       </select>
+                    </div>
+                    <div style={{ flex: "1 1 180px" }}>
+                      <div style={detailFieldLabelStyle}>Drop Location <span style={{ color: C.red }}>*</span></div>
+                      <input type="text" value={returnLocation} onChange={(e) => setReturnLocation(e.target.value)} placeholder="e.g., Clementi" style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "0 1 110px" }}>
                       <div style={detailFieldLabelStyle}>Fuel Charge</div>
