@@ -223,6 +223,19 @@ const computeFleetStatus = (car, bookingsWithStatus) => {
   return "Available";
 };
 
+// Collapse the 5 live fleet statuses (computeFleetStatus) into the 3 buckets the
+// Fleet page and Dashboard actually count on — so every count agrees:
+//   On Rental  = On Rental + Ending Today (+ Overdue) — car is physically out
+//   Maintenance = Maintenance             — car is in the garage (its own bucket)
+//   Available  = Available + Upcoming     — free to rent right now
+// Option B: Maintenance is NOT folded into Available, so
+//   Total = Available + On Rental + Maintenance.
+export const fleetDisplayStatus = (status) => {
+  if (status === "On Rental" || status === "Ending Today" || status === "Overdue") return "On Rental";
+  if (status === "Maintenance") return "Maintenance";
+  return "Available";
+};
+
 // Projects a car's availability forward day-by-day (used by the Booking
 // module's 10-day timeline, and by the New Booking wizard's Pickup/Return
 // calendars — both read this same projection, so neither can disagree with
@@ -1085,6 +1098,14 @@ export const useFleetData = () => {
       Completed: bookingsWithStatus.filter(b => b.status === "Completed").length,
       Cancelled: bookingsWithStatus.filter(b => b.status === "Cancelled").length,
     };
+    // Collapsed 3-bucket counts — the single source the Fleet page tiles/tabs
+    // and Dashboard KPIs all use, so they always agree (Option B: Maintenance
+    // is its own bucket). Available + On Rental + Maintenance = totalFleet.
+    const fleetDisplayCounts = { Available: 0, "On Rental": 0, Maintenance: 0 };
+    fleetWithStatus.forEach(c => {
+      const b = fleetDisplayStatus(c.status);
+      fleetDisplayCounts[b] = (fleetDisplayCounts[b] || 0) + 1;
+    });
 
     return {
       totalFleet,
@@ -1098,14 +1119,18 @@ export const useFleetData = () => {
       pendingEarnings,
       totalExpenses,
       netProfit,
-      // Dashboard's 6 required buckets:
-      availableCount: fleetStatusCounts.Available,
+      // Dashboard/Fleet KPI buckets — use the collapsed 3-bucket counts so the
+      // tiles match the Fleet page tabs (available = Available + Upcoming;
+      // on-rental = On Rental + Ending Today; maintenance = its own bucket).
+      // upcomingCount / endingTodayCount stay available for sub-labels.
+      availableCount: fleetDisplayCounts.Available,
       upcomingCount: fleetStatusCounts.Upcoming,
-      onRentalCount: fleetStatusCounts["On Rental"],
+      onRentalCount: fleetDisplayCounts["On Rental"],
       endingTodayCount: fleetStatusCounts["Ending Today"],
       completedCount: bookingStatusCounts.Completed,
-      maintenanceCount: fleetStatusCounts.Maintenance,
+      maintenanceCount: fleetDisplayCounts.Maintenance,
       fleetStatusCounts,
+      fleetDisplayCounts,
       bookingStatusCounts,
     };
   };

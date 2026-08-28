@@ -223,18 +223,16 @@ const Dashboard = ({
   const { data: revData, target: revTarget } = buildSeries();
 
   // ── Fleet Status buckets ────────────────────────────────────────────────────
-  const fsc = metrics.fleetStatusCounts || {};
-  // These five buckets are exactly the statuses computeFleetStatus can return,
-  // so they partition the fleet and the bars always sum to 100%. "Ending Today"
-  // (which folds in Overdue cars — still physically out) previously had no row,
-  // so those cars silently vanished from the breakdown; "Inactive" was never a
-  // real fleet status, so its row was always 0 and has been removed.
+  // Use the SAME collapsed 3-bucket counts as the KPI tiles and the Fleet page
+  // so every fleet number on the app agrees (Option B: Maintenance is its own
+  // bucket). Available = Available + Upcoming; On Rent = On Rental + Ending Today
+  // (+ Overdue); Maintenance on its own. These partition the fleet, so the bars
+  // still sum to 100%.
+  const fdc = metrics.fleetDisplayCounts || {};
   const fleetRows = [
-    { label: "Available", count: fsc.Available || 0, color: D.green },
-    { label: "On Rent", count: fsc["On Rental"] || 0, color: D.blue },
-    { label: "Ending Today", count: fsc["Ending Today"] || 0, color: D.red },
-    { label: "Reserved (Upcoming)", count: fsc.Upcoming || 0, color: D.purple },
-    { label: "Maintenance", count: fsc.Maintenance || 0, color: D.orange },
+    { label: "Available", count: fdc.Available || 0, color: D.green },
+    { label: "On Rent", count: fdc["On Rental"] || 0, color: D.blue },
+    { label: "Maintenance", count: fdc.Maintenance || 0, color: D.orange },
   ];
 
   // ── Today's Operations ──────────────────────────────────────────────────────

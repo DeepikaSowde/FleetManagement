@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions } from "./theme";
+import { fleetDisplayStatus } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
 import StatTiles from "./StatTiles";
@@ -595,23 +596,16 @@ export const STATUS_PILL_FAINT = {
 const getStatusPillColor = (status) => STATUS_PILL_COLORS[status] || C.navy;
 const getStatusPillFaint = (status) => STATUS_PILL_FAINT[status] || C.tealFaint;
 
-// Fleet page only distinguishes Available / On Rental — there's no separate
-// Maintenance concept here anymore, only tracked Vehicle Expenses.
-// "Upcoming" and "Ending Today" are booking-level nuances the Dashboard and
-// Booking module still rely on — the underlying car.status (and everything
-// computeFleetStatus/Dashboard/Booking derive from it) is untouched. This is
-// purely a presentation-layer remap applied right before this page renders a
-// status pill or filters by status:
+// The Fleet page collapses the 5 live statuses into 3 buckets, using the SAME
+// shared rule (fleetDisplayStatus) the Dashboard and metrics use, so every count
+// agrees. Option B: Maintenance is its own bucket (a garaged car isn't
+// "available"), so the pills read Available / On Rental / Maintenance and
+// Total = Available + On Rental + Maintenance.
 //   Upcoming      → Available    (car is free until the future booking starts)
 //   Ending Today  → On Rental    (still out until the day ends)
-//   Maintenance   → Available    (no separate Maintenance state on this page)
+//   Maintenance   → Maintenance  (its own bucket)
 //   everything else passes through unchanged
-const FLEET_PAGE_STATUS_MAP = {
-  Upcoming: "Available",
-  "Ending Today": "On Rental",
-  Maintenance: "Available",
-};
-const toFleetPageStatus = (status) => FLEET_PAGE_STATUS_MAP[status] || status;
+const toFleetPageStatus = (status) => fleetDisplayStatus(status);
 
 // ─────────────────────────────────────────────────────────────────────────
 // Fleet — table/filter list + modal details overlay
@@ -723,9 +717,9 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
       <div style={{ marginBottom: 16 }}>
         <StatTiles
           totalVehicles={fleet.length}
-          onRent={fleet.filter((c) => c.status === "On Rental").length}
-          available={fleet.filter((c) => c.status === "Available").length}
-          maintenance={fleet.filter((c) => c.status === "Maintenance").length}
+          onRent={fleet.filter((c) => toFleetPageStatus(c.status) === "On Rental").length}
+          available={fleet.filter((c) => toFleetPageStatus(c.status) === "Available").length}
+          maintenance={fleet.filter((c) => toFleetPageStatus(c.status) === "Maintenance").length}
           totalCustomers={customers.length}
           totalBookings={bookings.length}
         />
