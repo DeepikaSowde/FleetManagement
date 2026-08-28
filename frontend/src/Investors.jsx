@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
+import InvestorNavLedger from "./InvestorNavLedger";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
@@ -1293,8 +1294,8 @@ export default function Investors({
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      {view !== "detail" && (
-        <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${C.border}` }}>
+      {view !== "detail" && view !== "nav" && (
+        <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
           {[
             { key: "dashboard", label: "Overview Dashboard" },
             { key: "list", label: "All Investors" },
@@ -1316,6 +1317,46 @@ export default function Investors({
               {t.label}
             </button>
           ))}
+          {/* Separate NAV Ledger button — opens the equity/cap-table simulator. */}
+          <button
+            onClick={() => setView("nav")}
+            style={{
+              marginLeft: "auto",
+              marginBottom: 6,
+              padding: "7px 14px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: IC.primary,
+              background: "none",
+              border: `1px solid ${IC.primary}`,
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            📊 NAV Ledger
+          </button>
+        </div>
+      )}
+
+      {view === "nav" && (
+        <div>
+          <button
+            onClick={() => setView("dashboard")}
+            style={{
+              padding: "8px 14px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: IC.primary,
+              background: "none",
+              border: `1px solid ${IC.primary}`,
+              borderRadius: 8,
+              cursor: "pointer",
+              marginBottom: 12,
+            }}
+          >
+            ← Back to Investors
+          </button>
+          <InvestorNavLedger />
         </div>
       )}
 
