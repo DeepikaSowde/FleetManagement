@@ -1072,18 +1072,29 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     rental: Grand Total = deposit + rental; Paid = deposit paid +
                     rent paid; Balance = the two combined. The deposit is still
                     returned at vehicle return (refund flow). */}
-                {[
-                  { label: "Total Rental", value: inv.finalInvoiceTotal, color: C.navy },
-                  { label: "Security Deposit", value: inv.deposit, color: C.navy },
-                  { label: "Grand Total", value: inv.grandTotal, color: C.navy },
-                  { label: "Total Paid", value: inv.grandTotalPaid, color: C.teal },
-                  { label: "Balance Due", value: inv.grandBalanceDue, color: grandBalanceColor },
-                ].map(row => (
-                  <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
-                    <span style={{ color: C.textSec }}>{row.label}</span>
-                    <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
-                  </div>
-                ))}
+                {(() => {
+                  // Extended Rental = the sum of every "Extension Rental" charge
+                  // line added by the Extend action. It's already inside
+                  // inv.finalInvoiceTotal (and therefore Grand Total / Balance Due),
+                  // so we surface it as its own line without changing those totals.
+                  const extensionTotal = (booking.charges || [])
+                    .filter(c => c.origin === "extension" || c.type === "extension_rental")
+                    .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+                  const rows = [
+                    { label: "Total Rental", value: inv.finalInvoiceTotal, color: C.navy },
+                    ...(extensionTotal > 0 ? [{ label: "↳ incl. Extended Rental", value: extensionTotal, color: C.teal, sub: true }] : []),
+                    { label: "Security Deposit", value: inv.deposit, color: C.navy },
+                    { label: "Grand Total", value: inv.grandTotal, color: C.navy },
+                    { label: "Total Paid", value: inv.grandTotalPaid, color: C.teal },
+                    { label: "Balance Due", value: inv.grandBalanceDue, color: grandBalanceColor },
+                  ];
+                  return rows.map(row => (
+                    <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: row.sub ? 11.5 : 12.5 }}>
+                      <span style={{ color: row.sub ? C.textMuted : C.textSec, paddingLeft: row.sub ? 12 : 0 }}>{row.label}</span>
+                      <span style={{ fontWeight: row.sub ? 600 : 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
+                    </div>
+                  ));
+                })()}
                 {inv.deposit > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
                     <span>Deposit {booking.depositRefunded ? "returned" : "held"} (refundable)</span>
