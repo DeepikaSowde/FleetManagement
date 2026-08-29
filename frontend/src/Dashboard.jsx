@@ -488,15 +488,22 @@ const Dashboard = ({
         {/* P&L Summary */}
         <Card style={{ padding: 18, display: "flex", flexDirection: "column" }}>
           <SectionHead title="P&L Summary" note={`(${refMonthLabel})`} />
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 16 }}>
+          {/* Four compact KPI blocks */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 9, marginBottom: 16 }}>
             {plStats.map((s) => {
+              const accent = s.label === "Total Revenue" ? D.green
+                : s.label === "Total Expenses" ? D.orange
+                : s.label === "Net Profit" ? D.blue : D.purple;
               const good = s.delta == null ? null : (s.goodUp ? s.delta >= 0 : s.delta <= 0);
               return (
-                <div key={s.label}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: D.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>{s.label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: D.ink, marginTop: 3 }}>{s.value}</div>
+                <div key={s.label} style={{ border: `1px solid ${D.line}`, borderRadius: 10, padding: "9px 11px", background: D.card, minHeight: 56, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: D.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: D.ink, marginTop: 5, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.value}</div>
                   {s.delta != null && (
-                    <div style={{ fontSize: 11, fontWeight: 600, marginTop: 2, color: good ? D.green : D.red }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: 3, color: good ? D.green : D.red }}>
                       {s.delta >= 0 ? "↑" : "↓"} {Math.abs(s.delta).toFixed(1)}%
                     </div>
                   )}
@@ -504,21 +511,22 @@ const Dashboard = ({
               );
             })}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: "auto" }}>
+          {/* Donut + aligned legend */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: "auto" }}>
             <Donut size={120} thickness={19}
               data={denom > 0 ? [{ value: revenue, color: D.green }, { value: expTotal, color: D.orange }] : [{ value: 1, color: D.track }]}
               centerTop={fmt(Math.round(netProfit))} centerBottom="net" />
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: D.green }} />
-                <span style={{ fontSize: 12, color: D.body, flex: 1 }}>Revenue ({revShare}%)</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: D.ink }}>{fmt(Math.round(revenue))}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: D.orange }} />
-                <span style={{ fontSize: 12, color: D.body, flex: 1 }}>Expenses ({expShare}%)</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: D.ink }}>{fmt(Math.round(expTotal))}</span>
-              </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {[
+                { label: "Revenue", share: revShare, val: revenue, color: D.green, top: true },
+                { label: "Expenses", share: expShare, val: expTotal, color: D.orange, top: false },
+              ].map((r) => (
+                <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: r.top ? 8 : 0, marginBottom: r.top ? 8 : 0, borderBottom: r.top ? `1px solid ${D.line}` : "none" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: r.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11.5, color: D.body, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label} <span style={{ color: D.faint }}>({r.share}%)</span></span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: D.ink, flexShrink: 0 }}>{fmt(Math.round(r.val))}</span>
+                </div>
+              ))}
             </div>
           </div>
           <div style={{ marginTop: 16, textAlign: "center" }}>
@@ -533,15 +541,24 @@ const Dashboard = ({
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: D.faint, fontSize: 12 }}>No expenses recorded</div>
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Donut size={130} thickness={20}
+              <Donut size={116} thickness={18}
                 data={expSlices}
                 centerTop={fmtK(expTotalCat)} centerBottom="SGD" />
-              <div style={{ flex: 1 }}>
-                {expSlices.slice(0, 6).map((s) => (
-                  <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11.5, color: D.body, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name} ({s.pct}%)</span>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: D.ink }}>{fmt(s.value)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Header row: Category · SGD Amount · % */}
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto 34px", columnGap: 8, alignItems: "center", paddingBottom: 7, marginBottom: 2, borderBottom: `1px solid ${D.line}` }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: D.faint }}>Category</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: D.faint, textAlign: "right" }}>SGD Amount</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: D.faint, textAlign: "right" }}>%</span>
+                </div>
+                {expSlices.slice(0, 6).map((s, i, arr) => (
+                  <div key={s.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto 34px", columnGap: 8, alignItems: "center", padding: "5.5px 0", borderBottom: i < arr.length - 1 ? `1px solid ${D.line}` : "none" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2.5, background: s.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11.5, color: D.body, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
+                    </span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: D.ink, textAlign: "right", whiteSpace: "nowrap" }}>{s.value.toLocaleString()}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: D.muted, textAlign: "right" }}>{s.pct}%</span>
                   </div>
                 ))}
               </div>
