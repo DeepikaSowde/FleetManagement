@@ -533,10 +533,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // payment appended to the single `payments` source of truth so Balance Due
     // updates itself.
     const rentAmt = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
-    // Receipt No. is mandatory whenever rent is collected at pickup — for every
-    // payment method, Cash included.
-    if (rentAmt > 0 && !rentReference.trim()) {
-      alert("Please enter the Receipt No. before confirming the handover.");
+    // Transaction ID is mandatory for every payment method EXCEPT Cash (for
+    // Cash it's optional, since there's no transaction reference).
+    if (rentAmt > 0 && rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Transaction ID (required unless the payment method is Cash).");
       return;
     }
     if (rentAmt > 0 && (!rentDate || !rentTime)) { alert("Enter the rent payment date & time"); return; }
@@ -570,9 +570,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // the full amount without stepping through the rest of the handover form.
   const handleCollectNow = () => {
     if (inv.balanceDue <= 0) return;
-    // Receipt No. is mandatory for every payment method, Cash included.
-    if (!rentReference.trim()) {
-      alert("Please enter the Receipt No. before collecting the payment.");
+    // Transaction ID is mandatory for every payment method EXCEPT Cash.
+    if (rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Transaction ID (required unless the payment method is Cash).");
       return;
     }
     if (!rentDate || !rentTime) {
@@ -960,8 +960,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 160px" }}>
-                            <div style={detailFieldLabelStyle}>Receipt / Ref No. *</div>
-                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder="required" style={detailInputStyle} />
+                            <div style={detailFieldLabelStyle}>Transaction ID{rentMethod === "Cash" ? "" : " *"}</div>
+                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder={rentMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
                           </div>
                         </div>
                         {(() => {

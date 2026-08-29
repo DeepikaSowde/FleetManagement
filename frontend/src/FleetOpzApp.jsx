@@ -1568,11 +1568,12 @@ export default function FleetOpzApp() {
         returnedAt: new Date().toISOString(),
       } : {}),
       createdAt: new Date().toISOString(),
-      // Freeze the initial booking's Pick-up date/time so the Invoice always
-      // shows the ORIGINAL pickup even after the booking is edited or extended.
-      // Never overwritten later (it's not part of the edit's editableFields).
+      // Freeze the initial booking's Pick-up date/time/location so the Invoice
+      // always shows the ORIGINAL pickup even after the booking is edited or
+      // extended. Never overwritten later (not part of the edit's editableFields).
       originalPickupDate: newBookingData.pickupDate,
       originalPickupTime: newBookingData.pickupTime,
+      originalPickup: newBookingData.pickup,
       // Persist the resolved Total Rental Amount (blank input → suggested total)
       // so the booking's invoice bills exactly what Pricing & Charges showed.
       rentalAmount: String(bookingRateCharge),
@@ -2250,13 +2251,17 @@ export default function FleetOpzApp() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
                     <div>
                       <Input
-                        label="Pickup Location"
+                        label={extendMode ? "Pickup Location 🔒 Fixed" : "Pickup Location"}
                         value={newBookingData.pickup}
                         onChange={(e) => {
+                          if (extendMode) return; // pickup location is frozen while extending
                           clearFieldError("pickup");
                           setNewBookingData({ ...newBookingData, pickup: e.target.value });
                         }}
                         placeholder="Dubai Marina"
+                        readOnly={extendMode}
+                        title={extendMode ? "Pickup location is fixed while extending" : undefined}
+                        style={extendMode ? { background: C.bg, color: C.textMuted, cursor: "not-allowed" } : undefined}
                       />
                       <FieldErr msg={fieldErrors.pickup} />
                     </div>

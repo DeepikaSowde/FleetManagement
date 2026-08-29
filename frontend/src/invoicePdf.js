@@ -33,7 +33,6 @@ const fmtDateSlash = (iso) => {
 };
 
 // Receipt Date uses DD-MM-YYYY (dashes), matching the reference.
-const fmtDateDash = (d) => `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()}`;
 
 const fmtTime12h = (hhmm) => {
   if (!hhmm) return "—";
@@ -134,11 +133,12 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y += 2;
 
   const now = new Date();
+  // The invoice never shows the generated/downloaded date & time — only the
+  // Receipt Number is printed (dates come from the booking lifecycle: the
+  // frozen pickup and the actual return recorded at Vehicle Return).
   y = cellRow(y, [
-    { w: contentWidth * 0.22, text: "Receipt Date", bold: true },
-    { w: contentWidth * 0.28, text: fmtDateDash(now) },
     { w: contentWidth * 0.22, text: "Receipt Number", bold: true },
-    { w: contentWidth * 0.28, text: buildReceiptNumber(booking.id, now) },
+    { w: contentWidth * 0.78, text: buildReceiptNumber(booking.id, now) },
   ]);
   y += 7;
 
@@ -210,7 +210,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
   ]);
   y = cellRow(y, [
     { w: col0, text: "Location", bold: true },
-    { w: col1, text: booking.pickup || "—", align: "center" },
+    { w: col1, text: booking.originalPickup || booking.pickup || "—", align: "center" },
     { w: col2, text: booking.drop || "—", align: "center" },
   ]);
   y += 7;
