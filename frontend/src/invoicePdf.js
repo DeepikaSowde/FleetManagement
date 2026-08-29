@@ -32,7 +32,7 @@ const fmtDateSlash = (iso) => {
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
 
-// Receipt Date uses DD-MM-YYYY (dashes), matching the reference.
+const pad3 = (n) => String(n).padStart(3, "0");
 
 const fmtTime12h = (hhmm) => {
   if (!hhmm) return "—";
@@ -44,14 +44,24 @@ const fmtTime12h = (hhmm) => {
 
 const money = (n) => `SGD ${(Number(n) || 0).toFixed(2)}`;
 
-// A receipt number in the same shape as the reference ("20260723001") —
-// today's date plus a 3-digit sequence derived from the booking id. Swap
-// this out for a real running counter if/when one exists.
-const buildReceiptNumber = (bookingId, now) => {
-  const yyyymmdd = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
-  const digits = String(bookingId || "").replace(/\D/g, "");
-  const seq = (digits.slice(-3) || "1").padStart(3, "0");
-  return `${yyyymmdd}${seq}`;
+// Auto Receipt/Reference Number in the shape "20260829001" — the issue date
+// (YYYYMMDD) plus a 3-digit sequence that resets to 001 each day. The next
+// sequence is derived by scanning the receipt numbers already assigned to
+// other bookings for the same day, so numbers stay contiguous and never
+// collide. Callers persist the returned value onto the booking so it becomes
+// permanent (see ensureReceiptNumber in Booking.jsx) — this must be called
+// only when actually issuing a new number, not on every re-render.
+export const nextReceiptNumber = (bookings = [], when = new Date()) => {
+  const prefix = `${when.getFullYear()}${pad2(when.getMonth() + 1)}${pad2(when.getDate())}`;
+  let maxSeq = 0;
+  for (const b of bookings) {
+    const rn = b && b.receiptNumber;
+    if (typeof rn === "string" && rn.length === 11 && rn.startsWith(prefix)) {
+      const seq = parseInt(rn.slice(8), 10);
+      if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+    }
+  }
+  return `${prefix}${pad3(maxSeq + 1)}`;
 };
 
 export const generateInvoicePdf = (booking, car, inv) => {
@@ -132,13 +142,15 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y = sectionHeader(y, "RECEIPT");
   y += 2;
 
-  const now = new Date();
   // The invoice never shows the generated/downloaded date & time — only the
   // Receipt Number is printed (dates come from the booking lifecycle: the
-  // frozen pickup and the actual return recorded at Vehicle Return).
+  // frozen pickup and the actual return recorded at Vehicle Return). The
+  // number is the permanent one assigned to the booking; nextReceiptNumber is
+  // the last-resort fallback for any legacy booking that never got one.
+  const receiptNo = booking.receiptNumber || nextReceiptNumber([], new Date());
   y = cellRow(y, [
     { w: contentWidth * 0.22, text: "Receipt Number", bold: true },
-    { w: contentWidth * 0.78, text: buildReceiptNumber(booking.id, now) },
+    { w: contentWidth * 0.78, text: receiptNo },
   ]);
   y += 7;
 

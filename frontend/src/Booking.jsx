@@ -9,7 +9,7 @@ import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
 const BOOKING_STATUS_COLORS = { ...STATUS_PILL_COLORS, Active: C.teal, Overdue: C.red, Completed: C.green, Closed: C.navy };
 const getBookingStatusPillColor = (status) => BOOKING_STATUS_COLORS[status] || C.navy;
 import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
-import { generateInvoicePdf } from "./invoicePdf";
+import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
 import { generateRentalAgreementPdf } from "./rentalAgreement";
 
 
@@ -524,6 +524,19 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   }
   const STAGES = ["Upcoming", "Handover", "On Rental", "Returned", "Closed"];
 
+  // Assign a permanent Receipt/Reference Number the first time an invoice is
+  // issued for this booking, then reuse it forever. The number is YYYYMMDD +
+  // a 3-digit daily sequence (resets to 001 each day); the sequence is derived
+  // by scanning the numbers already assigned across all bookings so it stays
+  // contiguous and unique. Once set it's stored on the booking and never
+  // recomputed, so re-downloading the invoice always shows the same number.
+  const ensureReceiptNumber = (bk) => {
+    if (bk.receiptNumber) return bk.receiptNumber;
+    const receiptNumber = nextReceiptNumber(bookings);
+    onUpdateBooking(bk.id, { receiptNumber });
+    return receiptNumber;
+  };
+
   const handleCompleteHandover = () => {
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
@@ -694,9 +707,13 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const custB = customerReturnMileage === "" ? Number(mileageIn) : Number(customerReturnMileage);
     const custKm = Math.max(0, custB - (Number(booking.startingMileage) || 0));
     const compKm = Math.max(0, Number(mileageIn) - custB);
+    // Issue (or reuse) the permanent Receipt Number now, so the invoice
+    // produced right below and any later re-download share the same number.
+    const receiptNumber = booking.receiptNumber || nextReceiptNumber(bookings);
     onUpdateBooking(booking.id, {
       mileageIn, customerReturnMileage, fuelIn, actualReturnAt, charges,
       drop: returnLocation.trim(),
+      receiptNumber,
       forceCompleted: true,
       returnedAt: new Date().toISOString(),
       history: withHistory(histEntry("returned", `Final odo ${mileageIn} km · ${custKm.toLocaleString()} customer / ${compKm.toLocaleString()} company km · Fuel ${fuelIn}`)),
@@ -706,7 +723,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // post-return booking locally to invoice off the actual return date
     // (and the Fuel Charge just computed) immediately rather than waiting a
     // render behind.
-    const returnedBooking = { ...booking, mileageIn, fuelIn, actualReturnAt, charges, drop: returnLocation.trim() };
+    const returnedBooking = { ...booking, mileageIn, fuelIn, actualReturnAt, charges, drop: returnLocation.trim(), receiptNumber };
     const finalInv = computeBookingInvoice(returnedBooking);
     generateInvoicePdf(returnedBooking, car, finalInv);
   };
@@ -847,7 +864,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 title={!alreadyReturned ? "Available once the vehicle has been marked as returned" : undefined}
                 onClick={() => {
                   if (!alreadyReturned) return;
-                  generateInvoicePdf(booking, car, inv);
+                  const receiptNumber = ensureReceiptNumber(booking);
+                  generateInvoicePdf({ ...booking, receiptNumber }, car, inv);
                 }}
               >🧾 Invoice</Btn>
               <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: 18, color: C.textMuted, cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
