@@ -9,9 +9,9 @@ import { Card, Btn } from "./components";
 // on the booking itself (opPickup / opReturn objects in its JSONB details), so
 // no separate operations table is needed. Assignees come from the employees API.
 
-const VIZ = { blue: "#2a78d6", green: "#008300", amber: "#eda100", violet: "#4a3aa7", red: "#e34948", aqua: "#1baf7a" };
+const VIZ = { blue: "#2563EB", green: "#16A34A", amber: "#D97706", violet: "#8B5CF6", red: "#EF4444", aqua: "#0EA5A5" };
 const tint = (hex) => `${hex}1A`;
-const cardStyle = { background: "#fff", borderRadius: 14, border: "1px solid #ECECEC", boxShadow: "0 1px 2px rgba(16,24,40,0.06)" };
+const cardStyle = { background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)" };
 
 const toDateStr = (v) => { const d = new Date(v); return isNaN(d) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10); };
 const timeStr = (v) => { const d = new Date(v); return isNaN(d) ? "--" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
@@ -19,7 +19,7 @@ const shortDate = (v) => { const d = new Date(v); return isNaN(d) ? String(v).sl
 const prettyDate = (ymd) => { const d = new Date(ymd + "T00:00:00"); return isNaN(d) ? ymd : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 const STATUS_STYLE = {
-  Pending: { color: "#92400e", bg: "#f59e0b1f" },
+  Pending: { color: "#B45309", bg: "#FDF0DD" },
   Assigned: { color: VIZ.blue, bg: tint(VIZ.blue) },
   Completed: { color: VIZ.green, bg: tint(VIZ.green) },
 };
@@ -132,6 +132,16 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
 
   const clearFilters = () => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setEmpFilter("all"); };
 
+  // Quick type/status tabs. They map onto the type & status filters, resetting
+  // the other so each tab is a single, clear view.
+  const activeTab = typeFilter === "Pickup" ? "Pickup" : typeFilter === "Return" ? "Return"
+    : statusFilter === "Pending" ? "Pending" : statusFilter === "Completed" ? "Completed" : "all";
+  const selectTab = (key) => {
+    if (key === "all") { setTypeFilter("all"); setStatusFilter("all"); }
+    else if (key === "Pickup" || key === "Return") { setTypeFilter(key); setStatusFilter("all"); }
+    else { setStatusFilter(key); setTypeFilter("all"); }
+  };
+
   const th = { textAlign: "left", padding: "10px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid #EFEFEF`, whiteSpace: "nowrap" };
   const selectStyle = { padding: "7px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 12, fontFamily: "inherit", color: C.textPri, outline: "none", cursor: "pointer" };
   const cellSelect = { ...selectStyle, padding: "5px 8px", fontSize: 11 };
@@ -141,7 +151,13 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Header row: date + refresh + add */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <div style={{ fontSize: 11, color: C.textMuted }}>Overview of all operations scheduled for {prettyDate(date)}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: C.greenFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📅</div>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>Today's Operations</div>
+            <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>Overview of all operations scheduled for {prettyDate(date)}</div>
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={selectStyle} />
           <Btn primary onClick={onNewBooking}>＋ Add Operation</Btn>
@@ -151,7 +167,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
       {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {kpis.map((k) => (
-          <Card key={k.label} style={cardStyle}>
+          <Card key={k.label} style={{ ...cardStyle, borderBottom: `3px solid ${k.color}` }}>
             <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 44, height: 44, borderRadius: "50%", background: tint(k.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{k.icon}</div>
               <div>
@@ -200,6 +216,24 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
           <Btn onClick={clearFilters}>↻ Clear Filters</Btn>
         </div>
       </Card>
+
+      {/* Type / status tabs */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {[
+          { key: "all", label: "All Operations", icon: "☰", color: VIZ.green },
+          { key: "Pickup", label: "Pickups", icon: "🚚", color: VIZ.green },
+          { key: "Return", label: "Returns", icon: "🔄", color: VIZ.blue },
+          { key: "Pending", label: "Pending", icon: "⏱️", color: VIZ.amber },
+          { key: "Completed", label: "Completed", icon: "✅", color: VIZ.violet },
+        ].map((t) => {
+          const active = activeTab === t.key;
+          return (
+            <button key={t.key} onClick={() => selectTab(t.key)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, border: `1px solid ${active ? "transparent" : C.border}`, background: active ? t.color : C.surface, color: active ? "#fff" : C.textSec, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              <span style={{ fontSize: 14 }}>{t.icon}</span> {t.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Operations table */}
       <Card style={cardStyle}>
@@ -268,16 +302,29 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
           </table>
         </div>
         {rows.length === 0 && (
-          <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>
-            No operations for {prettyDate(date)}{allOps.length > 0 ? " match your filters" : ""}.
+          <div style={{ padding: "48px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 52, opacity: 0.5 }}>📋</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, marginTop: 8 }}>No operations found{allOps.length > 0 ? " for your filters" : isToday ? " for today" : ""}</div>
+            <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 4 }}>There are no operations scheduled for {prettyDate(date)}.</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 18 }}>
+              <Btn primary onClick={onNewBooking}>＋ Add Operation</Btn>
+              <Btn onClick={() => setDate(new Date().toISOString().slice(0, 10))}>🗓 View Calendar</Btn>
+            </div>
           </div>
         )}
         {rows.length > 0 && (
-          <div style={{ padding: "10px 16px", fontSize: 11, color: C.textMuted, borderTop: "1px solid #F3F3F3" }}>
+          <div style={{ padding: "10px 16px", fontSize: 11, color: C.textMuted, borderTop: `1px solid ${C.border}` }}>
             Showing {rows.length} of {allOps.length} operations for {prettyDate(date)}
           </div>
         )}
       </Card>
+
+      {/* Tip banner */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.greenFaint, borderRadius: 10, padding: "12px 16px", fontSize: 12, color: C.textSec }}>
+        <span style={{ color: C.green, fontSize: 15 }}>ⓘ</span>
+        <span><b style={{ color: C.navy }}>Tip:</b> You can add new operations or view upcoming schedules in the calendar.</span>
+        <span style={{ marginLeft: "auto", fontSize: 20 }}>🚚</span>
+      </div>
     </div>
   );
 };
