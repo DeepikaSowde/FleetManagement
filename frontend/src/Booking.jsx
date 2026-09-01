@@ -501,6 +501,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // the teammate's Collect Rent / Collect Now fix.
   const [rentReference, setRentReference] = useState("");
   const [fullyCollectedNotice, setFullyCollectedNotice] = useState(false);
+  // Which monthly-contract rent row is currently being collected (index into
+  // booking.rentSchedule), or null. Reuses the rentMethod/rentReference/rentDate/
+  // rentTime state for the inline collect form.
+  const [collectingMonthIdx, setCollectingMonthIdx] = useState(null);
+  // Cancel Rental (long-term contracts): inline form state.
+  const [showCancelForm, setShowCancelForm] = useState(false);
+  const [cancelDate, setCancelDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelDepositOut, setCancelDepositOut] = useState("");
+  const [cancelRefundRef, setCancelRefundRef] = useState("");
   const returnRef = useRef(null);
 
   if (!booking) return null;
@@ -608,6 +618,64 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     setRentAtPickup("");
     setRentReference("");
     setFullyCollectedNotice(true);
+  };
+
+  // Collect one month's rent on a long-term monthly contract: marks that row of
+  // the rent schedule Paid (with method/reference/date) and logs it in history.
+  // Kept in the booking's rentSchedule (not the daily invoice's payments) so the
+  // contract's month-by-month collection is tracked without distorting the
+  // standard invoice balance; revenue recognition happens off this schedule.
+  const handleCollectMonth = (idx) => {
+    const sched = booking.rentSchedule || [];
+    const row = sched[idx];
+    if (!row || row.paid) return;
+    if (rentMethod !== "Cash" && !rentReference.trim()) {
+      alert("Enter the Transaction ID (required unless the payment method is Cash).");
+      return;
+    }
+    if (!rentDate || !rentTime) { alert("Enter the payment date & time"); return; }
+    const amt = Number(row.amount) || 0;
+    const at = `${rentDate}T${rentTime}`;
+    const ref = rentReference.trim();
+    const newSchedule = sched.map((r, i) =>
+      i === idx ? { ...r, paid: true, paidAt: at, method: rentMethod, reference: ref } : r);
+    onUpdateBooking(booking.id, {
+      rentSchedule: newSchedule,
+      history: withHistory(histEntry("payment", `Collected ${fmt(amt)} — Month ${row.month} rent (${rentMethod})${ref ? ` · ${ref}` : ""}`)),
+    });
+    setCollectingMonthIdx(null);
+    setRentReference("");
+  };
+
+  // Open the Cancel Rental form, defaulting Deposit Out to the deposit actually
+  // held (what would be returned to the customer).
+  const openCancelForm = () => {
+    setCancelDepositOut(String(Number(booking.depositPaid) || Number(booking.deductible) || 0));
+    setCancelReason("");
+    setCancelRefundRef("");
+    setCancelDate(new Date().toISOString().slice(0, 10));
+    setShowCancelForm(true);
+  };
+
+  // Cancel a long-term contract: flag it cancelled (which releases the car from
+  // all availability/conflict checks and sets its status to "Cancelled"), stop
+  // future rent by keeping only already-paid months, and record the deposit
+  // refund as Deposit Out (amount + reference + date). Deposit Out is a returned
+  // liability — Stage 4 surfaces it as a cash outflow that is never revenue.
+  const handleCancelRental = () => {
+    if (!cancelDate) { alert("Enter the cancellation date"); return; }
+    const depositOut = Number(cancelDepositOut) || 0;
+    const paidRows = (booking.rentSchedule || []).filter(r => r.paid);
+    onUpdateBooking(booking.id, {
+      cancelled: true,
+      cancelledAt: cancelDate,
+      cancelReason: cancelReason.trim(),
+      depositOut,
+      depositRefundRef: cancelRefundRef.trim(),
+      rentSchedule: paidRows,
+      history: withHistory(histEntry("cancelled", `Contract cancelled${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Car released. Deposit Out ${fmt(depositOut)}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
+    });
+    setShowCancelForm(false);
   };
 
   // Balance Due coloring, per spec: green once fully paid, orange while
@@ -1353,6 +1421,135 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 14 }}>
                 Post-return charges flow into the Invoice only — the signed Agreement total never changes.
               </div>
+
+              {/* Long-term monthly contract: month-by-month rent schedule. Each
+                  due month can be collected here; all collections stay under this
+                  one contract (booking.rentSchedule). */}
+              {booking.rentalType === "monthly" && Array.isArray(booking.rentSchedule) && booking.rentSchedule.length > 0 && (() => {
+                const sched = booking.rentSchedule;
+                const paidCount = sched.filter(r => r.paid).length;
+                const collected = sched.filter(r => r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+                const contractValue = sched.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+                const remaining = contractValue - collected;
+                const cancelled = booking.status === "Cancelled" || !!booking.cancelledAt;
+                const cols = "68px 1fr 96px 76px auto";
+                const cell = { fontSize: 12, color: C.textSec };
+                return (
+                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 18 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <SectionHeading size="sm">Monthly Rent — Contract Schedule</SectionHeading>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontSize: 11.5, color: C.textMuted }}>{paidCount}/{sched.length} months paid</span>
+                        {!cancelled && !showCancelForm && (
+                          <button type="button" onClick={openCancelForm} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${C.red}`, background: C.surface, color: C.red, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Cancel Rental</button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 12, fontSize: 12, color: C.textSec }}>
+                      <span>Monthly Rent: <strong style={{ ...mono, color: C.navy }}>{fmt(Number(booking.monthlyRent) || 0)}</strong></span>
+                      <span>Contract: <strong style={{ ...mono, color: C.navy }}>{fmt(contractValue)}</strong></span>
+                      <span>Collected: <strong style={{ ...mono, color: C.teal }}>{fmt(collected)}</strong></span>
+                      <span>Remaining: <strong style={{ ...mono, color: remaining > 0 ? "#d97706" : C.teal }}>{fmt(remaining)}</strong></span>
+                    </div>
+                    {cancelled && (
+                      <div style={{ border: `1px solid ${C.red}33`, background: "#FDECEC", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: C.textSec }}>
+                        <div style={{ fontWeight: 700, color: C.red, marginBottom: 4 }}>Contract cancelled — car released, future rent stopped.</div>
+                        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                          <span>Date: <strong>{booking.cancelledAt || "—"}</strong></span>
+                          <span>Deposit Out: <strong style={{ ...mono, color: C.red }}>{fmt(Number(booking.depositOut) || 0)}</strong></span>
+                          {booking.depositRefundRef ? <span>Refund Ref: <strong>{booking.depositRefundRef}</strong></span> : null}
+                          {booking.cancelReason ? <span>Reason: <strong>{booking.cancelReason}</strong></span> : null}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cancel Rental form */}
+                    {showCancelForm && !cancelled && (
+                      <div style={{ border: `1px solid ${C.red}55`, background: "#FEF6F6", borderRadius: 8, padding: "12px 14px", marginBottom: 12 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 10 }}>Cancel this contract</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                          <div style={{ flex: "1 1 130px" }}>
+                            <div style={detailFieldLabelStyle}>Cancellation Date</div>
+                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 130px" }}>
+                            <div style={detailFieldLabelStyle}>Deposit Out (Refund)</div>
+                            <input type="number" min="0" value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 150px" }}>
+                            <div style={detailFieldLabelStyle}>Refund Reference</div>
+                            <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 100%" }}>
+                            <div style={detailFieldLabelStyle}>Reason</div>
+                            <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason for cancellation" style={detailInputStyle} />
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                          <button type="button" onClick={handleCancelRental} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Confirm Cancellation · Deposit Out {fmt(Number(cancelDepositOut) || 0)}</button>
+                          <button type="button" onClick={() => setShowCancelForm(false)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>This releases the car immediately and stops all future rent. Deposit Out is recorded as a refund, not revenue.</div>
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: cols, columnGap: 10, padding: "0 0 6px", borderBottom: `1px solid ${C.border}` }}>
+                      {["Month", "Due Date", "Amount", "Status", ""].map((h, i) => (
+                        <span key={i} style={{ fontSize: 9.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, textAlign: i === 2 ? "right" : "left" }}>{h}</span>
+                      ))}
+                    </div>
+                    {sched.map((r, i) => {
+                      const collecting = collectingMonthIdx === i;
+                      return (
+                        <div key={r.month} style={{ borderBottom: i < sched.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: cols, columnGap: 10, alignItems: "center", padding: "8px 0" }}>
+                            <span style={{ ...cell, fontWeight: 700, color: C.navy }}>#{r.month}</span>
+                            <span style={cell}>{r.dueDate || "—"}</span>
+                            <span style={{ ...cell, ...mono, textAlign: "right" }}>{fmt(Number(r.amount) || 0)}</span>
+                            <span>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: r.paid ? "#DEF7EC" : "#FDF0DD", color: r.paid ? "#046C4E" : "#B45309" }}>{r.paid ? "Paid" : "Due"}</span>
+                            </span>
+                            <span style={{ textAlign: "right" }}>
+                              {r.paid
+                                ? <span style={{ fontSize: 10.5, color: C.textMuted }}>{r.reference || r.method || "—"}</span>
+                                : cancelled
+                                  ? <span style={{ fontSize: 11, color: C.textMuted }}>—</span>
+                                  : collecting
+                                    ? null
+                                    : <button type="button" onClick={() => { setCollectingMonthIdx(i); setRentReference(""); }} style={{ padding: "5px 12px", borderRadius: 7, border: "none", background: C.navy, color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Collect</button>}
+                            </span>
+                          </div>
+                          {collecting && !r.paid && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", padding: "6px 0 12px" }}>
+                              <div style={{ flex: "1 1 120px" }}>
+                                <div style={detailFieldLabelStyle}>Method</div>
+                                <select value={rentMethod} onChange={(e) => setRentMethod(e.target.value)} style={detailInputStyle}>
+                                  {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                              </div>
+                              <div style={{ flex: "1 1 140px" }}>
+                                <div style={detailFieldLabelStyle}>Transaction ID{rentMethod === "Cash" ? "" : " *"}</div>
+                                <input type="text" value={rentReference} onChange={(e) => setRentReference(e.target.value)} placeholder={rentMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
+                              </div>
+                              <div style={{ flex: "1 1 120px" }}>
+                                <div style={detailFieldLabelStyle}>Date</div>
+                                <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} style={detailInputStyle} />
+                              </div>
+                              <div style={{ flex: "0 1 110px" }}>
+                                <div style={detailFieldLabelStyle}>Time</div>
+                                <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
+                              </div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button type="button" onClick={() => handleCollectMonth(i)} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: C.teal, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Confirm {fmt(Number(r.amount) || 0)}</button>
+                                <button type="button" onClick={() => { setCollectingMonthIdx(null); setRentReference(""); }} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* Single-page, two-column layout: Pricing Summary + Additional
                   Charges on the left, Payment Summary / Balance Due / Record

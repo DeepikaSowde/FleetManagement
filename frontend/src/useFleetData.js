@@ -585,32 +585,56 @@ export const useFleetData = () => {
       const st = computeBookingStatus(b, todayStr);
       return !!b.handoverAt || st === "Completed" || st === "Closed";
     });
-    const existingBookingIds = new Set(earnings.map(e => e.bookingId));
-    const missing = recognized.filter(b => !existingBookingIds.has(b.id));
-    if (missing.length === 0) return;
-
+    // Existence keys. A DAILY booking has one earning, keyed by bookingId. A
+    // MONTHLY contract recognizes revenue per collected month, so each of its
+    // earnings is keyed by bookingId + the earning's `start` (the collection
+    // date, which is unique per month and persists across reloads — the `month`
+    // field itself is frontend-only and would not survive a reload).
+    const bkById = {};
+    bookings.forEach(b => { bkById[b.id] = b; });
+    const keyOfEarning = (e) => {
+      const b = bkById[e.bookingId];
+      return b && b.rentalType === "monthly" ? `${e.bookingId}#${e.start}` : `${e.bookingId}`;
+    };
+    const existingKeys = new Set(earnings.map(keyOfEarning));
     let nextNum = Math.max(...earnings.map(e => parseInt(e.id.slice(3)) || 0), 0);
-    const newRecords = missing.map(b => {
-      nextNum += 1;
-      const inv = computeBookingInvoice(b);
-      return {
-        id: `ER-${String(nextNum).padStart(3, "0")}`,
-        bookingId: b.id,
-        plate: b.plate,
-        customer: b.customer,
-        start: b.start,
-        end: b.end,
-        days: inv.days,
-        rate: b.rate,
-        // Categorises rental income in the Earnings ledger.
-        type: "Rental Earning",
-        // Rental revenue = the actual rental charge (stored Total Rental Amount
-        // when set, else rate × days) — no longer the stale rate × days, so
-        // negotiated totals and hourly rentals are recorded correctly.
-        total: inv.rateCharge,
-        locked: false,
-      };
+    const newRecords = [];
+    recognized.forEach(b => {
+      if (b.rentalType === "monthly") {
+        // Recognize each PAID month as revenue, dated on the day it was collected.
+        (b.rentSchedule || []).forEach(row => {
+          if (!row.paid) return;
+          const when = row.paidAt || row.dueDate || b.start || "";
+          const key = `${b.id}#${when}`;
+          if (existingKeys.has(key)) return;
+          existingKeys.add(key);
+          nextNum += 1;
+          newRecords.push({
+            id: `ER-${String(nextNum).padStart(3, "0")}`,
+            bookingId: b.id, month: row.month,
+            plate: b.plate, customer: b.customer,
+            start: when, end: when, days: 0, rate: b.rate,
+            type: "Rental Earning", total: Number(row.amount) || 0, locked: false,
+          });
+        });
+      } else {
+        const key = `${b.id}`;
+        if (existingKeys.has(key)) return;
+        existingKeys.add(key);
+        nextNum += 1;
+        const inv = computeBookingInvoice(b);
+        newRecords.push({
+          id: `ER-${String(nextNum).padStart(3, "0")}`,
+          bookingId: b.id,
+          plate: b.plate, customer: b.customer,
+          start: b.start, end: b.end, days: inv.days, rate: b.rate,
+          // Rental revenue = the actual rental charge (stored Total Rental Amount
+          // when set, else rate × days).
+          type: "Rental Earning", total: inv.rateCharge, locked: false,
+        });
+      }
     });
+    if (newRecords.length === 0) return;
     setEarnings(prev => [...prev, ...newRecords]);
     newRecords.forEach(r => api.post("/earnings", r).catch(onWriteError));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -632,6 +656,13 @@ export const useFleetData = () => {
       if (e.locked) return;
       const b = bookingById[e.bookingId];
       if (!b) return;
+      // Monthly-contract earnings are fixed per-month rows — never resync them to
+      // the booking's daily rateCharge (that would collapse the whole contract's
+      // recognized rent back to a single month's charge). Still backfill `type`.
+      if (b.rentalType === "monthly") {
+        if (!e.type) corrected.push({ id: e.id, patch: { type: "Rental Earning" } });
+        return;
+      }
       const correctTotal = computeBookingInvoice(b).rateCharge;
       const patch = {};
       if (Math.abs((Number(e.total) || 0) - correctTotal) > 0.01) patch.total = correctTotal;

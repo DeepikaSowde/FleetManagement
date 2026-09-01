@@ -78,7 +78,28 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
   });
 
   bookings.forEach((b) => {
-    if (!b.cancelled) {
+    if (b.rentalType === "monthly") {
+      // Long-term contract: rent income comes from the collected months in the
+      // rent schedule, dated to when each month was actually collected — even
+      // for a cancelled contract (the months paid before cancellation are real
+      // income). Its `payments` array is intentionally ignored to avoid double
+      // counting Month-1.
+      (b.rentSchedule || []).forEach((row) => {
+        if (!row.paid) return;
+        const amt = Number(row.amount) || 0;
+        if (amt <= 0) return;
+        push({
+          key: `RM-${b.id}-${row.month}`,
+          date: (row.paidAt || row.dueDate || b.start || "").slice(0, 10),
+          plate: b.plate || "",
+          type: "Rental Income",
+          description: `Month ${row.month} Rent (${row.method || "Cash"})`,
+          remarks: b.customer || "—",
+          credit: amt,
+          debit: 0,
+        }, row.paidAt || row.dueDate || b.start);
+      });
+    } else if (!b.cancelled) {
       normalizedPayments(b).forEach((p) => {
         const amt = Number(p.amount) || 0;
         if (amt <= 0) return;
@@ -151,6 +172,23 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
           debit: 0,
         }, b.depositRefundedAt);
       }
+    }
+
+    // Cancelled long-term contract: the deposit returned to the customer is a
+    // cash OUTFLOW (a returned liability), never revenue. Booked as Deposit OUT
+    // on the cancellation date so it reduces the running cash balance without
+    // touching income.
+    if (b.cancelled && Number(b.depositOut) > 0) {
+      push({
+        key: `DOC-${b.id}`,
+        date: (b.cancelledAt || b.end || b.start || "").slice(0, 10),
+        plate: b.plate || "",
+        type: "Deposit OUT",
+        description: `Deposit Refund — contract cancelled${b.depositRefundRef ? ` · ${b.depositRefundRef}` : ""}`,
+        remarks: b.customer || "—",
+        credit: 0,
+        debit: Number(b.depositOut) || 0,
+      }, b.cancelledAt);
     }
   });
 
