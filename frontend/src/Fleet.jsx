@@ -722,6 +722,12 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
           maintenance={fleet.filter((c) => toFleetPageStatus(c.status) === "Maintenance").length}
           totalCustomers={customers.length}
           totalBookings={bookings.length}
+          links={{
+            "Total Vehicles": { text: "View All Vehicles", onClick: () => setStatusPillFilter("All") },
+            "Available": { text: "View Available", onClick: () => setStatusPillFilter("Available") },
+            "On Rent": { text: "View On Rental", onClick: () => setStatusPillFilter("On Rental") },
+            "Under Maintenance": { text: "View Maintenance", onClick: () => setStatusPillFilter("Maintenance") },
+          }}
         />
       </div>
 
