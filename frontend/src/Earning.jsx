@@ -91,12 +91,15 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
     const pays = paymentsOf(b);
     const total = Number(e.total) || 0;
     const paid = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    // Status is driven purely by payment completion: fully collected → Closed
+    // automatically, otherwise Pending. (Not the booking-lock flag.)
+    const closed = total > 0 && paid >= total;
     return {
       e, booking: b, payments: pays,
-      total, paid, balance: total - paid,
+      total, paid, balance: total - paid, closed,
       notes: (b && (b.comments || b.notes)) || "",
       date: (e.end || e.start || "").slice(0, 10),
-      status: e.locked ? "Closed" : "Pending",
+      status: closed ? "Closed" : "Pending",
     };
   }), [earnings, bookingById]);
 
@@ -125,7 +128,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
 
   // KPIs (over the filtered set) + a this-month vs last-month delta.
   const totalEarnings = filtered.reduce((s, r) => s + r.total, 0);
-  const closedTotal = filtered.filter((r) => r.e.locked).reduce((s, r) => s + r.total, 0);
+  const closedTotal = filtered.filter((r) => r.closed).reduce((s, r) => s + r.total, 0);
   const pendingTotal = totalEarnings - closedTotal;
   const pctOf = (part) => (totalEarnings > 0 ? ((part / totalEarnings) * 100).toFixed(1) : "0.0");
   const monthSum = (offset) => {
@@ -226,12 +229,12 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
         <KpiCard
           label="Pending" value={fmt(pendingTotal)}
           sub={`${pctOf(pendingTotal)}% of total amount`}
-          accent={C.amber} badge={`${filtered.filter((r) => !r.e.locked).length} pending`} badgeColor={C.amber} badgeBg={C.amberFaint}
+          accent={C.amber} badge={`${filtered.filter((r) => !r.closed).length} pending`} badgeColor={C.amber} badgeBg={C.amberFaint}
         />
         <KpiCard
           label="Closed" value={fmt(closedTotal)}
           sub={`${pctOf(closedTotal)}% of total amount`}
-          accent={C.green} badge={`${filtered.filter((r) => r.e.locked).length} closed`} badgeColor={C.green} badgeBg={C.greenFaint}
+          accent={C.green} badge={`${filtered.filter((r) => r.closed).length} closed`} badgeColor={C.green} badgeBg={C.greenFaint}
         />
       </div>
 
@@ -332,7 +335,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.green, whiteSpace: "nowrap" }}>{fmt(r.paid)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: r.balance > 0 ? C.amber : C.textMuted, whiteSpace: "nowrap" }}>{fmt(r.balance)}</td>
                   <td style={{ padding: "11px 12px" }}>
-                    {r.e.locked
+                    {r.closed
                       ? <Badge color={C.green} bg={C.greenFaint}>Closed</Badge>
                       : <Badge color={C.amber} bg={C.amberFaint}>Pending</Badge>}
                   </td>
@@ -416,7 +419,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                   <div>
                     <div style={labelCell}>Status</div>
                     <div style={{ marginTop: 2 }}>
-                      {e.locked
+                      {r.closed
                         ? <Badge color={C.green} bg={C.greenFaint}>Closed</Badge>
                         : <Badge color={C.amber} bg={C.amberFaint}>Pending</Badge>}
                     </div>
