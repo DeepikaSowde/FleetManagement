@@ -6,31 +6,31 @@
 // and a material flat-lay (slate-teal glass, charcoal, teal-green, greige,
 // cream, eucalyptus, and matte black). Every key name below is unchanged from
 // before — only the values moved — so nothing downstream needs to change.
-// Values below are a uniform pass slightly darker than the original palette
-// (~5-15% per channel depending on how light/mid-tone the color already was)
-// for better on-screen visibility/contrast, while keeping each color's hue
-// and relative relationships the same — same "coastal atelier" direction,
-// just a touch deeper across the board. Key names unchanged.
+// Palette direction: BRIGHT MODERN SaaS — a dark navy structural frame (sidebar,
+// headings) over a light page with pure-white cards, a green primary brand, and
+// clean cool-grey neutrals. Aligned with the Dashboard's bright palette so the
+// whole app now reads as one system. Key names are unchanged, so every component
+// that references C.* picks up the new look automatically.
 export const C = {
-  navy:        "#15282B",   // deep slate-teal — primary structural dark
-  navyMid:     "#1C373E",   // charcoal-teal — secondary structural dark
-  black:       "#0A0E0F",   // true near-black — reserved for high-emphasis accents only (see usage note below)
-  teal:        "#296A63",   // moodboard teal-green — primary brand color
-  tealLight:   "#6C8D92",   // dusty sea-blue — secondary teal
-  tealFaint:   "#D6DDDB",   // pale sea-foam wash
-  amber:       "#9D7A4C",   // warm clay/sand — replaces the old bright orange-amber
-  amberFaint:  "#E4DCD2",   // warm sand wash
-  red:         "#8F4C41",   // muted brick/terracotta — never neon
-  redFaint:    "#E5D7D3",   // pale blush wash
-  green:       "#6C8164",   // sage — success, more organic than the old bright green
-  greenFaint:  "#DADFD4",   // pale sage wash
-  bg:          "#D3D3D3",   // bright studio silver-grey (replaces #eee7f7d1)
-  surface:     "#F7F6F3",   // warm white card surface (pops beautifully against the studio grey)
-  border:      "#C3C0B5",   // soft warm border
-  linen:       "#E1D9D4",   // soft warm border
-  textPri:     "#12181A",   // dark charcoal — primary reading text (darkened from #1E2A2C)
-  textSec:     "#3A4549",   // darker slate text (darkened from #57666B)
-  textMuted:   "#67635A",   // darker warm grey text (darkened from #98948A)
+  navy:        "#0F172A",   // deep slate — sidebar + structural dark, primary headings
+  navyMid:     "#1E293B",   // secondary structural dark
+  black:       "#0B1220",   // near-black — reserved for high-emphasis accents only (see usage note below)
+  teal:        "#16A34A",   // PRIMARY BRAND — green (buttons, active nav, primary CTAs)
+  tealLight:   "#34D399",   // lighter emerald accent
+  tealFaint:   "#DCFCE7",   // pale green wash (chips, icon backgrounds)
+  amber:       "#D97706",   // bright amber — warnings / maintenance
+  amberFaint:  "#FEF3C7",   // pale amber wash
+  red:         "#EF4444",   // bright red — errors / overdue
+  redFaint:    "#FDECEC",   // pale red wash
+  green:       "#16A34A",   // success / available (same green as the brand)
+  greenFaint:  "#E7F7EE",   // pale green wash
+  bg:          "#F4F6FB",   // light page background (cool off-white)
+  surface:     "#FFFFFF",   // pure white card surface
+  border:      "#EAEDF2",   // light cool border
+  linen:       "#EEF1F6",   // very light divider / track
+  textPri:     "#0F172A",   // dark slate — primary reading text / headings
+  textSec:     "#334155",   // secondary slate text
+  textMuted:   "#64748B",   // muted cool-grey text
 };
 
 // C.black is intentionally not wired into every component — it's the one
