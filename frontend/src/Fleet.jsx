@@ -576,21 +576,21 @@ const getCOEStatus = (daysRemaining) => {
 export const STATUS_PILL_COLORS = {
   Available: C.green,
   Maintenance: C.amber,
-  Upcoming: C.tealLight,
-  "On Rental": C.teal,
+  Upcoming: C.blue,
+  "On Rental": C.blue,
   "Ending Today": C.red,
-  Rented: C.teal,
-  Booked: C.teal,
+  Rented: C.blue,
+  Booked: C.blue,
   Inactive: C.textMuted,
 };
 export const STATUS_PILL_FAINT = {
   Available: C.greenFaint,
   Maintenance: C.amberFaint,
-  Upcoming: C.tealFaint,
-  "On Rental": C.tealFaint,
+  Upcoming: C.blueFaint,
+  "On Rental": C.blueFaint,
   "Ending Today": C.redFaint,
-  Rented: C.tealFaint,
-  Booked: C.tealFaint,
+  Rented: C.blueFaint,
+  Booked: C.blueFaint,
   Inactive: C.bg,
 };
 const getStatusPillColor = (status) => STATUS_PILL_COLORS[status] || C.navy;

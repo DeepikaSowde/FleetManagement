@@ -9,11 +9,11 @@ export const Badge = ({ children, color = C.teal, bg = C.tealFaint }) => (
 
 export const StatusTag = ({ status }) => {
   const map = {
-    "On Rental":     { bg: C.tealFaint,  color: C.teal },
+    "On Rental":     { bg: C.blueFaint,  color: C.blue },
     "Available":     { bg: C.greenFaint, color: C.green },
     "Maintenance":   { bg: C.amberFaint, color: C.amber },
-    "Active":        { bg: C.tealFaint,  color: C.teal },
-    "Upcoming":      { bg: "#EEF2FF",    color: "#4F46E5" },
+    "Active":        { bg: C.blueFaint,  color: C.blue },
+    "Upcoming":      { bg: C.blueFaint,  color: C.blue },
     "Completed":     { bg: C.greenFaint, color: C.green },
     "Ending Today":  { bg: C.amberFaint, color: C.amber },
     "Overdue":       { bg: C.redFaint,   color: C.red },

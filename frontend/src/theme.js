@@ -24,6 +24,10 @@ export const C = {
   redFaint:    "#FDECEC",   // pale red wash
   green:       "#16A34A",   // success / available (same green as the brand)
   greenFaint:  "#E7F7EE",   // pale green wash
+  blue:        "#2563EB",   // on-rental / in-use status + info accents
+  blueFaint:   "#EAF1FE",   // pale blue wash
+  purple:      "#8B5CF6",   // customers / secondary categorical accent
+  purpleFaint: "#F1ECFE",   // pale purple wash
   bg:          "#F4F6FB",   // light page background (cool off-white)
   surface:     "#FFFFFF",   // pure white card surface
   border:      "#EAEDF2",   // light cool border
