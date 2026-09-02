@@ -329,6 +329,7 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
   const [rangeEnd, setRangeEnd] = useState(addDaysISO(todayISO(), 3));
   const [selectedCar, setSelectedCar] = useState(null); // car whose availability the calendar shows
   const [rightTab, setRightTab] = useState("available"); // "available" | "fleet"
+  const [search, setSearch] = useState("");
 
   const range = useMemo(
     () => (rangeStart && rangeEnd ? { start: combineDateTime(rangeStart, PICKUP_TIME), end: combineDateTime(rangeEnd, RETURN_TIME) } : null),
@@ -368,6 +369,17 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
     ? (isFreeForRange(selectedCar.plate, range, ctx) ? "available" : "booked")
     : null;
 
+  // Live search across car name/model, plate, and brand — applied to both the
+  // Available results and the Fleet list. Empty query matches everything.
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (car) => {
+    if (!q) return true;
+    return [car.model || "", car.plate || "", deriveBrand(car.model)]
+      .some(v => String(v).toLowerCase().includes(q));
+  };
+  const shownAvailable = availableCars.filter(({ car }) => matchesSearch(car));
+  const shownFleet = fleet.filter(matchesSearch);
+
   return (
     <div style={{ background: G.page, borderRadius: 20, padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
       {/* HEADER */}
@@ -376,6 +388,17 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
         <div style={{ fontSize: 13, color: G.text, marginTop: 4 }}>
           Pick a pickup &amp; return day on the calendar to see available cars — or open the <b>Fleet</b> tab and tap a car to view its availability.
         </div>
+      </div>
+
+      {/* SEARCH — filters the Available results and the Fleet list live */}
+      <div style={{ position: "relative" }}>
+        <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: G.textMuted, fontSize: 14, pointerEvents: "none" }}>🔍</span>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by car name, model, or plate…"
+          style={{ width: "100%", padding: "12px 14px 12px 40px", borderRadius: 12, border: `1px solid ${G.border}`, background: G.surface, fontSize: 13, color: G.ink, outline: "none", boxSizing: "border-box", boxShadow: "0 1px 2px rgba(16,32,24,0.04)" }}
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 1.05fr) minmax(320px, 1fr)", gap: 16, alignItems: "start" }}>
@@ -470,33 +493,35 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
               style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 700,
                 background: rightTab === "available" ? G.surface : "transparent", color: rightTab === "available" ? G.primary : G.text,
                 boxShadow: rightTab === "available" ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>
-              Available {range ? `(${availableCars.length})` : ""}
+              Available {range ? `(${shownAvailable.length})` : ""}
             </button>
             <button data-testid="ca-tab-fleet" onClick={() => setRightTab("fleet")}
               style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 700,
                 background: rightTab === "fleet" ? G.surface : "transparent", color: rightTab === "fleet" ? G.primary : G.text,
                 boxShadow: rightTab === "fleet" ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>
-              Fleet ({fleet.length})
+              Fleet ({shownFleet.length})
             </button>
           </div>
 
           {rightTab === "available" ? (
             <>
               <div style={{ fontSize: 13, fontWeight: 700, color: G.ink, marginBottom: 12 }}>
-                {range ? `${availableCars.length} car${availableCars.length === 1 ? "" : "s"} available` : "Select a period"}
+                {range ? `${shownAvailable.length} car${shownAvailable.length === 1 ? "" : "s"} available` : "Select a period"}
                 {range && <span style={{ fontWeight: 500, color: G.textMuted }}> · {fmtShort(rangeStart)} – {fmtShort(rangeEnd)}</span>}
               </div>
               {!range ? (
                 <div style={{ fontSize: 12.5, color: G.textMuted, padding: "24px 0", textAlign: "center" }}>
                   Click a pickup day, then a return day on the calendar.
                 </div>
-              ) : availableCars.length === 0 ? (
+              ) : shownAvailable.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: G.textMuted, padding: "24px 0", textAlign: "center" }}>
-                  No cars are free for the whole period. Try a shorter or different range.
+                  {availableCars.length > 0 && q
+                    ? "No available cars match your search."
+                    : "No cars are free for the whole period. Try a shorter or different range."}
                 </div>
               ) : (
                 <div style={{ maxHeight: 560, overflowY: "auto", paddingRight: 4 }}>
-                  {availableCars.map(({ car, freeDays, freeUntil }) => (
+                  {shownAvailable.map(({ car, freeDays, freeUntil }) => (
                     <AvailableCarCard key={car.plate} car={car} freeDays={freeDays} freeUntil={freeUntil}
                       active={selectedCar?.plate === car.plate}
                       onBook={bookCar} onViewOnCalendar={showOnCalendar} />
@@ -513,8 +538,10 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
               <div style={{ maxHeight: 600, overflowY: "auto", paddingRight: 4 }}>
                 {fleet.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: G.textMuted, padding: "24px 0", textAlign: "center" }}>No cars in the fleet yet.</div>
+                ) : shownFleet.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: G.textMuted, padding: "24px 0", textAlign: "center" }}>No cars match your search.</div>
                 ) : (
-                  fleet.map(car => (
+                  shownFleet.map(car => (
                     <FleetRow key={car.plate} car={car}
                       periodStatus={range ? (isFreeForRange(car.plate, range, ctx) ? "available" : "booked") : null}
                       active={selectedCar?.plate === car.plate}
