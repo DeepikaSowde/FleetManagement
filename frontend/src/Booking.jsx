@@ -1944,24 +1944,29 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
         </div>
       </div>
 
-      {/* Status summary cards — click one to filter, click All Bookings to reset */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
-        {statuses.map((key) => {
-          const meta = BOOKING_STAT_META[key] || { title: key, sub: key, icon: "•", accent: C.navy };
-          const count = key === "All" ? scopedBookings.length : (statusCounts[key] || 0);
-          const isActive = filter === key;
+      {/* Status filter tabs — same style as the Fleet page's status pills.
+          Click a status to show only that status, click All to reset. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+        {statuses.map((label) => {
+          const count = label === "All" ? scopedBookings.length : (statusCounts[label] || 0);
+          const isActive = filter === label;
+          const dotColor = label === "All" ? C.navy : (BOOKING_STAT_META[label]?.accent || C.navy);
           return (
-            <button key={key} data-testid="booking-filter" data-filter={key} onClick={() => { setFilter(key); setPage(1); }} style={{
-              display: "flex", alignItems: "center", gap: 12, textAlign: "left", cursor: "pointer",
-              padding: 14, borderRadius: 12, background: isActive ? `${meta.accent}0F` : C.surface,
-              border: `${isActive ? 2 : 1}px solid ${isActive ? meta.accent : C.border}`, transition: "all 0.12s",
+            <button key={label} data-testid="booking-filter" data-filter={label} onClick={() => { setFilter(label); setPage(1); }} style={{
+              display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 999,
+              border: `1.5px solid ${isActive ? dotColor : C.border}`,
+              background: isActive ? `${dotColor}14` : C.surface,
+              color: isActive ? dotColor : C.textSec,
+              fontSize: 12.5, fontWeight: 700, cursor: "pointer", transition: "all 0.12s",
             }}>
-              <div style={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, background: `${meta.accent}1A` }}>{meta.icon}</div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: C.navy, whiteSpace: "nowrap" }}>{meta.title}</div>
-                <div style={{ ...mono, fontSize: 20, fontWeight: 700, color: isActive ? meta.accent : C.navy, lineHeight: 1.15 }}>{count}</div>
-                <div style={{ fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{meta.sub}</div>
-              </div>
+              {label !== "All" && <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />}
+              {label}
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+                background: isActive ? C.surface : C.bg, color: isActive ? dotColor : C.textMuted,
+              }}>
+                {count}
+              </span>
             </button>
           );
         })}
