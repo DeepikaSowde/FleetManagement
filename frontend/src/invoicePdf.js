@@ -190,9 +190,12 @@ export const generateInvoicePdf = (booking, car, inv) => {
   // The invoice ALWAYS shows the original Pick-up date/time from the initial
   // booking — it must never change when the booking is edited or extended.
   // originalPickupDate/Time are frozen at creation; older bookings without them
-  // fall back to the current pickupDate/pickupTime.
-  const pickupDateEffective = booking.originalPickupDate || booking.pickupDate;
-  const pickupTimeEffective = booking.originalPickupTime || booking.pickupTime;
+  // fall back to the current pickupDate/pickupTime, and finally to the date/time
+  // parts of `start` (booking.start = "YYYY-MM-DDTHH:MM") so the Pick-up Time is
+  // always shown even when the separate pickupTime field wasn't stored.
+  const [startDatePart, startTimePart] = (booking.start || "").split("T");
+  const pickupDateEffective = booking.originalPickupDate || booking.pickupDate || startDatePart || "";
+  const pickupTimeEffective = booking.originalPickupTime || booking.pickupTime || (startTimePart ? startTimePart.slice(0, 5) : "");
 
   // Once the vehicle has actually been returned, actualReturnAt ("YYYY-MM-DDTHH:MM")
   // reflects the real return date/time — possibly edited for an early or late
