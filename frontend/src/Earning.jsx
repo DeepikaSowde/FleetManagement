@@ -94,6 +94,14 @@ const EmptyViz = ({ icon, text }) => (
 const selectStyle = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "inherit", color: C.textPri, background: C.surface, outline: "none" };
 const toggleBtn = (active) => ({ padding: "4px 12px", fontSize: 11, fontWeight: 700, border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", background: active ? C.teal : "transparent", color: active ? "#fff" : C.textMuted });
 
+// Payment status pill: Closed (paid in full), Partial (some paid, balance owed),
+// Pending (recognized but nothing collected yet).
+const EarningStatusBadge = ({ status }) => {
+  if (status === "Closed") return <Badge color={C.green} bg={C.greenFaint}>Closed</Badge>;
+  if (status === "Partial") return <Badge color={C.amber} bg={C.amberFaint}>Partial</Badge>;
+  return <Badge color={C.textMuted} bg={C.bg}>Pending</Badge>;
+};
+
 const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpdateEarning, onDeleteEarning, onLockEarning }) => {
   const [period, setPeriod] = useState("This Month");
   const [carFilter, setCarFilter] = useState("All Cars");
@@ -132,15 +140,18 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
     // Paid = the rental payments actually received (b.payments, deposit excluded).
     // Partial and subsequent payments both land here against this same record.
     const paid = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    // Balance = Total Rental Income − Paid; fully collected → Closed automatically,
-    // otherwise Pending. (Driven purely by payment completion, not a lock flag.)
+    // Balance = Total Rental Income − Paid. Status is driven purely by collection:
+    //   • some paid but balance still owed → Partial
+    //   • fully collected → Closed
+    //   • recognized but nothing collected yet → Pending
     const closed = total > 0 && paid >= total;
+    const status = closed ? "Closed" : (paid > 0 ? "Partial" : "Pending");
     return {
       e, booking: b, payments: pays, rentalCharge,
       total, paid, balance: total - paid, closed,
       notes: (b && (b.comments || b.notes)) || "",
       date: (e.end || e.start || "").slice(0, 10),
-      status: closed ? "Closed" : "Pending",
+      status,
     };
   }), [earnings, bookingById]);
 
@@ -170,7 +181,9 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
   // KPIs (over the filtered set) + a this-month vs last-month delta.
   const totalEarnings = filtered.reduce((s, r) => s + r.total, 0);
   const closedTotal = filtered.filter((r) => r.closed).reduce((s, r) => s + r.total, 0);
-  const pendingTotal = totalEarnings - closedTotal;
+  // Pending = the actual outstanding balance across all rows (so a partially-paid
+  // booking counts only its unpaid remainder, not its whole total).
+  const pendingTotal = filtered.reduce((s, r) => s + Math.max(0, r.balance), 0);
   const pctOf = (part) => (totalEarnings > 0 ? ((part / totalEarnings) * 100).toFixed(1) : "0.0");
   const monthSum = (offset) => {
     const y = now.getFullYear(), m = now.getMonth() + offset;
@@ -200,12 +213,13 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
     return Object.values(map).sort((a, b) => a.key.localeCompare(b.key)).map((r) => ({ ...r, label: bucketLabel(r.key, overviewGran) }));
   }, [filtered, overviewGran]);
 
-  // Top earning cars, scoped to this month or this year.
+  // Top earning cars, scoped to this month or this year — ranked by the rental
+  // income actually COLLECTED (paid), not the full contracted amount.
   const topCars = useMemo(() => {
     const y = now.getFullYear();
     const inScope = (r) => topScope === "Yearly" ? r.date.startsWith(String(y)) : monthKey(r.date) === `${y}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const map = {};
-    filtered.filter(inScope).forEach((r) => { const p = r.e.plate || "—"; map[p] = (map[p] || 0) + r.total; });
+    filtered.filter(inScope).forEach((r) => { const p = r.e.plate || "—"; map[p] = (map[p] || 0) + r.paid; });
     return Object.entries(map).map(([plate, total]) => ({ plate, total })).sort((a, b) => b.total - a.total).slice(0, 6);
   }, [filtered, topScope]);
 
@@ -321,7 +335,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px 10px", borderBottom: `1px solid ${C.border}` }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 800, color: C.navy }}>Top Earning Cars</div>
-              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Based on total amount</div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Based on collected income</div>
             </div>
             <div style={{ display: "inline-flex", background: C.bg, borderRadius: 8, padding: 2 }}>
               {["Monthly", "Yearly"].map((g) => (
@@ -378,9 +392,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.green, whiteSpace: "nowrap" }}>{fmt(r.paid)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: r.balance > 0 ? C.amber : C.textMuted, whiteSpace: "nowrap" }}>{fmt(r.balance)}</td>
                   <td style={{ padding: "11px 12px" }}>
-                    {r.closed
-                      ? <Badge color={C.green} bg={C.greenFaint}>Closed</Badge>
-                      : <Badge color={C.amber} bg={C.amberFaint}>Pending</Badge>}
+                    <EarningStatusBadge status={r.status} />
                   </td>
                   <td style={{ padding: "11px 12px" }}>
                     <button onClick={() => setSelected(r)} title="View details" aria-label="View details"
@@ -463,9 +475,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                   <div>
                     <div style={labelCell}>Status</div>
                     <div style={{ marginTop: 2 }}>
-                      {r.closed
-                        ? <Badge color={C.green} bg={C.greenFaint}>Closed</Badge>
-                        : <Badge color={C.amber} bg={C.amberFaint}>Pending</Badge>}
+                      <EarningStatusBadge status={r.status} />
                     </div>
                   </div>
                 </div>

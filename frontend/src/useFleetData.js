@@ -583,7 +583,11 @@ export const useFleetData = () => {
     const recognized = bookings.filter(b => {
       if (b.cancelled) return false;
       const st = computeBookingStatus(b, todayStr);
-      return !!b.handoverAt || st === "Completed" || st === "Closed";
+      // Recognize the earning as soon as ANY rental payment is collected — a
+      // partial payment is enough to surface the booking in Earnings — as well as
+      // once the car is handed over or the booking is Completed/Closed.
+      const hasPayment = (Array.isArray(b.payments) && b.payments.some(p => Number(p.amount) > 0)) || Number(b.amountCollected) > 0;
+      return hasPayment || !!b.handoverAt || st === "Completed" || st === "Closed";
     });
     // Existence keys. A DAILY booking has one earning, keyed by bookingId. A
     // MONTHLY contract recognizes revenue per collected month, so each of its
