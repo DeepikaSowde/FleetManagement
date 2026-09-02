@@ -236,7 +236,9 @@ const LedgerDashboard = ({
           right={
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <select style={selectStyle} value={depMethod} onChange={(e) => setDepMethod(e.target.value)}>
-                {DEPRECIATION_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                {/* Only the Straight-line → registration expiry method is offered;
+                    the other depreciation options have been removed from the menu. */}
+                {DEPRECIATION_METHODS.filter((m) => m.id === "coe").map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
               {methodDef.needsRate && (
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
