@@ -717,6 +717,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
       <div style={{ marginBottom: 16 }}>
         <StatTiles
           compact
+          showMaintenance={false}
           totalVehicles={fleet.length}
           onRent={fleet.filter((c) => toFleetPageStatus(c.status) === "On Rental").length}
           available={fleet.filter((c) => toFleetPageStatus(c.status) === "Available").length}

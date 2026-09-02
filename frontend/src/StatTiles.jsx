@@ -9,7 +9,7 @@ const VIZ = { teal: "#0EA5A5", green: "#16A34A", blue: "#2563EB", amber: "#D9770
 const tint = (hex) => `${hex}1A`;
 const cardStyle = { background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)" };
 
-export default function StatTiles({ totalVehicles = 0, onRent = 0, available = 0, maintenance = 0, totalCustomers = 0, totalBookings = 0, links = {}, compact = false }) {
+export default function StatTiles({ totalVehicles = 0, onRent = 0, available = 0, maintenance = 0, totalCustomers = 0, totalBookings = 0, links = {}, compact = false, showMaintenance = true }) {
   const totalV = totalVehicles || 1;
   // `compact` shrinks each tile ~30% (padding, icon chip, value, min-height) so a
   // dense screen — e.g. the Fleet page — gets the vehicle table into view sooner,
@@ -21,7 +21,8 @@ export default function StatTiles({ totalVehicles = 0, onRent = 0, available = 0
     { label: "Total Vehicles", value: totalVehicles, icon: "🚗", color: VIZ.teal, sub: "All registered" },
     { label: "Available", value: available, icon: "✅", color: VIZ.green, sub: `${Math.round((available / totalV) * 100)}% available` },
     { label: "On Rent", value: onRent, icon: "🔑", color: VIZ.blue, sub: `${Math.round((onRent / totalV) * 100)}% on rent` },
-    { label: "Under Maintenance", value: maintenance, icon: "🔧", color: VIZ.amber, sub: `${Math.round((maintenance / totalV) * 100)}%` },
+    // "Under Maintenance" is opt-out (showMaintenance) — the Fleet page hides it.
+    ...(showMaintenance ? [{ label: "Under Maintenance", value: maintenance, icon: "🔧", color: VIZ.amber, sub: `${Math.round((maintenance / totalV) * 100)}%` }] : []),
     { label: "Total Customers", value: totalCustomers, icon: "👥", color: VIZ.purple, sub: "All customers" },
     { label: "Total Bookings", value: totalBookings, icon: "📅", color: VIZ.teal, sub: "All time" },
   ];
