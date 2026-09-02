@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import { computeBookingInvoice } from "./useFleetData";
+import { INVOICE_LOGO_DATA_URI, INVOICE_LOGO_ASPECT } from "./invoiceLogo";
 
 // ---------- formatting helpers ----------
 const fmtDate = (v) => {
@@ -87,14 +88,33 @@ function bodyText(doc, x, y, text, size = 9) {
  * @param {object} [companyInfo] - optional { companyName } override
  */
 export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
-  const companyName = companyInfo.companyName || "SG Wheels Pte Ltd";
+  const companyName = companyInfo.companyName || "RDK Trading Pte Ltd";
 
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = 210;
   const pageHeight = 297;
   const margin = 15;
   const contentWidth = pageWidth - margin * 2;
-  let y = 18;
+  let y = 12;
+
+  // ---- Company header: logo (left) + company details ----
+  const logoW = 26;
+  const logoH = logoW / INVOICE_LOGO_ASPECT;
+  doc.addImage(INVOICE_LOGO_DATA_URI, "PNG", margin, y, logoW, logoH);
+  const hx = margin + logoW + 6;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(20);
+  doc.text(companyName, hx, y + 3.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(90);
+  let hy = y + 8;
+  ["22 UB. HBE, Singapore 408830", "UEN: 202416072K", "Email: RDKtrading1995@gmail.com", "Mobile/WhatsApp: 84605545"].forEach((line) => {
+    doc.text(line, hx, hy);
+    hy += 3.6;
+  });
+  y = Math.max(y + logoH, hy) + 5;
 
   // ---- Title ----
   doc.setFont("helvetica", "bold");
@@ -216,8 +236,14 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   });
   y += feeRowH * feeRows.length;
 
-  // Payment method row (checkboxes) + Total (bold)
+  // Payment method row (checkboxes) + Total (bold). The method comes straight
+  // from the Payment stage (booking.paymentMethod) — never hardcoded. The Payment
+  // stage uses "Online" for online transfers, which maps to the "PayNow" box here.
   const paymentOptions = ["Cash", "PayNow", "Bank Transfer", "Fully Paid"];
+  const selectedMethod = (() => {
+    const s = (booking.paymentMethod || "").trim().toLowerCase();
+    return (s === "online" || s === "pay now") ? "paynow" : s;
+  })();
   doc.rect(margin, y, contentWidth, feeRowH);
   doc.line(margin + labelColW, y, margin + labelColW, y + feeRowH);
   doc.setFont("helvetica", "normal");
@@ -227,12 +253,18 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   doc.text("Payment Method:", cx, y + 5.5);
   cx += doc.getTextWidth("Payment Method:") + 3;
   paymentOptions.forEach((opt) => {
-    const checked = (booking.paymentMethod || "").toLowerCase() === opt.toLowerCase();
+    // Dynamically reflect the payment method chosen at the Payment stage — the
+    // matching option is ticked, the rest stay empty. No method is hardcoded.
+    const checked = selectedMethod === opt.toLowerCase();
     doc.rect(cx, y + 2.7, 3, 3);
     if (checked) {
-      doc.setFont("helvetica", "bold");
-      doc.text("X", cx + 0.5, y + 5.1);
-      doc.setFont("helvetica", "normal");
+      // Draw a ✓ tick inside the box (standard PDF fonts don't include the ✓ glyph).
+      doc.setDrawColor(20);
+      doc.setLineWidth(0.5);
+      doc.line(cx + 0.5, y + 4.2, cx + 1.2, y + 5.0);
+      doc.line(cx + 1.2, y + 5.0, cx + 2.6, y + 3.2);
+      doc.setLineWidth(0.3);
+      doc.setDrawColor(60);
     }
     doc.text(opt, cx + 4.5, y + 5.5);
     cx += 4.5 + doc.getTextWidth(opt) + 5;
