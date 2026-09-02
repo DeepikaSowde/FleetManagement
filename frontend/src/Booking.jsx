@@ -683,7 +683,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // to the real return, and the same moment then shows in Booking Details (Return
     // Date & Time / Rental Period) and on the Invoice (Drop-off Details).
     const actualReturnAt = `${cancelDate}T${cancelTime}`;
-    onUpdateBooking(booking.id, {
+    const patch = {
       cancelled: true,
       cancelledAt: cancelDate,
       actualReturnAt,
@@ -691,9 +691,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       cancelReason: cancelReason.trim(),
       depositOut,
       depositRefundRef: cancelRefundRef.trim(),
-      rentSchedule: paidRows,
-      history: withHistory(histEntry("cancelled", `Contract cancelled${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Returned ${formatDateTime(actualReturnAt)}. Car released. Deposit Out ${fmt(depositOut)}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
-    });
+      history: withHistory(histEntry("cancelled", `Booking cancelled${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Returned ${formatDateTime(actualReturnAt)}. Car released. Deposit Out ${fmt(depositOut)}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
+    };
+    // Monthly contracts keep only already-paid months (stops future rent); a
+    // normal booking has no rent schedule, so it's left untouched.
+    if (Array.isArray(booking.rentSchedule)) patch.rentSchedule = paidRows;
+    onUpdateBooking(booking.id, patch);
     setShowCancelForm(false);
   };
 
@@ -1172,6 +1175,68 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   )}
                 </div>
               </div>
+
+              {/* Cancellation — cancel an active/upcoming booking: records the
+                  actual return date/time, deposit refunded and reason, then flags
+                  the booking Cancelled so the car is released. Monthly contracts
+                  keep their own cancel control inside the rent-schedule panel. */}
+              {booking.rentalType !== "monthly" && (() => {
+                const isCancelled = booking.status === "Cancelled" || !!booking.cancelledAt;
+                if (!isCancelled && terminal) return null; // already returned/closed — nothing to cancel
+                return (
+                  <div style={{ border: `1px solid ${isCancelled ? `${C.red}33` : C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <SectionHeading size="sm">Cancellation</SectionHeading>
+                      {!isCancelled && !showCancelForm && (
+                        <button type="button" onClick={openCancelForm} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${C.red}`, background: C.surface, color: C.red, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Cancel Booking</button>
+                      )}
+                    </div>
+                    {isCancelled && (
+                      <div style={{ border: `1px solid ${C.red}33`, background: "#FDECEC", borderRadius: 8, padding: "10px 12px", marginTop: 10, fontSize: 12, color: C.textSec }}>
+                        <div style={{ fontWeight: 700, color: C.red, marginBottom: 4 }}>Booking cancelled — car released.</div>
+                        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                          <span>Actual Return: <strong>{formatDateTime(booking.actualReturnAt) || booking.cancelledAt || "—"}</strong></span>
+                          <span>Deposit Out: <strong style={{ ...mono, color: C.red }}>{fmt(Number(booking.depositOut) || 0)}</strong></span>
+                          {booking.depositRefundRef ? <span>Refund Ref: <strong>{booking.depositRefundRef}</strong></span> : null}
+                          {booking.cancelReason ? <span>Reason: <strong>{booking.cancelReason}</strong></span> : null}
+                        </div>
+                      </div>
+                    )}
+                    {showCancelForm && !isCancelled && (
+                      <div style={{ border: `1px solid ${C.red}55`, background: "#FEF6F6", borderRadius: 8, padding: "12px 14px", marginTop: 10 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 10 }}>Cancel this booking</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                          <div style={{ flex: "1 1 130px" }}>
+                            <div style={detailFieldLabelStyle}>Actual Return Date</div>
+                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 110px" }}>
+                            <div style={detailFieldLabelStyle}>Actual Return Time</div>
+                            <input type="time" value={cancelTime} onChange={(e) => setCancelTime(e.target.value)} style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 130px" }}>
+                            <div style={detailFieldLabelStyle}>Deposit Out (Refund)</div>
+                            <input type="number" min="0" value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 150px" }}>
+                            <div style={detailFieldLabelStyle}>Refund Reference</div>
+                            <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 100%" }}>
+                            <div style={detailFieldLabelStyle}>Reason</div>
+                            <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason for cancellation" style={detailInputStyle} />
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                          <button type="button" onClick={handleCancelRental} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Confirm Cancellation · Deposit Out {fmt(Number(cancelDepositOut) || 0)}</button>
+                          <button type="button" onClick={() => setShowCancelForm(false)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>This cancels the booking and releases the car. Deposit Out is recorded as a refund, not revenue.</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Payment Summary */}
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
