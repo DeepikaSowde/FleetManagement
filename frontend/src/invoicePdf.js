@@ -7,6 +7,7 @@
 // Requires the `jspdf` package: npm install jspdf
 
 import { jsPDF } from "jspdf";
+import { INVOICE_LOGO_DATA_URI, INVOICE_LOGO_ASPECT } from "./invoiceLogo";
 
 // Letterhead shown on every generated Invoice — this is YOUR company's
 // details, not read from booking data. Update to match your business before
@@ -102,29 +103,26 @@ export const generateInvoicePdf = (booking, car, inv) => {
 
   let y = 16;
 
-  // --- Header: logo block + company name + address ---
-  doc.setDrawColor(...navy);
-  doc.rect(marginX, y - 4, 20, 16);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...navy);
-  doc.text(COMPANY_INFO.name.split(" ")[0], marginX + 10, y + 5, { align: "center" });
+  // --- Header: RDK logo (left) + company address/contact (right) ---
+  // The logo is embedded as a base64 PNG (invoiceLogo.js) so this synchronous
+  // generator can draw it directly, with no async image loading. It already
+  // carries the company name, so no separate name line is printed. Height
+  // follows the logo's real aspect ratio to avoid distortion.
+  const logoW = 38;
+  const logoH = logoW / INVOICE_LOGO_ASPECT;
+  doc.addImage(INVOICE_LOGO_DATA_URI, "PNG", marginX, y - 4, logoW, logoH);
 
-  const textX = marginX + 26;
-  doc.setFontSize(15);
-  doc.text(COMPANY_INFO.name, textX, y);
+  const textX = marginX + logoW + 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(...slate);
-  let ay = y + 5.5;
+  let ay = y;
 
   // First address line is merged with the legal name on one line.
   doc.text(`${COMPANY_INFO.legalName}, ${COMPANY_INFO.addressLines[0]}`, textX, ay);
   ay += 4;
 
   // Any additional address lines (index 1+) render automatically here.
-  // Previously this hardcoded `addressLines[1]`, which crashed jsPDF
-  // whenever the array had only one entry (doc.text(undefined, ...)).
   COMPANY_INFO.addressLines.slice(1).forEach((line) => {
     doc.text(line, textX, ay);
     ay += 4;
@@ -136,7 +134,8 @@ export const generateInvoicePdf = (booking, car, inv) => {
   doc.setTextColor(...slate);
   doc.text(`Mobile/Whatsapp: ${COMPANY_INFO.phone}`, textX, ay);
 
-  y = ay + 9;
+  // Advance past whichever is taller — the logo or the contact block.
+  y = Math.max(y - 4 + logoH, ay) + 9;
 
   // --- RECEIPT title ---
   y = sectionHeader(y, "RECEIPT");
