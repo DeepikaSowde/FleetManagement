@@ -81,7 +81,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
 
   // Draws one bordered row split into the given cells, returns the y just
   // below the row so callers can chain `y = cellRow(...)`.
-  const cellRow = (y, cells, height = 8) => {
+  const cellRow = (y, cells, height = 7) => {
     // If this row can't fit on the current page, continue on the next one so the
     // Charges table (and its Subtotal/Total rows) is never cut off at the bottom.
     if (y + height > bottomLimit) { doc.addPage(); y = topY; }
@@ -146,11 +146,11 @@ export const generateInvoicePdf = (booking, car, inv) => {
   doc.text(`Mobile/Whatsapp: ${COMPANY_INFO.phone}`, textX, ay);
 
   // Advance past whichever is taller — the logo or the contact block.
-  y = Math.max(y - 4 + logoH, ay) + 9;
+  y = Math.max(y - 4 + logoH, ay) + 6;
 
   // --- RECEIPT title ---
   y = sectionHeader(y, "RECEIPT");
-  y += 2;
+  y += 1;
 
   // The invoice never shows the generated/downloaded date & time — only the
   // Receipt Number is printed (dates come from the booking lifecycle: the
@@ -162,7 +162,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.22, text: "Receipt Number", bold: true },
     { w: contentWidth * 0.78, text: receiptNo },
   ]);
-  y += 7;
+  y += 4;
 
   // --- Vehicle Details ---
   y = sectionHeader(y, "Vehicle Details");
@@ -193,7 +193,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.4, text: "No. of KMs", bold: true },
     { w: contentWidth * 0.6, text: kmDriven !== null ? `${kmDriven} km` : "—" },
   ]);
-  y += 7;
+  y += 4;
 
   // --- Rental Schedule ---
   y = sectionHeader(y, "Rental Schedule");
@@ -238,7 +238,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: col1, text: booking.originalPickup || booking.pickup || "—", align: "center" },
     { w: col2, text: booking.drop || "—", align: "center" },
   ]);
-  y += 7;
+  y += 4;
 
   // --- Customer Details ---
   y = sectionHeader(y, "Customer Details");
@@ -255,7 +255,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.4, text: "NRIC/Passport", bold: true },
     { w: contentWidth * 0.6, text: booking.passport || booking.ic || "—" },
   ]);
-  y += 7;
+  y += 4;
 
   // --- Charges ---
   y = sectionHeader(y, "Charges");
@@ -309,7 +309,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Total", bold: true },
     { w: contentWidth * 0.3, text: money(grandTotal), bold: true, align: "center" },
-  ], 9);
+  ], 8);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Payments Collected" },
     { w: contentWidth * 0.3, text: grandPaid > 0 ? `- ${money(grandPaid)}` : money(0), align: "center" },
@@ -317,12 +317,14 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Balance Due", bold: true },
     { w: contentWidth * 0.3, text: money(grandBalance), bold: true, align: "center" },
-  ], 9);
-  y += 10;
+  ], 8);
+  y += 6;
 
   // --- Payment footer ---
-  // Keep the whole footer block together on the page rather than clipping it.
-  if (y + 12 > bottomLimit) { doc.addPage(); y = topY; }
+  // Keep the whole footer block together on the page rather than clipping it —
+  // but allow it to use the page's lower margin (it's the last, short block) so a
+  // one-page invoice isn't pushed onto a second page just for the footer.
+  if (y + 12 > pageHeight - 8) { doc.addPage(); y = topY; }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(...navy);
