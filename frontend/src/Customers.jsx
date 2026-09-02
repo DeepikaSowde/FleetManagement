@@ -224,9 +224,9 @@ const Customers = ({
 
   return (
     <div>
-      {/* Action row (page title/subtitle live in the top bar) */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-        <div style={{ fontSize: 11, color: C.textMuted }}>Dashboard <span style={{ margin: "0 6px" }}>›</span> <span style={{ color: C.teal, fontWeight: 600 }}>Customers</span></div>
+      {/* Action row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>Customer Overview</div>
         <Btn primary id="customers-add" onClick={openAdd}>＋ Add New Customer</Btn>
       </div>
 
@@ -263,11 +263,8 @@ const Customers = ({
         </div>
       )}
 
-      {/* Body: list + details */}
-      {/* Stacked layout: the Customer List spans the FULL width (all columns
-          visible, no side-scroll), and the selected customer's Details render
-          underneath it. */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+      {/* Body: two-pane — customer list (left) + details & payment summary (right) */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
         {/* ── Customer list ─────────────────────────────────────────────── */}
         <Card>
           <div style={{ padding: "14px 18px 12px" }}>
@@ -303,7 +300,7 @@ const Customers = ({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Customer", "IC Number", "Phone", "Status", "Total Bookings", "Pending Amount", "Pending Bookings", "Last Booking", ""].map((h, i) => (
+                  {["Customer", "IC Number", "Phone", "Status", "Total Bookings", "Pending Amount", "Last Booking", ""].map((h, i) => (
                     <th key={i} style={th}>{h}</th>
                   ))}
                 </tr>
@@ -335,7 +332,6 @@ const Customers = ({
                         {c.stats.count >= REPEAT_THRESHOLD && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: "#6D5BB3", background: "#EDE8F5", borderRadius: 999, padding: "1px 6px", whiteSpace: "nowrap" }}>Repeated</span>}
                       </td>
                       <td style={{ ...td, ...mono, fontWeight: 700, color: pend > 0 ? C.red : C.green, whiteSpace: "nowrap" }}>{fmt(Math.round(pend))}</td>
-                      <td style={{ ...td, textAlign: "center" }}>{c.stats.pendingBookings}</td>
                       <td style={{ ...td, whiteSpace: "nowrap", color: C.textMuted }}>{fmtDate(c.stats.lastBooking)}</td>
                       <td style={{ ...td, textAlign: "center", color: C.textMuted }}>›</td>
                     </tr>
@@ -370,88 +366,86 @@ const Customers = ({
               </div>
             </div>
           )}
-
-          {/* Statuses guide */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, padding: "10px 18px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Statuses Guide</span>
-            <LegendDot color={C.green} label="Active – Active customers" />
-            <LegendDot color={C.red} label="Inactive – Inactive customers" />
-            <LegendDot color={C.amber} label="0.00 – No pending amount" />
-            <LegendDot color={C.red} label="Red amount – Payment pending" />
-          </div>
         </Card>
 
-        {/* ── Customer details ──────────────────────────────────────────── */}
-        <Card>
-          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Customer Details</span>
-              {selected && <StatusPill status={selected.status} />}
+        {/* ── Customer details + payment summary (right column) ──────────── */}
+        <div style={{ display: "grid", gap: 16 }}>
+          <Card>
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Customer Details</span>
+                {selected && <StatusPill status={selected.status} />}
+              </div>
+              {selected && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => openEdit(selected)} style={{ fontSize: 11, fontWeight: 600, color: C.green, background: "none", border: `1px solid ${C.green}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => handleDelete(selected)} style={{ fontSize: 11, fontWeight: 600, color: C.red, background: "none", border: `1px solid ${C.red}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer" }}>Delete</button>
+                </div>
+              )}
             </div>
-            {selected && (
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => openEdit(selected)} style={{ fontSize: 10.5, fontWeight: 600, color: C.navyMid, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>Edit</button>
-                <button onClick={() => handleDelete(selected)} style={{ fontSize: 10.5, fontWeight: 600, color: C.red, background: "none", border: `1px solid ${C.red}`, borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>Delete</button>
+
+            {!selected ? (
+              <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Select a customer to see their details.</div>
+            ) : (
+              <div style={{ padding: 18 }}>
+                {/* Identity header: avatar + name + phone/IC */}
+                <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
+                  <div style={{ width: 54, height: 54, borderRadius: "50%", background: avatarColor(selected.name), color: "#fff", fontSize: 19, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(selected.name)}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 4 }}>{selected.name}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 11.5, color: C.textSec }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>📞 {selected.contact || "—"}</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>🪪 {selected.ic}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Two-column field grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 28px" }}>
+                  <div>
+                    <DetailField label="Email" value={selected.email || "—"} />
+                    <DetailField label="Date of Birth" value={fmtDate(selected.dob)} />
+                    <DetailField label="Nationality" value={selected.nationality || "—"} />
+                    <DetailField label="Customer Type" value={selected.customerType || "—"} />
+                    <DetailField label="Address" value={selected.address || "—"} />
+                    <DetailField label="Driving Experience" value={selected.drivingExperience != null ? `${selected.drivingExperience} Years` : "—"} />
+                  </div>
+                  <div>
+                    <DetailField label="License Number" value={selected.license || "—"} />
+                    <DetailField label="License Expiry" value={fmtDate(selected.licenseExpiry)} />
+                    <DetailField label="Created Date" value={fmtDate(selected.createdAt)} />
+                    <DetailField label="Last Updated" value={fmtDate(selected.updatedAt || selected.createdAt)} />
+                  </div>
+                </div>
               </div>
             )}
-          </div>
+          </Card>
 
-          {!selected ? (
-            <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Select a customer to see their details.</div>
-          ) : (
-            <div style={{ padding: 18 }}>
-              <div style={{ display: "flex", gap: 8, background: "#EAF1F7", border: "1px solid #C7D8E8", borderRadius: 8, padding: "9px 12px", marginBottom: 16 }}>
-                <span style={{ fontSize: 13 }}>ℹ️</span>
-                <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.4 }}>
-                  Customer information is managed in <strong>Bookings</strong>. Any changes made in Bookings will be reflected here automatically.
+          {/* Payment Summary — its own card below the details */}
+          {selected && (
+            <Card>
+              <div style={{ padding: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: selected.stats.pendingAmount > 0 ? C.red : C.navy }}>Payment Summary</span>
+                  <button onClick={() => setHistoryFor(selected)} style={{ fontSize: 11, fontWeight: 600, color: C.green, background: C.surface, border: `1px solid ${C.green}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer" }}>View All Bookings</button>
                 </div>
-              </div>
-
-              <div>
-                {[
-                  ["Full Name", selected.name],
-                  ["IC Number", selected.ic],
-                  ["Phone Number", selected.contact || "—"],
-                  ["Email", selected.email || "—"],
-                  ["Date of Birth", fmtDate(selected.dob)],
-                  ["Nationality", selected.nationality || "—"],
-                  ["Customer Type", selected.customerType || "—"],
-                  ["Address", selected.address || "—"],
-                  ["Driving Experience", selected.drivingExperience != null ? `${selected.drivingExperience} Years` : "—"],
-                  ["License Number", selected.license || "—"],
-                  ["License Expiry", fmtDate(selected.licenseExpiry)],
-                  ["Created Date", fmtDate(selected.createdAt)],
-                  ["Last Updated", fmtDate(selected.updatedAt || selected.createdAt)],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
-                    <div style={{ color: C.textMuted, width: 130, flexShrink: 0 }}>{k}</div>
-                    <div style={{ color: C.textMuted }}>:</div>
-                    <div style={{ color: C.textPri, fontWeight: 500, flex: 1, wordBreak: "break-word" }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Payment summary */}
-              <div style={{ marginTop: 16, border: `1px solid ${selected.stats.pendingAmount > 0 ? C.red : C.border}`, borderRadius: 10, padding: 14, background: selected.stats.pendingAmount > 0 ? C.redFaint : C.bg }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: selected.stats.pendingAmount > 0 ? C.red : C.navy }}>Payment Summary</span>
-                  <button onClick={() => setHistoryFor(selected)} style={{ fontSize: 10.5, fontWeight: 600, color: C.teal, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>View All Bookings</button>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px 10px" }}>
                   <SummaryStat label="Total Bookings" value={`${selected.stats.count}${selected.stats.count >= REPEAT_THRESHOLD ? " · Repeated" : ""}`} valueColor={selected.stats.count >= REPEAT_THRESHOLD ? "#6D5BB3" : undefined} />
-                  <SummaryStat label="Total Pending Amount" value={fmt(Math.round(selected.stats.pendingAmount))} valueColor={selected.stats.pendingAmount > 0 ? C.red : C.green} />
                   <SummaryStat label="Pending Bookings" value={selected.stats.pendingBookings} />
                   <SummaryStat
                     label="Last Payment"
                     value={selected.stats.lastPayment ? fmt(Math.round(selected.stats.lastPayment.amount || 0)) : "—"}
                     hint={selected.stats.lastPayment ? fmtDate(selected.stats.lastPayment.addedAt) : ""}
                   />
+                  <SummaryStat label="Total Pending Amount" value={fmt(Math.round(selected.stats.pendingAmount))} valueColor={selected.stats.pendingAmount > 0 ? C.red : C.green} />
                 </div>
-                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 10 }}>Pending amount includes unpaid balance from bookings.</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: C.textMuted, marginTop: 16 }}>
+                  <span>ℹ️</span> Pending amount includes unpaid balance from bookings.
+                </div>
               </div>
-            </div>
+            </Card>
           )}
-        </Card>
+        </div>
       </div>
 
       {/* Restricted Driving Licenses — admin only (moved here from Settings).
@@ -547,11 +541,13 @@ const PageBtn = ({ children, active, disabled, onClick }) => (
   </button>
 );
 
-const LegendDot = ({ color, label }) => (
-  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.textSec }}>
-    <span style={{ width: 7, height: 7, borderRadius: "50%", background: color }} />
-    {label}
-  </span>
+// One label/value pair in the Customer Details two-column grid — label muted on
+// the left, value emphasized on the right (matching the reference design).
+const DetailField = ({ label, value }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, padding: "8px 0", fontSize: 12 }}>
+    <span style={{ color: C.textMuted, flexShrink: 0 }}>{label}</span>
+    <span style={{ color: C.textPri, fontWeight: 600, textAlign: "right", wordBreak: "break-word" }}>{value}</span>
+  </div>
 );
 
 const SummaryStat = ({ label, value, valueColor, hint }) => (
