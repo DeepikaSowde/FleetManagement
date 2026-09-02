@@ -131,6 +131,23 @@ const formatDateTime = (v) => {
 // Starting Mileage/Fuel/Condition capture, so it's checked directly rather
 // than trying to read handover state off the status label.
 const hasHandedOver = (b) => !!b.handoverAt;
+
+// Rental duration, computed exactly from Pickup → Return date/time (the actual
+// return once the car is back, else the scheduled end). Under 24h it's reported
+// in HOURS (rounded UP, never down to 0 days); 24h+ keeps the existing whole-day
+// rounding, so daily/monthly bookings are unchanged. Used everywhere the list,
+// Rental Summary, and details show duration/rate so they stay consistent.
+const bookingDurationOf = (b) => {
+  const effectiveEnd = b.actualReturnAt || b.end;
+  const ms = (b.start && effectiveEnd) ? (new Date(effectiveEnd) - new Date(b.start)) : 0;
+  const hoursExact = Math.max(0, ms / 3600000);
+  if (hoursExact > 0 && hoursExact < 24) {
+    const hrs = Math.max(1, Math.ceil(hoursExact));
+    return { unit: "hr", isHourly: true, count: hrs, listCount: `${hrs} hr${hrs === 1 ? "" : "s"}`, summary: `${hrs} Hour${hrs === 1 ? "" : "s"}` };
+  }
+  const days = Math.max(0, Math.round(ms / 86400000));
+  return { unit: "day", isHourly: false, count: days, listCount: `${days}`, summary: `${days} Day${days === 1 ? "" : "s"}` };
+};
 // True once the pickup date/time has arrived but handover still hasn't
 // happened — used to surface an "Awaiting Handover" flag so staff notice
 // the status pill already reads Active even though the rental hasn't
@@ -1157,7 +1174,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   // with return), actualReturnAt holds the real return moment and takes over
                   // from the scheduled end — same rule the invoice and duration already use.
                   { label: "Return Date & Time", value: formatDateTime(booking.actualReturnAt || booking.end) || "—" },
-                  { label: "Total Rental Days", value: `${inv.days} Day${inv.days === 1 ? "" : "s"}` },
+                  { label: "Total Rental Days", value: bookingDurationOf(booking).summary },
                 ].map(row => (
                   <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
                     <span style={{ color: C.textMuted }}>{row.label}</span>
@@ -2060,12 +2077,13 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
           </thead>
           <tbody>
             {pageRows.map(b => {
-              const { days, rateCharge, agreementTotal: total } = computeBookingInvoice(b);
-              // Daily Rate reflects the actual Total Rental Amount ÷ Rental Days.
-              // When the suggested amount was used, this equals the suggested daily
-              // rate; when a custom total was entered, it's that total spread over
-              // the days. Days 0 (same-day/hourly) falls back to the stored rate.
-              const dailyRate = days > 0 ? Math.round(rateCharge / days) : (Number(b.rate) || 0);
+              const { rateCharge, agreementTotal: total } = computeBookingInvoice(b);
+              // Duration + per-unit rate from the exact Pickup → Return span: hourly
+              // bookings show hours + SGD/hr, daily/monthly show days + SGD/day.
+              // Rate = Total Rental Amount ÷ units (falls back to the stored rate
+              // if the span can't be measured).
+              const dur = bookingDurationOf(b);
+              const unitRate = dur.count > 0 ? Math.round(rateCharge / dur.count) : (Number(b.rate) || 0);
               return (
                 <tr key={b.id} data-testid="booking-row" data-booking-id={b.id}
                   onClick={() => setTimelinePlate(b.plate)}
@@ -2097,8 +2115,8 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                       </div>
                     </div>
                   </td>
-                  <td style={{ padding: "12px 14px", ...mono, fontSize: 12, textAlign: "center", color: C.navy }}>{days}</td>
-                  <td style={{ padding: "12px 14px", ...mono, fontSize: 11, whiteSpace: "nowrap", color: C.textSec }}>SGD {dailyRate}/day</td>
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 12, textAlign: "center", color: C.navy, whiteSpace: "nowrap" }}>{dur.listCount}</td>
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 11, whiteSpace: "nowrap", color: C.textSec }}>SGD {unitRate}/{dur.unit}</td>
                   <td style={{ padding: "12px 14px", ...mono, fontSize: 12.5, fontWeight: 700, color: C.teal, whiteSpace: "nowrap" }}>{fmt(total)}</td>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
