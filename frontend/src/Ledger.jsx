@@ -210,9 +210,13 @@ const Ledger = ({
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: C.bg }}>
-                {["Date", "Vehicle", "Model", "Type", "Description", "Credit", "Debit", "Balance", "Remarks"].map((h) => (
-                  <th key={h} style={th}>{h}</th>
-                ))}
+                {["Date", "Vehicle", "Model", "Type", "Description", "Credit", "Debit", "Balance", "Remarks"].map((h) => {
+                  // Credit / Debit / Balance carry right-aligned numeric values, so
+                  // their headers must right-align too — otherwise the labels sit at
+                  // the left of the column while the amounts sit at the right.
+                  const numeric = h === "Credit" || h === "Debit" || h === "Balance";
+                  return <th key={h} style={numeric ? { ...th, textAlign: "right" } : th}>{h}</th>;
+                })}
               </tr>
             </thead>
             <tbody>
