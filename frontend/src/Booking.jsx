@@ -140,6 +140,11 @@ const hasHandedOver = (b) => !!b.handoverAt;
 const bookingDurationOf = (b) => {
   const effectiveEnd = b.actualReturnAt || b.end;
   const ms = (b.start && effectiveEnd) ? (new Date(effectiveEnd) - new Date(b.start)) : 0;
+  // Monthly contracts are billed per month — report months + SGD/month.
+  if (b.rentalType === "monthly") {
+    const months = Math.max(1, parseInt(b.contractMonths, 10) || Math.round(Math.max(0, ms) / (30 * 86400000)) || 1);
+    return { unit: "month", isHourly: false, count: months, listCount: `${months} mo`, summary: `${months} Month${months === 1 ? "" : "s"}` };
+  }
   const hoursExact = Math.max(0, ms / 3600000);
   if (hoursExact > 0 && hoursExact < 24) {
     const hrs = Math.max(1, Math.ceil(hoursExact));
@@ -2078,12 +2083,15 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
           <tbody>
             {pageRows.map(b => {
               const { rateCharge, agreementTotal: total } = computeBookingInvoice(b);
-              // Duration + per-unit rate from the exact Pickup → Return span: hourly
-              // bookings show hours + SGD/hr, daily/monthly show days + SGD/day.
-              // Rate = Total Rental Amount ÷ units (falls back to the stored rate
-              // if the span can't be measured).
+              // Duration + per-unit rate from the exact Pickup → Return span:
+              // hourly → hrs + SGD/hr, daily → days + SGD/day, monthly → months +
+              // SGD/month. The rate is the saved rental (manual or suggested) spread
+              // over the units — the monthly rate is the stored month's rent, not a
+              // per-day slice — so a manually-entered amount always shows, never 0.
               const dur = bookingDurationOf(b);
-              const unitRate = dur.count > 0 ? Math.round(rateCharge / dur.count) : (Number(b.rate) || 0);
+              const unitRate = dur.unit === "month"
+                ? Math.round(Number(b.monthlyRent) || rateCharge || 0)
+                : (dur.count > 0 && rateCharge > 0 ? Math.round(rateCharge / dur.count) : (Number(b.rate) || 0));
               return (
                 <tr key={b.id} data-testid="booking-row" data-booking-id={b.id}
                   onClick={() => setTimelinePlate(b.plate)}
