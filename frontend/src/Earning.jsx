@@ -35,6 +35,29 @@ const fmtDateTime = (iso) => {
 };
 const dmy = (d) => (d ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "");
 
+// Rental basis of one earning row → drives the unit-aware Duration/Rate columns:
+//   Daily   → days   + SGD/day
+//   Hourly  → hours  + SGD/hr   (a "daily" booking whose duration is under 24h)
+//   Monthly → months + SGD/month (each row is one recognized contract month)
+// Rate is derived from the row's own total so it always matches Paid/Balance.
+const RATE_UNIT = { day: "day", hour: "hr", month: "month" };
+const unitInfoOf = (r) => {
+  const b = r.booking, e = r.e;
+  if (b && b.rentalType === "monthly") {
+    const rate = Number(b.monthlyRent) || r.total || Number(e.rate) || 0;
+    return { basis: "Monthly", count: 1, unit: "month", rate };
+  }
+  const start = (b && b.start) || e.start;
+  const end = (b && (b.actualReturnAt || b.end)) || e.end;
+  const hours = start && end ? Math.round((new Date(end) - new Date(start)) / 3600000) : 0;
+  if (hours > 0 && hours < 24) {
+    return { basis: "Hourly", count: hours, unit: "hour", rate: r.total / hours };
+  }
+  return { basis: "Daily", count: Number(e.days) || 0, unit: "day", rate: Number(e.rate) || 0 };
+};
+const durationText = (u) => `${u.count} ${u.unit}${u.count === 1 ? "" : "s"}`;
+const rateText = (u) => `SGD ${Math.round(u.rate).toLocaleString()}/${RATE_UNIT[u.unit]}`;
+
 // Chart bucketing by the selected granularity.
 const weekKey = (s) => {
   const date = new Date(s);
@@ -314,13 +337,15 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
             <thead>
               <tr style={{ background: C.bg }}>
-                {["Booking ID", "Car Plate", "Customer", "Type", "Period", "Days", "Rate/Day", "Total Amount", "Paid", "Balance", "Status", ""].map((h) => (
+                {["Booking ID", "Car Plate", "Customer", "Type", "Period", "Duration", "Rate", "Total Amount", "Paid", "Balance", "Status", ""].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((r) => (
+              {pageRows.map((r) => {
+                const u = unitInfoOf(r);
+                return (
                 <tr key={r.e.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navyMid, whiteSpace: "nowrap" }}>{r.e.bookingId || "–"}</td>
                   <td style={{ padding: "11px 12px" }}><PlateBadge plate={r.e.plate} small /></td>
@@ -329,8 +354,8 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                     <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.tealFaint, borderRadius: 20, padding: "3px 9px", whiteSpace: "nowrap" }}>{r.e.type || "Rental Earning"}</span>
                   </td>
                   <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{r.e.start} → {r.e.end}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, textAlign: "center" }}>{r.e.days}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, whiteSpace: "nowrap" }}>SGD {r.e.rate}/d</td>
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, textAlign: "center", whiteSpace: "nowrap" }}>{durationText(u)}</td>
+                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, whiteSpace: "nowrap" }}>{rateText(u)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 13, fontWeight: 700, color: C.navy, whiteSpace: "nowrap" }}>{fmt(r.total)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.green, whiteSpace: "nowrap" }}>{fmt(r.paid)}</td>
                   <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: r.balance > 0 ? C.amber : C.textMuted, whiteSpace: "nowrap" }}>{fmt(r.balance)}</td>
@@ -344,7 +369,8 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                       style={{ padding: "4px 8px", fontSize: 14, background: "none", border: "none", color: C.teal, cursor: "pointer" }}>👁</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -405,8 +431,8 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                     ["Customer", e.customer || "–"],
                     ["Type", e.type || "Rental Earning"],
                     ["Period", `${e.start} → ${e.end}`],
-                    ["Days", String(e.days ?? "–")],
-                    ["Rate/Day", `SGD ${e.rate}/d`],
+                    ["Duration", durationText(unitInfoOf(r))],
+                    ["Rate", rateText(unitInfoOf(r))],
                     ["Total Amount", fmt(r.total)],
                     ["Paid", fmt(r.paid)],
                     ["Balance", fmt(r.balance)],
