@@ -43,15 +43,18 @@ const dmy = (d) => (d ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "
 const RATE_UNIT = { day: "day", hour: "hr", month: "month" };
 const unitInfoOf = (r) => {
   const b = r.booking, e = r.e;
+  // Rate reflects the rental-vehicle charge only (r.rentalCharge), not the full
+  // Total Rental Income, so delivery/collection/VAT don't inflate the per-unit rate.
+  const rental = r.rentalCharge != null ? r.rentalCharge : r.total;
   if (b && b.rentalType === "monthly") {
-    const rate = Number(b.monthlyRent) || r.total || Number(e.rate) || 0;
+    const rate = Number(b.monthlyRent) || rental || Number(e.rate) || 0;
     return { basis: "Monthly", count: 1, unit: "month", rate };
   }
   const start = (b && b.start) || e.start;
   const end = (b && (b.actualReturnAt || b.end)) || e.end;
   const hours = start && end ? Math.round((new Date(end) - new Date(start)) / 3600000) : 0;
   if (hours > 0 && hours < 24) {
-    return { basis: "Hourly", count: hours, unit: "hour", rate: r.total / hours };
+    return { basis: "Hourly", count: hours, unit: "hour", rate: hours > 0 ? rental / hours : 0 };
   }
   return { basis: "Daily", count: Number(e.days) || 0, unit: "day", rate: Number(e.rate) || 0 };
 };
@@ -112,13 +115,27 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
   const allRows = useMemo(() => earnings.map((e) => {
     const b = bookingById[e.bookingId];
     const pays = paymentsOf(b);
-    const total = Number(e.total) || 0;
+    // Total Rental Income = Rental Amount + every applicable rental charge
+    // (Delivery, Collection, Additional Driver, Other Charges, any itemized
+    // charges) + VAT — i.e. the booking's full invoice total. This deliberately
+    // EXCLUDES the refundable Security Deposit (computeBookingInvoice keeps the
+    // deposit out of both totals). Monthly-contract earnings stay per recognized
+    // month (their stored e.total); a missing booking falls back to e.total too.
+    const isMonthly = !!(b && b.rentalType === "monthly");
+    const inv = (b && !isMonthly) ? computeBookingInvoice(b) : null;
+    const total = inv ? inv.finalInvoiceTotal : (Number(e.total) || 0);
+    // Rental-vehicle charge only (no delivery/collection/VAT) — drives the per-
+    // day / per-hour Rate column, so it stays the rental rate even though Total
+    // now carries the full income.
+    const rentalCharge = inv ? inv.rateCharge : (Number(e.total) || 0);
+    // Paid = the rental payments actually received (b.payments, deposit excluded).
+    // Partial and subsequent payments both land here against this same record.
     const paid = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    // Status is driven purely by payment completion: fully collected → Closed
-    // automatically, otherwise Pending. (Not the booking-lock flag.)
+    // Balance = Total Rental Income − Paid; fully collected → Closed automatically,
+    // otherwise Pending. (Driven purely by payment completion, not a lock flag.)
     const closed = total > 0 && paid >= total;
     return {
-      e, booking: b, payments: pays,
+      e, booking: b, payments: pays, rentalCharge,
       total, paid, balance: total - paid, closed,
       notes: (b && (b.comments || b.notes)) || "",
       date: (e.end || e.start || "").slice(0, 10),
