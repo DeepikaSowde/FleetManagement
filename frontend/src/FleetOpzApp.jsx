@@ -539,15 +539,6 @@ export default function FleetOpzApp() {
     pickup: "",
     drop: "",
     rate: "",
-    // ── Long-term monthly contract (e.g. a 1-year lease) ──────────────────
-    // rentalType "daily" is the normal short rental (rate × days). "monthly"
-    // is a fixed-term contract: the customer pays Security Deposit + Month-1
-    // rent up front, then monthlyRent each month for contractMonths, and the
-    // car is reserved for the whole term (end = start + contractMonths). The
-    // per-month rent collections are tracked in `rentSchedule` on the booking.
-    rentalType: "daily",
-    contractMonths: "",   // number of months (monthly contracts only)
-    monthlyRent: "",      // rent charged each month (monthly contracts only)
     // Total Rental Amount — the editable, authoritative rental charge (Pricing &
     // Charges). Blank = use the suggested total (rate × units). See derived vars.
     rentalAmount: "",
@@ -648,6 +639,11 @@ export default function FleetOpzApp() {
   const [openCalendar, setOpenCalendar] = useState(null);
   // Close the open date popover when clicking anywhere outside the cards/popover.
   const calendarWrapRef = useRef(null);
+  // True once the user has manually edited the Total Rental Amount — until then
+  // the field is auto-kept equal to the suggested total (pre-filled, not a
+  // placeholder). Reset when starting a new booking; set when editing an existing
+  // one so its saved amount isn't overwritten.
+  const rentalPrefillEditedRef = useRef(false);
   useEffect(() => {
     if (!openCalendar) return;
     const onDown = (e) => {
@@ -664,40 +660,6 @@ export default function FleetOpzApp() {
   // midnight if only a date has been picked so far, rather than leaving a
   // half-built value that new Date(...) would choke on downstream.
   const combineDateTime = (date, time) => (date ? `${date}T${time || "00:00"}` : "");
-
-  // Adds `months` calendar months to an ISO date ("YYYY-MM-DD"), clamping the
-  // day so 31 Jan + 1 month = 28/29 Feb rather than spilling into March. Used
-  // to derive a monthly contract's end date (and each rent-due date) from the
-  // pickup date.
-  const addMonths = (isoDate, months) => {
-    if (!isoDate) return "";
-    const [y, m, d] = isoDate.split("-").map(Number);
-    const base = new Date(y, m - 1 + Number(months || 0), 1);
-    const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-    base.setDate(Math.min(d, lastDay));
-    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
-  };
-
-  // Builds the month-by-month rent schedule for a monthly contract: one row per
-  // month, due on the same day-of-month as pickup, each for `monthlyRent`. The
-  // first month is marked paid when it was collected up front at confirmation.
-  const buildRentSchedule = (pickupDate, months, monthlyRent, firstMonthPaid) => {
-    const n = Math.max(0, parseInt(months, 10) || 0);
-    const amt = Number(monthlyRent) || 0;
-    const rows = [];
-    for (let i = 0; i < n; i++) {
-      rows.push({
-        month: i + 1,
-        dueDate: addMonths(pickupDate, i),
-        amount: amt,
-        paid: i === 0 ? !!firstMonthPaid : false,
-        paidAt: null,
-        method: null,
-        reference: null,
-      });
-    }
-    return rows;
-  };
 
   // Result of the last IC lookup against booking history — null means "no
   // match found yet" (either the IC is incomplete, or this really is a new
@@ -825,13 +787,7 @@ export default function FleetOpzApp() {
   const validateStep2 = () => {
     const errors = {};
     if (!newBookingData.plate) errors.plate = "Please select a car";
-    if (newBookingData.rentalType === "monthly") {
-      // Monthly contract: the return date is derived from months, so validate
-      // the contract inputs instead of a manually-picked return date.
-      if (!newBookingData.pickupDate) errors.dates = "Pickup Date is required";
-      if (!(parseInt(newBookingData.contractMonths, 10) > 0)) errors.contractMonths = "Enter the contract duration in months";
-      if (!(Number(newBookingData.monthlyRent) > 0)) errors.monthlyRent = "Enter the monthly rent";
-    } else if (!newBookingData.start || !newBookingData.end) {
+    if (!newBookingData.start || !newBookingData.end) {
       errors.dates = "Pickup Date and Return Date are required";
     } else if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
       errors.returnTime = "Return Date & Time must be after the Pickup Date & Time";
@@ -847,7 +803,7 @@ export default function FleetOpzApp() {
     // (editingBookingId is undefined when creating new, so nothing is
     // excluded there). Detail is already shown by the always-on inline
     // banner in Step 2, so this just blocks Next/Submit without repeating it.
-    if (!errors.dates && !errors.returnTime && !errors.contractMonths && !errors.monthlyRent && newBookingData.plate && newBookingData.start && newBookingData.end) {
+    if (!errors.dates && !errors.returnTime && newBookingData.plate) {
       const conflict = fleetData.checkBookingConflict(newBookingData.plate, newBookingData.start, newBookingData.end, editingBookingId);
       if (conflict) errors.conflict = "conflict";
     }
@@ -979,6 +935,7 @@ export default function FleetOpzApp() {
   const [createdBookingInfo, setCreatedBookingInfo] = useState(null);
 
   const openNewBookingModal = () => {
+    rentalPrefillEditedRef.current = false;
     setBookingStep(1);
     setShowNewBooking(true);
   };
@@ -986,6 +943,7 @@ export default function FleetOpzApp() {
   // From Car Availability: open the New Booking wizard prefilled with the
   // chosen car and (optionally) the searched pickup/return window.
   const openBookingForCar = (plate, start, end) => {
+    rentalPrefillEditedRef.current = false;
     setEditingBookingId(null);
     // Prefill the Daily Rate from the car's target rate, exactly as the Car
     // (Plate) dropdown does — otherwise arriving here from Car Availability
@@ -1039,6 +997,9 @@ export default function FleetOpzApp() {
   // they're auto-filled from the same car's last returned booking via
   // getPreviousMileageFuel — either way they stay fully editable.
   const openEditBookingModal = (booking) => {
+    // Editing an existing booking loads its saved Total Rental Amount — treat it
+    // as user-set so the pre-fill sync never overwrites it with the suggested total.
+    rentalPrefillEditedRef.current = true;
     const previous = booking.startingMileage
       ? null
       : getPreviousMileageFuel(booking.plate, booking.id);
@@ -1062,11 +1023,6 @@ export default function FleetOpzApp() {
       pickup: booking.pickup || "",
       drop: booking.drop || "",
       rate: booking.rate ?? "",
-      // Preserve the long-term monthly contract fields when editing so they
-      // aren't lost/overwritten (the return date stays derived from these).
-      rentalType: booking.rentalType || "daily",
-      contractMonths: booking.contractMonths ?? "",
-      monthlyRent: booking.monthlyRent ?? "",
       rentalAmount: booking.rentalAmount ?? "",
       deductible: booking.deductible ?? "",
       vatRate: booking.vatRate ?? "",
@@ -1129,7 +1085,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalType: "daily", contractMonths: "", monthlyRent: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setContactError("");
     setMatchedCustomer(null);
@@ -1152,26 +1108,6 @@ export default function FleetOpzApp() {
     setNewBookingData(prev => (String(extension) === String(prev.rentalAmount) ? prev : { ...prev, rentalAmount: String(extension) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extendMode, extendBaseline, newBookingData.start, newBookingData.end]);
-
-  // Monthly contract: reserve the car for the whole term. The drop-off date is
-  // derived automatically as pickup + contractMonths (so the return calendar is
-  // hidden below), and start/end stay in sync so the existing availability /
-  // conflict logic blocks the car for the full contract. Month-1 rent drives the
-  // Total Rental Amount, since that's what's billed at pickup alongside the deposit.
-  useEffect(() => {
-    if (newBookingData.rentalType !== "monthly") return;
-    const { pickupDate, pickupTime, contractMonths, monthlyRent } = newBookingData;
-    const n = parseInt(contractMonths, 10) || 0;
-    const patch = { rentalAmount: String(Number(monthlyRent) || 0) };
-    if (pickupDate && n > 0) {
-      patch.returnDate = addMonths(pickupDate, n);
-      patch.returnTime = pickupTime || "00:00";
-      patch.start = combineDateTime(pickupDate, pickupTime);
-      patch.end = combineDateTime(patch.returnDate, patch.returnTime);
-    }
-    setNewBookingData(prev => (Object.keys(patch).some(k => prev[k] !== patch[k]) ? { ...prev, ...patch } : prev));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newBookingData.rentalType, newBookingData.pickupDate, newBookingData.pickupTime, newBookingData.contractMonths, newBookingData.monthlyRent]);
 
   const [newUserData, setNewUserData] = useState({
     name: "",
@@ -1631,16 +1567,6 @@ export default function FleetOpzApp() {
     // Long-term monthly contract: normalise the numbers and build the
     // month-by-month rent schedule. Month 1 is marked paid when rent was
     // collected up front at confirmation (Security Deposit + 1st Month Rent).
-    const isMonthlyContract = newBookingData.rentalType === "monthly";
-    const contractMonthsNum = parseInt(newBookingData.contractMonths, 10) || 0;
-    const monthlyRentNum = Number(newBookingData.monthlyRent) || 0;
-    const firstMonthPaid = isMonthlyContract && Number(newBookingData.amountCollected) > 0;
-    const rentSchedule = isMonthlyContract
-      ? buildRentSchedule(newBookingData.pickupDate, contractMonthsNum, monthlyRentNum, firstMonthPaid).map((row, i) =>
-          i === 0 && firstMonthPaid
-            ? { ...row, paidAt: `${newBookingData.amountCollectedDate}T${newBookingData.amountCollectedTime}`, method: newBookingData.paymentMethod, reference: newBookingData.referenceCode || "" }
-            : row)
-      : [];
     const createdBooking = fleetData.addBooking({
       ...newBookingData,
       ageGroup: getAgeGroup(newBookingData.age),
@@ -1664,11 +1590,6 @@ export default function FleetOpzApp() {
       // Persist the resolved Total Rental Amount (blank input → suggested total)
       // so the booking's invoice bills exactly what Pricing & Charges showed.
       rentalAmount: String(bookingRateCharge),
-      // Long-term monthly contract metadata + per-month rent schedule (empty for
-      // normal daily rentals). rentSchedule drives monthly rent collection and
-      // the Cancel Rental flow on the booking detail.
-      rentalType: newBookingData.rentalType,
-      ...(isMonthlyContract ? { contractMonths: contractMonthsNum, monthlyRent: monthlyRentNum, rentSchedule } : {}),
       // Deposit collection metadata (separate from `payments`). depositCollectedAt
       // is set only when the deposit was actually received at confirmation;
       // depositPaid is the amount really held (partial allowed).
@@ -1777,6 +1698,18 @@ export default function FleetOpzApp() {
   // to the suggested total (so an untouched booking bills the suggested rate).
   const bookingRentalEntered = newBookingData.rentalAmount !== "" && newBookingData.rentalAmount != null;
   const bookingRateCharge = bookingRentalEntered ? (Number(newBookingData.rentalAmount) || 0) : bookingSuggestedTotal;
+  // Pre-fill Total Rental Amount with the suggested total as a real, editable
+  // value (instead of leaving the field blank behind a placeholder), and keep it
+  // synced as the car/dates/rate change — until the user edits it. Because the
+  // filled value always equals the suggested total, bookingRateCharge and every
+  // downstream figure are identical to the old blank→suggested fallback.
+  useEffect(() => {
+    if (extendMode || rentalPrefillEditedRef.current) return;
+    if (!(bookingSuggestedTotal > 0)) return;
+    const desired = String(bookingSuggestedTotal);
+    setNewBookingData(prev => (prev.rentalAmount === desired ? prev : { ...prev, rentalAmount: desired }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingSuggestedTotal, extendMode]);
   // Implied per-unit rate from the total in effect, and how it compares to the
   // suggested rate (positive = gain, negative = loss).
   const bookingImpliedUnitRate = bookingUnits > 0 ? bookingRateCharge / bookingUnits : 0;
@@ -2218,52 +2151,6 @@ export default function FleetOpzApp() {
 
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, margin: "18px 0 14px" }}>📅 Rental Period</div>
 
-                  {/* Rental Type — Daily (short rental, rate × days) vs Monthly
-                      (long-term contract: Deposit + Month-1 up front, then rent
-                      each month; car reserved for the whole term). Hidden while
-                      extending an existing booking. */}
-                  {!extendMode && (
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ display: "inline-flex", border: `1.5px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                        {[["daily", "Daily Rental"], ["monthly", "Monthly Contract"]].map(([t, label]) => {
-                          const active = newBookingData.rentalType === t;
-                          return (
-                            <button key={t} type="button"
-                              onClick={() => setNewBookingData(prev => ({ ...prev, rentalType: t }))}
-                              style={{ padding: "8px 18px", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: "none", background: active ? C.navy : C.surface, color: active ? "#fff" : C.textSec }}>
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {newBookingData.rentalType === "monthly" && (
-                        <>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-                            <div>
-                              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.navy }}>Contract Duration (months)</label>
-                              <input type="number" min="1" value={newBookingData.contractMonths}
-                                onChange={(e) => { clearFieldError("contractMonths"); clearFieldError("dates"); setNewBookingData(prev => ({ ...prev, contractMonths: e.target.value })); }}
-                                placeholder="e.g. 12" style={bookingFieldInputStyle(false, !!fieldErrors.contractMonths)} />
-                              <FieldErr msg={fieldErrors.contractMonths} />
-                            </div>
-                            <div>
-                              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.navy }}>Monthly Rent (SGD)</label>
-                              <input type="number" min="0" value={newBookingData.monthlyRent}
-                                onChange={(e) => { clearFieldError("monthlyRent"); setNewBookingData(prev => ({ ...prev, monthlyRent: e.target.value })); }}
-                                placeholder="e.g. 1200" style={bookingFieldInputStyle(false, !!fieldErrors.monthlyRent)} />
-                              <FieldErr msg={fieldErrors.monthlyRent} />
-                            </div>
-                          </div>
-                          {newBookingData.pickupDate && parseInt(newBookingData.contractMonths, 10) > 0 && (
-                            <div style={{ marginTop: 10, fontSize: 12, color: C.textSec, background: C.tealFaint, borderRadius: 8, padding: "8px 12px" }}>
-                              Car reserved for <strong style={{ color: C.navy }}>{newBookingData.contractMonths} month{parseInt(newBookingData.contractMonths, 10) === 1 ? "" : "s"}</strong> — through <strong style={{ color: C.navy }}>{newBookingData.returnDate || "—"}</strong>. Collect now: Security Deposit + Month-1 rent.
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-
                   {newBookingData.plate ? (
                     <div ref={calendarWrapRef} style={{ position: "relative" }}>
                     {/* MakeMyTrip-style summary cards: click a card to open its
@@ -2288,7 +2175,6 @@ export default function FleetOpzApp() {
                         );
                       })()}
                       <TravelDateCard caption="Return" iso={newBookingData.returnDate}
-                        locked={newBookingData.rentalType === "monthly"}
                         active={openCalendar === "return"}
                         onClick={() => setOpenCalendar(openCalendar === "return" ? null : "return")}
                         timeValue={newBookingData.returnTime}
@@ -2639,7 +2525,7 @@ export default function FleetOpzApp() {
                       type="number"
                       min="0"
                       value={newBookingData.rentalAmount}
-                      onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, rentalAmount: v }); }}
+                      onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; rentalPrefillEditedRef.current = true; setNewBookingData({ ...newBookingData, rentalAmount: v }); }}
                       placeholder={bookingSuggestedTotal ? String(bookingSuggestedTotal) : "0"}
                       style={bookingFieldInputStyle(false)}
                     />
@@ -2664,7 +2550,7 @@ export default function FleetOpzApp() {
                     {bookingSuggestedTotal > 0 && bookingRentalEntered && Number(newBookingData.rentalAmount) !== bookingSuggestedTotal && (
                       <button
                         type="button"
-                        onClick={() => setNewBookingData({ ...newBookingData, rentalAmount: String(bookingSuggestedTotal) })}
+                        onClick={() => { rentalPrefillEditedRef.current = false; setNewBookingData({ ...newBookingData, rentalAmount: String(bookingSuggestedTotal) }); }}
                         style={{ marginTop: 6, fontSize: 11, color: C.teal, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
                       >
                         Use suggested {formatSGD(bookingSuggestedTotal)}
