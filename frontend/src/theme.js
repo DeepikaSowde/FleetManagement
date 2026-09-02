@@ -152,15 +152,15 @@ export const suggestRateBand = (dailyRate) => {
 };
 
 // ── TARGET RATE SUGGESTIONS (3-tier) ────────────────────────────────────────
-// Given the car's total investment, when its COE runs out, and a maintenance %,
-// generate 3 target options — Conservative / Balanced / Aggressive — each built
-// around a target CAGR compounded over the years left to COE expiry:
-//   1. TotalInvestment = investment + maintenance (maintPct % of investment)
-//   2. YearsToExpiry    = (COE expiry date − purchase date) / 365
-//   3. FV(tier)          = TotalInvestment × (1 + CAGR(tier)) ^ YearsToExpiry
-//   4. TargetMonthlyIncome(tier) = FV(tier) / (YearsToExpiry × 12)
-//   5. DailyRate(tier)   = TargetMonthlyIncome(tier) / DaysRentedPerMonth(tier)
-//   6. Profit%(tier)     = (FV(tier) / TotalInvestment − 1) × 100
+// Given the car's Total Investment and when its COE runs out, generate 3 target
+// options — Conservative / Balanced / Aggressive — each built around a target
+// CAGR compounded over the years left to COE expiry. Total Investment is the
+// ONLY calculation base — no maintenance cost is added:
+//   1. Years        = (COE expiry date − purchase date) / 365
+//   2. FV(tier)     = TotalInvestment × (1 + CAGR(tier)) ^ Years
+//   3. MonthlyIncome(tier) = FV(tier) / (Years × 12)
+//   4. DailyRate(tier)     = MonthlyIncome(tier) / RunningDays(tier)
+//   5. Profit%(tier)       = (FV(tier) / TotalInvestment − 1) × 100
 // Balanced is anchored at 11% CAGR — the actual investment goal — with
 // Conservative/Aggressive as symmetric ±3pt offsets. Days/month assumed per
 // tier fall as the tier gets more aggressive (25 → 22 → 18), so rate, and FV
@@ -177,8 +177,9 @@ const TIERS = [
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-// investment: purchase + insurance + registration + other charges (maintenance
-//             is folded in below, via maintPct).
+// investment: the car's Total Investment (purchase + insurance + registration +
+//             other charges). This is the sole calculation base — no maintenance
+//             cost is added.
 // purchaseDate / coe: date strings. purchaseDate falls back to the app's fixed
 //             "today" (APP_NOW) if missing, so older records without one still
 //             generate options — and so the horizon doesn't silently change
@@ -186,9 +187,9 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 // minRate / maxRate: no longer drive the math directly — rate is now purely a
 //             function of the CAGR/FV formula above. Kept in the signature in
 //             case you want to flag "this lands outside your stated band".
-export const generateTargetOptions = ({ investment, purchaseDate, coe, maintPct, minRate, maxRate }) => {
-  const maintenanceCost = investment * ((maintPct || 0) / 100);
-  const totalInvestment = investment + maintenanceCost;
+export const generateTargetOptions = ({ investment, purchaseDate, coe, minRate, maxRate }) => {
+  // Total Investment is the only base — maintenance cost is intentionally excluded.
+  const totalInvestment = investment;
 
   const start = purchaseDate ? new Date(purchaseDate) : APP_NOW;
   const end = new Date(coe);
