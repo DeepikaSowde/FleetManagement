@@ -1,13 +1,19 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { C, mono, fmt } from "./theme";
-import { Card, Btn, StatusTag, PlateBadge } from "./components";
+import { Card, Btn, StatusTag } from "./components";
 import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
 
-// Booking-status colors for the status filter pills below — reuses Fleet's
-// STATUS_PILL_COLORS/STATUS_PILL_FAINT (Upcoming, Ending Today, etc. already
-// match 1:1) and adds the two booking-only statuses Fleet doesn't have.
-const BOOKING_STATUS_COLORS = { ...STATUS_PILL_COLORS, Active: C.teal, Overdue: C.red, Completed: C.green, Closed: C.navy, Cancelled: C.red };
-const getBookingStatusPillColor = (status) => BOOKING_STATUS_COLORS[status] || C.navy;
+// Meta for the Bookings status summary cards — title, sub-label, icon, accent.
+const BOOKING_STAT_META = {
+  All:            { title: "All Bookings", sub: "Total Bookings", icon: "🚗", accent: C.green },
+  Active:         { title: "Active", sub: "Currently Active", icon: "🟢", accent: C.green },
+  Upcoming:       { title: "Upcoming", sub: "Coming Up", icon: "📅", accent: C.blue },
+  "Ending Today": { title: "Ending Today", sub: "Ending Today", icon: "⏰", accent: C.amber },
+  Overdue:        { title: "Overdue", sub: "Past Due", icon: "⏱️", accent: C.red },
+  Completed:      { title: "Completed", sub: "Completed", icon: "✅", accent: C.green },
+  Closed:         { title: "Closed", sub: "Total Closed", icon: "🔒", accent: C.navyMid },
+  Cancelled:      { title: "Cancelled", sub: "Cancelled", icon: "🚫", accent: C.red },
+};
 import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
 import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
 import { generateRentalAgreementPdf } from "./rentalAgreement";
@@ -1734,12 +1740,37 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   );
 };
 
+// Compact rounded-square icon action button used in the Bookings list/grid rows.
+const IconBtn = ({ children, title, color, testid, onClick }) => (
+  <button data-testid={testid} title={title} onClick={onClick} style={{
+    width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center",
+    borderRadius: 8, cursor: "pointer", fontSize: 13, lineHeight: 1,
+    background: `${color}14`, border: `1px solid ${color}33`, color,
+  }}>{children}</button>
+);
+
+// Pagination button for the Bookings list footer.
+const BkPageBtn = ({ children, active, disabled, onClick }) => (
+  <button onClick={onClick} disabled={disabled} style={{
+    minWidth: 28, height: 28, padding: "0 8px", borderRadius: 6,
+    border: `1px solid ${active ? C.teal : C.border}`,
+    background: active ? C.teal : C.surface,
+    color: active ? "#fff" : disabled ? C.textMuted : C.textSec,
+    fontSize: 12, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
+  }}>{children}</button>
+);
+
 const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, onExtendBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System" }) => {
   const bkHistEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
   const [filter, setFilter] = useState("All");
   const [timelinePlate, setTimelinePlate] = useState(null);
   const [openDetailId, setOpenDetailId] = useState(null);
   const [activeDetailTab, setActiveDetailTab] = useState("Overview");
+  const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState("recent"); // recent | oldest | total-high | total-low
+  const [view, setView] = useState("list");       // list | grid
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   const prevCountRef = useRef(bookings.length);
 
   // Auto-open the Booking Detail modal right after a new booking is created
@@ -1788,7 +1819,34 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
     return counts;
   }, [scopedBookings]);
 
-  const filtered = filter === "All" ? scopedBookings : scopedBookings.filter(b => b.status === filter);
+  const statusFiltered = filter === "All" ? scopedBookings : scopedBookings.filter(b => b.status === filter);
+
+  // Free-text search across booking id / customer / car plate / location / contact.
+  const searched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return statusFiltered;
+    return statusFiltered.filter(b =>
+      [b.id, b.customer, b.plate, b.pickup, b.contact].some(v => (v ?? "").toString().toLowerCase().includes(q))
+    );
+  }, [statusFiltered, query]);
+
+  // Sort — Recent = latest pickup date first.
+  const sorted = useMemo(() => {
+    const arr = [...searched];
+    const t = (d) => new Date(d || 0).getTime() || 0;
+    if (sortBy === "recent") arr.sort((a, b) => t(b.start) - t(a.start));
+    else if (sortBy === "oldest") arr.sort((a, b) => t(a.start) - t(b.start));
+    else if (sortBy === "total-high" || sortBy === "total-low") {
+      const tot = (b) => computeBookingInvoice(b).agreementTotal || 0;
+      arr.sort((a, b) => (sortBy === "total-high" ? tot(b) - tot(a) : tot(a) - tot(b)));
+    }
+    return arr;
+  }, [searched, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const curPage = Math.min(page, totalPages);
+  const pageRows = sorted.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
+
   const timelineCar = timelinePlate ? fleet.find(c => c.plate === timelinePlate) : null;
   const openDetailBooking = openDetailId ? bookings.find(b => b.id === openDetailId) : null;
 
@@ -1819,82 +1877,135 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
 
   return (
     <div>
-      {/* New Booking button (page title is shown by the app top bar) */}
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
+      {/* Page header — icon + title + subtitle, with the primary action on the right */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>📅</div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.navy, lineHeight: 1.1 }}>Bookings</div>
+            <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 2 }}>Manage all vehicle bookings and reservations</div>
+          </div>
+        </div>
         <Btn primary id="booking-new" onClick={onNewBooking}>＋ New Booking</Btn>
       </div>
 
-      {/* Status filter pills — click a status to show only that status, click All to reset.
-          Same design/colors/interaction as the Fleet page's status filter pills. */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-        {[["All", scopedBookings.length], ...statuses.filter(s => s !== "All").map(s => [s, statusCounts[s] || 0])].map(([label, count]) => {
-          const isActive = filter === label;
-          const dotColor = label === "All" ? C.navy : getBookingStatusPillColor(label);
+      {/* Toolbar — search + filters + sort + list/grid view toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textMuted, fontSize: 13, pointerEvents: "none" }}>🔍</span>
+          <input
+            id="booking-search"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+            placeholder="Search booking ID, customer, car, or location…"
+            style={{ width: "100%", padding: "9px 12px 9px 34px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, color: C.textPri, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+          />
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.textSec }}>
+          <span style={{ fontSize: 12 }}>⚲</span> Filters
+        </div>
+        <select
+          value={sortBy}
+          onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+          style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}
+        >
+          <option value="recent">Sort by: Recent</option>
+          <option value="oldest">Sort by: Oldest</option>
+          <option value="total-high">Sort by: Total (high→low)</option>
+          <option value="total-low">Sort by: Total (low→high)</option>
+        </select>
+        <div style={{ display: "inline-flex", border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+          {[["grid", "▦"], ["list", "☰"]].map(([v, ic]) => (
+            <button key={v} title={`${v} view`} onClick={() => setView(v)} style={{
+              padding: "8px 12px", fontSize: 14, cursor: "pointer", border: "none",
+              background: view === v ? C.teal : C.surface, color: view === v ? "#fff" : C.textMuted,
+            }}>{ic}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Status summary cards — click one to filter, click All Bookings to reset */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
+        {statuses.map((key) => {
+          const meta = BOOKING_STAT_META[key] || { title: key, sub: key, icon: "•", accent: C.navy };
+          const count = key === "All" ? scopedBookings.length : (statusCounts[key] || 0);
+          const isActive = filter === key;
           return (
-            <button key={label} data-testid="booking-filter" data-filter={label} onClick={() => setFilter(label)} style={{
-              display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 999,
-              border: `1.5px solid ${isActive ? dotColor : C.border}`,
-              background: isActive ? `${dotColor}14` : C.surface,
-              color: isActive ? dotColor : C.textSec,
-              fontSize: 12.5, fontWeight: 700, cursor: "pointer", transition: "all 0.12s",
+            <button key={key} data-testid="booking-filter" data-filter={key} onClick={() => { setFilter(key); setPage(1); }} style={{
+              display: "flex", alignItems: "center", gap: 12, textAlign: "left", cursor: "pointer",
+              padding: 14, borderRadius: 12, background: isActive ? `${meta.accent}0F` : C.surface,
+              border: `${isActive ? 2 : 1}px solid ${isActive ? meta.accent : C.border}`, transition: "all 0.12s",
             }}>
-              {label !== "All" && <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />}
-              {label}
-              <span style={{
-                fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
-                background: isActive ? C.surface : C.bg, color: isActive ? dotColor : C.textMuted,
-              }}>
-                {count}
-              </span>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, background: `${meta.accent}1A` }}>{meta.icon}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: C.navy, whiteSpace: "nowrap" }}>{meta.title}</div>
+                <div style={{ ...mono, fontSize: 20, fontWeight: 700, color: isActive ? meta.accent : C.navy, lineHeight: 1.15 }}>{count}</div>
+                <div style={{ fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{meta.sub}</div>
+              </div>
             </button>
           );
         })}
       </div>
 
       <Card>
-        {/* Horizontal scroll lives inside this box only — the table can never
-            spill past the Card's border. minWidth keeps every column at a
-            readable width; below that the box scrolls instead of squishing
-            or overlapping columns. */}
+        {/* List view — the table scrolls horizontally inside this box only, so it
+            never spills past the Card's border. Grid view and the empty/pagination
+            rows render outside it (below). */}
+        {view === "list" && (
         <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", minWidth: 1080, borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", minWidth: 880, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bg }}>
-              {["Booking ID", "Car", "Customer", "IC / Passport", "Contact", "Rental Period", "Days", "Rate", "Total", "Pickup", "Status", "Actions"].map(h => {
-                // Pin the Actions column to the right edge so View/Edit/Delete
-                // stay visible without scrolling the wide table sideways.
-                const pinned = h === "Actions";
+              {["Booking ID", "Car & Location", "Customer", "Rental Period", "Days", "Rate", "Total", "Status", "Actions"].map(h => {
+                const centered = h === "Days" || h === "Actions";
                 return (
                   <th key={h} style={{
-                    textAlign: pinned ? "center" : "left", padding: "9px 12px", fontSize: 10, fontWeight: 600,
+                    textAlign: centered ? "center" : "left", padding: "11px 14px", fontSize: 10, fontWeight: 700,
                     color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5,
                     borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap",
-                    ...(pinned ? { position: "sticky", right: 0, zIndex: 3, background: C.bg, boxShadow: `-8px 0 10px -8px rgba(15,23,42,0.18)` } : {}),
                   }}>{h}</th>
                 );
               })}
             </tr>
           </thead>
           <tbody>
-            {filtered.map(b => {
+            {pageRows.map(b => {
               const { days, agreementTotal: total } = computeBookingInvoice(b);
               return (
                 <tr key={b.id} data-testid="booking-row" data-booking-id={b.id}
                   onClick={() => setTimelinePlate(b.plate)}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = C.bg; if (e.currentTarget.lastChild) e.currentTarget.lastChild.style.background = C.bg; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; if (e.currentTarget.lastChild) e.currentTarget.lastChild.style.background = C.surface; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = C.bg; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: "transparent", transition: "background 0.12s" }}>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navyMid, whiteSpace: "nowrap" }}>{b.id}</td>
-                  <td style={{ padding: "11px 12px" }}><PlateBadge plate={b.plate} small /></td>
-                  <td style={{ padding: "11px 12px", fontSize: 12, fontWeight: 600 }}>{b.customer}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{b.ic}</td>
-                  <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec }}>{b.contact}</td>
-                  <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{formatDateTime(b.start)} → {formatDateTime(b.end)}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, textAlign: "center" }}>{days}</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11, whiteSpace: "nowrap" }}>SGD {b.rate}/d</td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.teal, whiteSpace: "nowrap" }}>{fmt(total)}</td>
-                  <td style={{ padding: "11px 12px", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{b.pickup}</td>
-                  <td style={{ padding: "11px 12px" }}>
+                  <td style={{ padding: "12px 14px", borderLeft: `3px solid ${C.green}`, whiteSpace: "nowrap" }}>
+                    <span style={{ ...mono, fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealFaint, borderRadius: 8, padding: "4px 10px" }}>{b.id}</span>
+                  </td>
+                  <td style={{ padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <span style={{ fontSize: 15 }}>🚗</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, whiteSpace: "nowrap" }}>{b.pickup || "—"}</div>
+                        <div style={{ ...mono, fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{b.plate}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: "12px 14px" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{b.customer}</div>
+                    <div style={{ ...mono, fontSize: 10.5, color: C.textMuted }}>{b.contact || "—"}</div>
+                  </td>
+                  <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11 }}>
+                      <span style={{ color: C.textMuted, marginTop: 1 }}>📅</span>
+                      <div>
+                        <div style={{ color: C.textSec }}>{formatDateTime(b.start)}</div>
+                        <div style={{ color: C.textMuted }}>→ {formatDateTime(b.end)}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 12, textAlign: "center", color: C.navy }}>{days}</td>
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 11, whiteSpace: "nowrap", color: C.textSec }}>SGD {b.rate}/day</td>
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 12.5, fontWeight: 700, color: C.teal, whiteSpace: "nowrap" }}>{fmt(total)}</td>
+                  <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <StatusTag status={b.status} />
                       {isAwaitingHandover(b) && (
@@ -1904,20 +2015,11 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: "9px 12px", position: "sticky", right: 0, zIndex: 2, background: C.surface, boxShadow: `-8px 0 10px -8px rgba(15,23,42,0.15)` }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, whiteSpace: "nowrap" }}>
-                      <button title="View booking" data-testid="booking-row-view" onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}
-                        style={{ padding: "5px 10px", fontSize: 11, background: `${C.teal}12`, border: `1px solid ${C.teal}30`, borderRadius: 6, color: C.teal, cursor: "pointer", fontWeight: 600 }}>
-                        View
-                      </button>
-                      <button title="Edit booking" data-testid="booking-row-edit" onClick={() => onEditBooking?.(b)}
-                        style={{ padding: "5px 10px", fontSize: 11, background: `${C.teal}12`, border: `1px solid ${C.teal}30`, borderRadius: 6, color: C.teal, cursor: "pointer", fontWeight: 600 }}>
-                        Edit
-                      </button>
-                      <button title="Delete booking" data-testid="booking-row-delete" onClick={() => handleDelete(b.id)}
-                        style={{ padding: "5px 10px", fontSize: 11, background: `${C.red}10`, border: `1px solid ${C.red}30`, borderRadius: 6, color: C.red, cursor: "pointer", fontWeight: 600 }}>
-                        Delete
-                      </button>
+                  <td style={{ padding: "9px 14px" }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <IconBtn testid="booking-row-view" title="View booking" color={C.green} onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}>👁</IconBtn>
+                      <IconBtn testid="booking-row-edit" title="Edit booking" color={C.green} onClick={() => onEditBooking?.(b)}>✏️</IconBtn>
+                      <IconBtn testid="booking-row-delete" title="Delete booking" color={C.red} onClick={() => handleDelete(b.id)}>🗑️</IconBtn>
                     </div>
                   </td>
                 </tr>
@@ -1925,10 +2027,59 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
             })}
           </tbody>
         </table>
-        {filtered.length === 0 && (
-          <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No bookings with status "{filter}"</div>
-        )}
         </div>
+        )}
+
+        {/* Grid (card) view */}
+        {view === "grid" && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12, padding: 16 }}>
+            {pageRows.map(b => {
+              const { days, agreementTotal: total } = computeBookingInvoice(b);
+              return (
+                <div key={b.id} data-testid="booking-row" data-booking-id={b.id} onClick={() => setTimelinePlate(b.plate)}
+                  style={{ border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.green}`, borderRadius: 12, padding: 14, cursor: "pointer", background: C.surface }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                    <span style={{ ...mono, fontSize: 11, fontWeight: 700, color: C.teal, background: C.tealFaint, borderRadius: 8, padding: "4px 10px" }}>{b.id}</span>
+                    <StatusTag status={b.status} />
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{b.customer}</div>
+                  <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 8 }}>🚗 {b.pickup || "—"} · {b.plate}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>📅 {formatDateTime(b.start)} → {formatDateTime(b.end)}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                    <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(total)}<span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}> · {days}d</span></div>
+                    <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <IconBtn testid="booking-row-view" title="View booking" color={C.green} onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}>👁</IconBtn>
+                      <IconBtn testid="booking-row-edit" title="Edit booking" color={C.green} onClick={() => onEditBooking?.(b)}>✏️</IconBtn>
+                      <IconBtn testid="booking-row-delete" title="Delete booking" color={C.red} onClick={() => handleDelete(b.id)}>🗑️</IconBtn>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {sorted.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>
+            No bookings found{filter !== "All" ? ` with status “${filter}”` : query.trim() ? " matching your search" : ""}.
+          </div>
+        )}
+
+        {/* Pagination */}
+        {sorted.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderTop: `1px solid ${C.border}`, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 11, color: C.textMuted }}>
+              Showing {(curPage - 1) * PAGE_SIZE + 1} to {Math.min(curPage * PAGE_SIZE, sorted.length)} of {sorted.length} bookings
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <BkPageBtn disabled={curPage === 1} onClick={() => setPage(curPage - 1)}>‹</BkPageBtn>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <BkPageBtn key={p} active={p === curPage} onClick={() => setPage(p)}>{p}</BkPageBtn>
+              ))}
+              <BkPageBtn disabled={curPage === totalPages} onClick={() => setPage(curPage + 1)}>›</BkPageBtn>
+            </div>
+          </div>
+        )}
       </Card>
 
       {timelineCar && (
