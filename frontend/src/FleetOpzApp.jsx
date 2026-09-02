@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Car, CalendarCheck, CalendarDays, Users, ClipboardList,
   BookOpen, Briefcase, Coins, Receipt, TrendingUp, ArrowLeftRight,
-  Bell, UserCog, Settings as SettingsIcon,
+  UserCog, Settings as SettingsIcon,
 } from "lucide-react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
@@ -1143,7 +1143,6 @@ export default function FleetOpzApp() {
     { id: "pl", label: "P&L", icon: TrendingUp },
     { id: "cash-flow", label: "Cash Flow", icon: ArrowLeftRight },
     // System
-    { id: "alerts", label: "Alerts", icon: Bell, badge: fleetData.alerts.length },
     { id: "usermgmt", label: "User Management", icon: UserCog },
     { id: "settings", label: "Settings", icon: SettingsIcon },
   ];
