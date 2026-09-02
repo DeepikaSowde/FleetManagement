@@ -513,7 +513,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [collectingMonthIdx, setCollectingMonthIdx] = useState(null);
   // Cancel Rental (long-term contracts): inline form state.
   const [showCancelForm, setShowCancelForm] = useState(false);
+  // Actual Return Date & Time captured when cancelling an active rental — drives
+  // actualReturnAt so the duration, charges, Booking Details, and Invoice all
+  // recalculate to the real return moment (see handleCancelRental).
   const [cancelDate, setCancelDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cancelTime, setCancelTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [cancelReason, setCancelReason] = useState("");
   const [cancelDepositOut, setCancelDepositOut] = useState("");
   const [cancelRefundRef, setCancelRefundRef] = useState("");
@@ -660,6 +664,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     setCancelReason("");
     setCancelRefundRef("");
     setCancelDate(new Date().toISOString().slice(0, 10));
+    setCancelTime(new Date().toTimeString().slice(0, 5));
     setShowCancelForm(true);
   };
 
@@ -669,17 +674,25 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // refund as Deposit Out (amount + reference + date). Deposit Out is a returned
   // liability — Stage 4 surfaces it as a cash outflow that is never revenue.
   const handleCancelRental = () => {
-    if (!cancelDate) { alert("Enter the cancellation date"); return; }
+    if (!cancelDate || !cancelTime) { alert("Enter the Actual Return Date & Time"); return; }
     const depositOut = Number(cancelDepositOut) || 0;
     const paidRows = (booking.rentSchedule || []).filter(r => r.paid);
+    // The car is returned as part of the cancellation, so record the actual
+    // Return Date & Time as actualReturnAt — the single field computeBookingInvoice
+    // uses as the effective end. That recalculates the rental duration and charges
+    // to the real return, and the same moment then shows in Booking Details (Return
+    // Date & Time / Rental Period) and on the Invoice (Drop-off Details).
+    const actualReturnAt = `${cancelDate}T${cancelTime}`;
     onUpdateBooking(booking.id, {
       cancelled: true,
       cancelledAt: cancelDate,
+      actualReturnAt,
+      returnedAt: new Date().toISOString(),
       cancelReason: cancelReason.trim(),
       depositOut,
       depositRefundRef: cancelRefundRef.trim(),
       rentSchedule: paidRows,
-      history: withHistory(histEntry("cancelled", `Contract cancelled${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Car released. Deposit Out ${fmt(depositOut)}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
+      history: withHistory(histEntry("cancelled", `Contract cancelled${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Returned ${formatDateTime(actualReturnAt)}. Car released. Deposit Out ${fmt(depositOut)}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
     });
     setShowCancelForm(false);
   };
@@ -1135,9 +1148,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 {[
                   { label: "Booking ID", value: booking.id },
                   { label: "Booking Status", value: booking.status },
-                  { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.end)}` },
+                  { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.actualReturnAt || booking.end)}` },
                   { label: "Pickup Date & Time", value: formatDateTime(booking.start) || "—" },
-                  { label: "Return Date & Time", value: formatDateTime(booking.end) || "—" },
+                  // Once the vehicle is actually returned (normal return or a cancellation
+                  // with return), actualReturnAt holds the real return moment and takes over
+                  // from the scheduled end — same rule the invoice and duration already use.
+                  { label: "Return Date & Time", value: formatDateTime(booking.actualReturnAt || booking.end) || "—" },
                   { label: "Total Rental Days", value: `${inv.days} Day${inv.days === 1 ? "" : "s"}` },
                 ].map(row => (
                   <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
@@ -1461,7 +1477,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <div style={{ border: `1px solid ${C.red}33`, background: "#FDECEC", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: C.textSec }}>
                         <div style={{ fontWeight: 700, color: C.red, marginBottom: 4 }}>Contract cancelled — car released, future rent stopped.</div>
                         <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-                          <span>Date: <strong>{booking.cancelledAt || "—"}</strong></span>
+                          <span>Actual Return: <strong>{formatDateTime(booking.actualReturnAt) || booking.cancelledAt || "—"}</strong></span>
                           <span>Deposit Out: <strong style={{ ...mono, color: C.red }}>{fmt(Number(booking.depositOut) || 0)}</strong></span>
                           {booking.depositRefundRef ? <span>Refund Ref: <strong>{booking.depositRefundRef}</strong></span> : null}
                           {booking.cancelReason ? <span>Reason: <strong>{booking.cancelReason}</strong></span> : null}
@@ -1475,8 +1491,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 10 }}>Cancel this contract</div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                           <div style={{ flex: "1 1 130px" }}>
-                            <div style={detailFieldLabelStyle}>Cancellation Date</div>
+                            <div style={detailFieldLabelStyle}>Actual Return Date</div>
                             <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
+                          </div>
+                          <div style={{ flex: "1 1 110px" }}>
+                            <div style={detailFieldLabelStyle}>Actual Return Time</div>
+                            <input type="time" value={cancelTime} onChange={(e) => setCancelTime(e.target.value)} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 130px" }}>
                             <div style={detailFieldLabelStyle}>Deposit Out (Refund)</div>
