@@ -263,13 +263,27 @@ export const generateInvoicePdf = (booking, car, inv) => {
       { w: contentWidth * 0.3, text: amt > 0 ? money(amt) : "", align: "center" },
     ]);
   });
-  // Subtotal → VAT → Total → Amount Paid → Balance Due, all derived from
-  // computeBookingInvoice on the current booking. For an extended booking that
-  // record already covers the whole continuous period (original pickup → latest
-  // return, whole-period rental), so this is one cumulative invoice — no
-  // separate extension amount. Subtotal is derived as Total − VAT so it always
-  // reconciles regardless of taxable/non-taxable charge mix.
-  const invSubtotal = (Number(inv.finalInvoiceTotal) || 0) - (Number(inv.finalVatAmount) || 0);
+  // Security Deposit (Refundable) — its own charge line immediately after the
+  // other charges, then rolled into the Total below. It's collected alongside the
+  // rental and returned at the end, so its collected portion is added into
+  // Payments Collected, which keeps the Balance Due correct.
+  const deposit = Number(inv.deposit) || 0;
+  const depositPaid = Number(booking.depositPaid) || 0;
+  if (deposit > 0) {
+    y = cellRow(y, [
+      { w: contentWidth * 0.7, text: "Security Deposit (Refundable)" },
+      { w: contentWidth * 0.3, text: money(deposit), align: "center" },
+    ]);
+  }
+
+  // Subtotal → VAT → Total → Payments Collected → Balance Due. The Total now
+  // includes the Security Deposit; VAT is unchanged (the refundable deposit is
+  // not taxed); Subtotal is derived as Total − VAT so it always reconciles
+  // regardless of the taxable/non-taxable charge mix.
+  const grandTotal = (Number(inv.finalInvoiceTotal) || 0) + deposit;
+  const grandPaid = (Number(inv.totalPaid) || 0) + depositPaid;
+  const grandBalance = Math.max(0, grandTotal - grandPaid);
+  const invSubtotal = grandTotal - (Number(inv.finalVatAmount) || 0);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Subtotal", bold: true },
     { w: contentWidth * 0.3, text: money(invSubtotal), align: "center" },
@@ -280,15 +294,15 @@ export const generateInvoicePdf = (booking, car, inv) => {
   ]);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Total", bold: true },
-    { w: contentWidth * 0.3, text: money(inv.finalInvoiceTotal), bold: true, align: "center" },
+    { w: contentWidth * 0.3, text: money(grandTotal), bold: true, align: "center" },
   ], 9);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Payments Collected" },
-    { w: contentWidth * 0.3, text: inv.totalPaid > 0 ? `- ${money(inv.totalPaid)}` : money(0), align: "center" },
+    { w: contentWidth * 0.3, text: grandPaid > 0 ? `- ${money(grandPaid)}` : money(0), align: "center" },
   ]);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Balance Due", bold: true },
-    { w: contentWidth * 0.3, text: money(inv.balanceDue), bold: true, align: "center" },
+    { w: contentWidth * 0.3, text: money(grandBalance), bold: true, align: "center" },
   ], 9);
   y += 10;
 
