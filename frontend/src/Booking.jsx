@@ -1995,7 +1995,12 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
           </thead>
           <tbody>
             {pageRows.map(b => {
-              const { days, agreementTotal: total } = computeBookingInvoice(b);
+              const { days, rateCharge, agreementTotal: total } = computeBookingInvoice(b);
+              // Daily Rate reflects the actual Total Rental Amount ÷ Rental Days.
+              // When the suggested amount was used, this equals the suggested daily
+              // rate; when a custom total was entered, it's that total spread over
+              // the days. Days 0 (same-day/hourly) falls back to the stored rate.
+              const dailyRate = days > 0 ? Math.round(rateCharge / days) : (Number(b.rate) || 0);
               return (
                 <tr key={b.id} data-testid="booking-row" data-booking-id={b.id}
                   onClick={() => setTimelinePlate(b.plate)}
@@ -2028,7 +2033,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                     </div>
                   </td>
                   <td style={{ padding: "12px 14px", ...mono, fontSize: 12, textAlign: "center", color: C.navy }}>{days}</td>
-                  <td style={{ padding: "12px 14px", ...mono, fontSize: 11, whiteSpace: "nowrap", color: C.textSec }}>SGD {b.rate}/day</td>
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 11, whiteSpace: "nowrap", color: C.textSec }}>SGD {dailyRate}/day</td>
                   <td style={{ padding: "12px 14px", ...mono, fontSize: 12.5, fontWeight: 700, color: C.teal, whiteSpace: "nowrap" }}>{fmt(total)}</td>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
