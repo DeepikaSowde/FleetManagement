@@ -6,7 +6,6 @@ import {
 import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows, forfeitedDepositIncome } from "./ledgerUtils";
-import StatTiles from "./StatTiles";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
 // from data the app already has (no backend). Colours use a validated
@@ -447,15 +446,6 @@ const LedgerDashboard = ({
         </Card>
       </div>
 
-      {/* Stat tiles */}
-      <StatTiles
-        totalVehicles={metrics.totalFleet}
-        onRent={metrics.onRentalCount}
-        available={metrics.availableCount}
-        maintenance={metrics.maintenanceCount}
-        totalCustomers={customers.length}
-        totalBookings={bookings.length}
-      />
     </div>
   );
 };
