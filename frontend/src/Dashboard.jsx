@@ -160,15 +160,22 @@ const Dashboard = ({
   const remaining = Math.max(0, monthlyTarget - achieved);
   const achievedPct = monthlyTarget > 0 ? (achieved / monthlyTarget) * 100 : 0;
 
-  // ── Today's revenue (daily accrual from cars out on rent) ────────────────────
-  const dayRevenue = (dayStr) => bookings
-    .filter((b) => b.start && b.end && b.start.slice(0, 10) <= dayStr && dayStr <= b.end.slice(0, 10) && (b.status === "Active" || b.status === "Ending Today" || b.status === "Overdue"))
-    .reduce((s, b) => {
-      // Day's share of the actual rental (Total Rental Amount ÷ days), not the
-      // suggested daily rate. Same-day/hourly bookings (days 0) accrue in full.
-      const inv = computeBookingInvoice(b);
-      return s + (inv.days > 0 ? inv.rateCharge / inv.days : inv.rateCharge);
-    }, 0);
+  // ── Today's revenue = actual rental payments COLLECTED on a given day ─────────
+  // Only money actually received counts — never accrued/pending balances. For a
+  // standard (daily/hourly) booking that's each recorded payment whose date is
+  // the day; for a monthly contract it's each rent-schedule month marked paid on
+  // that day. Security deposits are excluded (they live outside `payments`). No
+  // payments on the day → 0.
+  const dayRevenue = (dayStr) => bookings.reduce((sum, b) => {
+    if (b.rentalType === "monthly") {
+      const collected = (b.rentSchedule || []).reduce((a, r) =>
+        a + (r.paid && (r.paidAt || "").slice(0, 10) === dayStr ? (Number(r.amount) || 0) : 0), 0);
+      return sum + collected;
+    }
+    const collected = (computeBookingInvoice(b).payments || []).reduce((a, p) =>
+      a + ((p.addedAt || "").slice(0, 10) === dayStr ? (Number(p.amount) || 0) : 0), 0);
+    return sum + collected;
+  }, 0);
   const todayRevenue = dayRevenue(todayStr);
   const yestRevenue = dayRevenue(yesterdayStr);
   const revDelta = yestRevenue > 0 ? ((todayRevenue - yestRevenue) / yestRevenue) * 100 : null;
