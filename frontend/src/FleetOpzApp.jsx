@@ -140,16 +140,23 @@ const to24h = (hour12, minute, ampm) => {
 const TimeInput12h = ({ value, onChange, style, disabled }) => {
   const { hour, minute, ampm } = to12h(value);
   const set = (nextHour, nextMinute, nextAmpm) => onChange(to24h(nextHour, nextMinute, nextAmpm));
-  const dstyle = disabled ? { ...style, opacity: 0.55, cursor: "not-allowed" } : style;
+  // Tighter horizontal padding + centered text so the selected Hour / Minute /
+  // AM-PM stays fully visible in the narrow time cell (the wider text-input
+  // padding used to clip the 2-char value behind the native dropdown arrow).
+  const cell = {
+    ...style, width: "auto", minWidth: 0, padding: "10px 6px",
+    textAlign: "center", textAlignLast: "center",
+    cursor: disabled ? "not-allowed" : "pointer", ...(disabled ? { opacity: 0.55 } : {}),
+  };
   return (
     <div style={{ display: "flex", gap: 6 }}>
-      <select disabled={disabled} value={hour} onChange={(e) => set(e.target.value, minute, ampm)} style={{ ...dstyle, flex: 1 }}>
+      <select disabled={disabled} value={hour} onChange={(e) => set(e.target.value, minute, ampm)} style={{ ...cell, flex: 1 }}>
         {HOUR_OPTIONS_12.map(h => <option key={h} value={h}>{h}</option>)}
       </select>
-      <select disabled={disabled} value={minute} onChange={(e) => set(hour, e.target.value, ampm)} style={{ ...dstyle, flex: 1 }}>
+      <select disabled={disabled} value={minute} onChange={(e) => set(hour, e.target.value, ampm)} style={{ ...cell, flex: 1 }}>
         {MINUTE_OPTIONS_60.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
-      <select disabled={disabled} value={ampm} onChange={(e) => set(hour, minute, e.target.value)} style={{ ...dstyle, flex: "0 0 68px" }}>
+      <select disabled={disabled} value={ampm} onChange={(e) => set(hour, minute, e.target.value)} style={{ ...cell, flex: "0 0 62px" }}>
         <option value="AM">AM</option>
         <option value="PM">PM</option>
       </select>
@@ -2164,12 +2171,17 @@ export default function FleetOpzApp() {
                         onTimeChange={(pickupTime) => setNewBookingData(prev => ({ ...prev, pickupTime, start: combineDateTime(prev.pickupDate, pickupTime) }))}
                         timeStyle={bookingFieldInputStyle(false)} />
                       {(() => {
-                        const p = newBookingData.pickupDate, r = newBookingData.returnDate;
-                        const nights = p && r ? Math.max(0, Math.round((new Date(r + "T00:00:00") - new Date(p + "T00:00:00")) / 86400000)) : null;
+                        // Duration from the exact selected pickup/return date+time
+                        // (bookingUnits/bookingUnitLabel are derived from start/end,
+                        // which include the times) — shows real hours/days rather
+                        // than the old date-only "nights" that read 0 for same-day
+                        // and sub-24h rentals. This is the same figure pricing uses.
+                        const hasDuration = !!newBookingData.start && !!newBookingData.end && bookingUnits > 0;
+                        const durLabel = hasDuration ? `${bookingUnits} ${bookingUnitLabel}${bookingUnits === 1 ? "" : "s"}` : "→";
                         return (
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 4px", minWidth: 56 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: nights != null ? C.teal : C.textMuted, background: nights != null ? C.tealFaint : "transparent", borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
-                              {nights != null ? `${nights} night${nights === 1 ? "" : "s"}` : "→"}
+                            <div style={{ fontSize: 11, fontWeight: 700, color: hasDuration ? C.teal : C.textMuted, background: hasDuration ? C.tealFaint : "transparent", borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                              {durLabel}
                             </div>
                           </div>
                         );
