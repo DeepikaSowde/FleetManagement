@@ -105,7 +105,6 @@ const Customers = ({
   const activeCount = enriched.filter((c) => c.status === "Active").length;
   const repeatCount = enriched.filter((c) => c.stats.count >= REPEAT_THRESHOLD).length;
   const pendingCustomers = enriched.filter((c) => c.stats.pendingAmount > 0);
-  const pendingBookingsTotal = enriched.reduce((s, c) => s + c.stats.pendingBookings, 0);
 
   const now = new Date();
   const ym = (d) => { const dt = new Date(d); return isNaN(dt) ? null : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`; };
@@ -248,20 +247,6 @@ const Customers = ({
           </div>
         ))}
       </div>
-
-      {/* Pending summary banner */}
-      {pendingCustomers.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: C.amberFaint, border: `1px solid ${C.amber}`, borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>⚠️</span>
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy }}>Payment Pending Summary</div>
-              <div style={{ fontSize: 11.5, color: C.textSec }}>{pendingCustomers.length} customers have pending payments for {pendingBookingsTotal} bookings.</div>
-            </div>
-          </div>
-          <button onClick={applyPendingFilter} style={{ fontSize: 11.5, fontWeight: 600, color: C.amber, background: C.surface, border: `1px solid ${C.amber}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", whiteSpace: "nowrap" }}>View Pending Customers</button>
-        </div>
-      )}
 
       {/* Body: two-pane — customer list (left) + details & payment summary (right) */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
