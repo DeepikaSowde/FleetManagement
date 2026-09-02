@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Btn, Badge, PlateBadge, KpiCard } from "./components";
+import { computeBookingInvoice } from "./useFleetData";
 
 // Palette for the per-car bars — distinct, readable in both the chart and the
 // rest of the app's teal/green language.
