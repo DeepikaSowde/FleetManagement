@@ -6,7 +6,7 @@ import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
 // Booking-status colors for the status filter pills below — reuses Fleet's
 // STATUS_PILL_COLORS/STATUS_PILL_FAINT (Upcoming, Ending Today, etc. already
 // match 1:1) and adds the two booking-only statuses Fleet doesn't have.
-const BOOKING_STATUS_COLORS = { ...STATUS_PILL_COLORS, Active: C.teal, Overdue: C.red, Completed: C.green, Closed: C.navy };
+const BOOKING_STATUS_COLORS = { ...STATUS_PILL_COLORS, Active: C.teal, Overdue: C.red, Completed: C.green, Closed: C.navy, Cancelled: C.red };
 const getBookingStatusPillColor = (status) => BOOKING_STATUS_COLORS[status] || C.navy;
 import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
 import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
@@ -1764,7 +1764,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
     prevCountRef.current = bookings.length;
   }, [bookings.length]);
 
-  const statuses = ["All", "Active", "Upcoming", "Ending Today", "Overdue", "Completed", "Closed"];
+  const statuses = ["All", "Active", "Upcoming", "Ending Today", "Overdue", "Completed", "Closed", "Cancelled"];
 
   // Topbar Car / Month filters (FleetOpzApp header) scope the whole page —
   // status pills and counts below are computed from this scoped set, so
