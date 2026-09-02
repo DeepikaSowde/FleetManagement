@@ -68,8 +68,13 @@ export const nextReceiptNumber = (bookings = [], when = new Date()) => {
 export const generateInvoicePdf = (booking, car, inv) => {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = 210;
+  const pageHeight = 297;
   const marginX = 15;
   const contentWidth = pageWidth - marginX * 2;
+  // A4 printable bottom edge. Any row/header that would cross this starts a new
+  // page and continues at the top margin, so nothing is clipped off the page.
+  const bottomLimit = pageHeight - 14;
+  const topY = 16;
   const navy = [15, 23, 42];
   const slate = [71, 85, 105];
   const blue = [37, 99, 235];
@@ -77,6 +82,9 @@ export const generateInvoicePdf = (booking, car, inv) => {
   // Draws one bordered row split into the given cells, returns the y just
   // below the row so callers can chain `y = cellRow(...)`.
   const cellRow = (y, cells, height = 8) => {
+    // If this row can't fit on the current page, continue on the next one so the
+    // Charges table (and its Subtotal/Total rows) is never cut off at the bottom.
+    if (y + height > bottomLimit) { doc.addPage(); y = topY; }
     let x = marginX;
     cells.forEach((cell) => {
       doc.setDrawColor(15, 23, 42);
@@ -94,6 +102,9 @@ export const generateInvoicePdf = (booking, car, inv) => {
   };
 
   const sectionHeader = (y, title) => {
+    // Keep a section title with the row(s) that follow — don't strand it at the
+    // very bottom of a page.
+    if (y + 16 > bottomLimit) { doc.addPage(); y = topY; }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(...navy);
@@ -310,6 +321,8 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y += 10;
 
   // --- Payment footer ---
+  // Keep the whole footer block together on the page rather than clipping it.
+  if (y + 12 > bottomLimit) { doc.addPage(); y = topY; }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(...navy);
