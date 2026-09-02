@@ -2,3 +2,10 @@
 .env
 dist/
 build/
+
+# Generated/local artifacts — kept on disk, not tracked
+Invoice_*.html
+Invoice_*.pdf
+*_preview.png
+/logo.png
+docs/
