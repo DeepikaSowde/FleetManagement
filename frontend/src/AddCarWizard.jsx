@@ -112,12 +112,13 @@ const Combobox = ({ label, value, onChange, options, placeholder, listId, error 
 
 
 
-const SelectField = ({ label, value, onChange, options }) => (
+const SelectField = ({ label, value, onChange, options, error }) => (
   <div>
     <div style={{ fontSize: 10.5, color: C.textMuted, fontWeight: 600, marginBottom: 4 }}>{label}</div>
-    <select value={value} onChange={onChange} style={selectFieldStyle}>
+    <select value={value} onChange={onChange} style={{ ...selectFieldStyle, ...(error ? { borderColor: C.red } : {}) }}>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
+    {error && <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{error}</div>}
   </div>
 );
 
@@ -192,6 +193,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
       fuelType: value,
       transmission: value === "EV" ? "Automatic" : c.transmission,
     }));
+    setErrors(e => (e.fuelType === undefined && e.transmission === undefined ? e : { ...e, fuelType: undefined, transmission: undefined }));
   };
 
   const investment =
@@ -214,6 +216,9 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     else if (!Number.isInteger(yr) || yr < 1980 || yr > maxYr) e.year = `Enter a year between 1980 and ${maxYr}`;
     if (!String(car.make).trim()) e.make = "Brand is required";
     if (!String(car.model).trim()) e.model = "Model is required";
+    if (!String(car.color).trim()) e.color = "Colour is required";
+    if (!String(car.fuelType).trim()) e.fuelType = "Fuel Type is required";
+    if (!String(car.transmission).trim()) e.transmission = "Transmission is required";
     if (String(car.purchase).trim() === "" || Number(car.purchase) <= 0) e.purchase = "Purchase Price must be greater than 0";
     [["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"]].forEach(([k, l]) => {
       if (String(car[k]).trim() !== "" && Number(car[k]) < 0) e[k] = `${l} can't be negative`;
@@ -324,14 +329,14 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 6 }}>
-                <Input label="Colour" value={car.color} onChange={e => setField("color", e.target.value)} placeholder="e.g., Silver" />
-                <SelectField label="Fuel Type" value={car.fuelType} onChange={e => handleFuelTypeChange(e.target.value)} options={["Petrol", "Diesel", "EV"]} />
-                <SelectField label="Transmission" value={car.transmission} onChange={e => setField("transmission", e.target.value)}
-                  options={car.fuelType === "EV" ? ["Automatic"] : ["Automatic", "Manual"]} />
+                <Input label={<>Colour <span style={{ color: C.red }}>*</span></>} value={car.color} onChange={e => setField("color", e.target.value)} placeholder="e.g., Silver" error={errors.color} />
+                <SelectField label={<>Fuel Type <span style={{ color: C.red }}>*</span></>} value={car.fuelType} onChange={e => handleFuelTypeChange(e.target.value)} options={["Petrol", "Diesel", "EV"]} error={errors.fuelType} />
+                <SelectField label={<>Transmission <span style={{ color: C.red }}>*</span></>} value={car.transmission} onChange={e => setField("transmission", e.target.value)}
+                  options={car.fuelType === "EV" ? ["Automatic"] : ["Automatic", "Manual"]} error={errors.transmission} />
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
-                <Input label="Purchase Price (SGD)" type="number" value={car.purchase} onChange={e => setField("purchase", e.target.value)} placeholder="e.g., 26000" error={errors.purchase} />
+                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" value={car.purchase} onChange={e => setField("purchase", e.target.value)} placeholder="e.g., 26000" error={errors.purchase} />
                 <Input label="Purchase Advance (SGD)" type="number" value={car.purchaseAdvance} onChange={e => setField("purchaseAdvance", e.target.value)} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
@@ -340,7 +345,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
                 <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" error={errors.otherCharges} />
-                <Input label="Purchase Date" type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
+                <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
               </div>
             </div>
           )}
