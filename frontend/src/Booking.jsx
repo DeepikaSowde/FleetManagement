@@ -546,6 +546,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [cancelReason, setCancelReason] = useState("");
   const [cancelDepositOut, setCancelDepositOut] = useState("");
   const [cancelRefundRef, setCancelRefundRef] = useState("");
+  // Who cancelled: "company" → deposit is refunded (amount editable, partial ok);
+  // "customer" → deposit is forfeited (kept as income, no refund).
+  const [cancelBy, setCancelBy] = useState("company");
   const returnRef = useRef(null);
 
   if (!booking) return null;
@@ -685,6 +688,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // Open the Cancel Rental form, defaulting Deposit Out to the deposit actually
   // held (what would be returned to the customer).
   const openCancelForm = () => {
+    setCancelBy("company");
     setCancelDepositOut(String(Number(booking.depositPaid) || Number(booking.deductible) || 0));
     setCancelReason("");
     setCancelRefundRef("");
@@ -700,23 +704,37 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // liability — Stage 4 surfaces it as a cash outflow that is never revenue.
   const handleCancelRental = () => {
     if (!cancelDate || !cancelTime) { alert("Enter the Actual Return Date & Time"); return; }
-    const depositOut = Number(cancelDepositOut) || 0;
     const paidRows = (booking.rentSchedule || []).filter(r => r.paid);
+    const depositHeld = Number(booking.depositPaid) || Number(booking.deductible) || 0;
+    // Who cancelled decides the deposit outcome:
+    //   • Company cancels → refund the customer (amount editable, partial allowed).
+    //   • Customer cancels → forfeit the whole deposit (kept as income, no refund).
+    const refundAmount = cancelBy === "company"
+      ? Math.min(Math.max(0, Number(cancelDepositOut) || 0), depositHeld)
+      : 0;
+    const forfeited = Math.max(0, depositHeld - refundAmount);
     // The car is returned as part of the cancellation, so record the actual
     // Return Date & Time as actualReturnAt — the single field computeBookingInvoice
-    // uses as the effective end. That recalculates the rental duration and charges
-    // to the real return, and the same moment then shows in Booking Details (Return
-    // Date & Time / Rental Period) and on the Invoice (Drop-off Details).
+    // uses as the effective end (recalculates duration/charges, and shows in
+    // Booking Details / Invoice).
     const actualReturnAt = `${cancelDate}T${cancelTime}`;
+    // Route the deposit through the standard refund mechanism (depositRefunded /
+    // depositRefundedAmount): the refunded part becomes a Deposit OUT cash outflow
+    // and any withheld part is recognised as Deposit Income across the Ledger /
+    // P&L / Dashboard — no cancellation-specific accounting needed. depositOut is
+    // deliberately NOT set, so the legacy cancel-refund ledger path can't double-book.
     const patch = {
       cancelled: true,
       cancelledAt: cancelDate,
+      cancelledBy: cancelBy,
       actualReturnAt,
       returnedAt: new Date().toISOString(),
       cancelReason: cancelReason.trim(),
-      depositOut,
       depositRefundRef: cancelRefundRef.trim(),
-      history: withHistory(histEntry("cancelled", `Booking cancelled${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Returned ${formatDateTime(actualReturnAt)}. Car released. Deposit Out ${fmt(depositOut)}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
+      depositRefunded: true,
+      depositRefundedAmount: refundAmount,
+      depositRefundedAt: cancelDate,
+      history: withHistory(histEntry("cancelled", `Booking cancelled by ${cancelBy === "company" ? "company" : "customer"}${cancelReason.trim() ? ` — ${cancelReason.trim()}` : ""}. Returned ${formatDateTime(actualReturnAt)}. Car released. Deposit ${cancelBy === "company" ? `refunded ${fmt(refundAmount)}` : `forfeited ${fmt(forfeited)} (income)`}${cancelRefundRef.trim() ? ` · Ref ${cancelRefundRef.trim()}` : ""}`)),
     };
     // Monthly contracts keep only already-paid months (stops future rent); a
     // normal booking has no rent schedule, so it's left untouched.
@@ -1223,47 +1241,87 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <button type="button" onClick={openCancelForm} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${C.red}`, background: C.surface, color: C.red, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Cancel Booking</button>
                       )}
                     </div>
-                    {isCancelled && (
-                      <div style={{ border: `1px solid ${C.red}33`, background: "#FDECEC", borderRadius: 8, padding: "10px 12px", marginTop: 10, fontSize: 12, color: C.textSec }}>
-                        <div style={{ fontWeight: 700, color: C.red, marginBottom: 4 }}>Booking cancelled — car released.</div>
-                        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-                          <span>Actual Return: <strong>{formatDateTime(booking.actualReturnAt) || booking.cancelledAt || "—"}</strong></span>
-                          <span>Deposit Out: <strong style={{ ...mono, color: C.red }}>{fmt(Number(booking.depositOut) || 0)}</strong></span>
-                          {booking.depositRefundRef ? <span>Refund Ref: <strong>{booking.depositRefundRef}</strong></span> : null}
-                          {booking.cancelReason ? <span>Reason: <strong>{booking.cancelReason}</strong></span> : null}
+                    {isCancelled && (() => {
+                      const depositHeld = Number(booking.depositPaid) || Number(booking.deductible) || 0;
+                      const refunded = Number(booking.depositRefundedAmount ?? booking.depositOut) || 0;
+                      const forfeited = Math.max(0, depositHeld - refunded);
+                      const byCompany = booking.cancelledBy === "company";
+                      return (
+                        <div style={{ border: `1px solid ${C.red}33`, background: "#FDECEC", borderRadius: 8, padding: "10px 12px", marginTop: 10, fontSize: 12, color: C.textSec }}>
+                          <div style={{ fontWeight: 700, color: C.red, marginBottom: 4 }}>Booking cancelled — car released.</div>
+                          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                            {booking.cancelledBy ? <span>Cancelled by: <strong>{byCompany ? "Company" : "Customer"}</strong></span> : null}
+                            <span>Actual Return: <strong>{formatDateTime(booking.actualReturnAt) || booking.cancelledAt || "—"}</strong></span>
+                            <span>Deposit Refunded: <strong style={{ ...mono, color: C.red }}>{fmt(refunded)}</strong></span>
+                            {forfeited > 0 ? <span>Deposit Forfeited (income): <strong style={{ ...mono, color: C.green }}>{fmt(forfeited)}</strong></span> : null}
+                            {booking.depositRefundRef ? <span>Refund Ref: <strong>{booking.depositRefundRef}</strong></span> : null}
+                            {booking.cancelReason ? <span>Reason: <strong>{booking.cancelReason}</strong></span> : null}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                     {showCancelForm && !isCancelled && (
                       <div style={{ border: `1px solid ${C.red}55`, background: "#FEF6F6", borderRadius: 8, padding: "12px 14px", marginTop: 10 }}>
+                        {(() => {
+                        const depositHeld = Number(booking.depositPaid) || Number(booking.deductible) || 0;
+                        return (
+                        <>
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 10 }}>Cancel this booking</div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                          <div style={{ flex: "1 1 130px" }}>
+                          <div style={{ flex: "1 1 200px" }}>
+                            <div style={detailFieldLabelStyle}>Cancelled by</div>
+                            <select value={cancelBy} onChange={(e) => {
+                              const v = e.target.value;
+                              setCancelBy(v);
+                              // Company → refund the full deposit by default (editable);
+                              // Customer → nothing refunded (forfeited).
+                              setCancelDepositOut(v === "customer" ? "0" : String(depositHeld));
+                            }} style={detailInputStyle}>
+                              <option value="company">Company (RDK) — deposit refunded</option>
+                              <option value="customer">Customer — deposit forfeited</option>
+                            </select>
+                          </div>
+                          <div style={{ flex: "1 1 120px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
                             <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
                           </div>
-                          <div style={{ flex: "1 1 110px" }}>
+                          <div style={{ flex: "1 1 100px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>
                             <input type="time" value={cancelTime} onChange={(e) => setCancelTime(e.target.value)} style={detailInputStyle} />
                           </div>
-                          <div style={{ flex: "1 1 130px" }}>
-                            <div style={detailFieldLabelStyle}>Deposit Out (Refund)</div>
-                            <input type="number" min="0" value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
-                          </div>
-                          <div style={{ flex: "1 1 150px" }}>
-                            <div style={detailFieldLabelStyle}>Refund Reference</div>
-                            <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
-                          </div>
+                          {cancelBy === "company" ? (
+                            <>
+                              <div style={{ flex: "1 1 130px" }}>
+                                <div style={detailFieldLabelStyle}>Deposit Refund (SGD)</div>
+                                <input type="number" min="0" max={depositHeld} value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
+                              </div>
+                              <div style={{ flex: "1 1 150px" }}>
+                                <div style={detailFieldLabelStyle}>Refund Reference</div>
+                                <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ flex: "1 1 100%", fontSize: 11.5, fontWeight: 700, color: C.red, background: "#FDECEC", border: `1px solid ${C.red}33`, borderRadius: 8, padding: "9px 12px" }}>
+                              Security Deposit forfeited: {fmt(depositHeld)} — kept by the company and recorded as income (not refunded).
+                            </div>
+                          )}
                           <div style={{ flex: "1 1 100%" }}>
                             <div style={detailFieldLabelStyle}>Reason</div>
                             <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason for cancellation" style={detailInputStyle} />
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                          <button type="button" onClick={handleCancelRental} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Confirm Cancellation · Deposit Out {fmt(Number(cancelDepositOut) || 0)}</button>
+                          <button type="button" onClick={handleCancelRental} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Confirm Cancellation · {cancelBy === "company" ? `Refund ${fmt(Number(cancelDepositOut) || 0)}` : `Forfeit ${fmt(depositHeld)}`}</button>
                           <button type="button" onClick={() => setShowCancelForm(false)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
                         </div>
-                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>This cancels the booking and releases the car. Deposit Out is recorded as a refund, not revenue.</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>
+                          {cancelBy === "company"
+                            ? "Company cancellation — the deposit is refunded to the customer (edit the amount for a partial refund). Any withheld portion is recorded as income."
+                            : "Customer cancellation — the deposit is forfeited and recorded as company income; nothing is refunded to the customer."}
+                        </div>
+                        </>
+                        );
+                        })()}
                       </div>
                     )}
                   </div>
