@@ -1,7 +1,20 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { CalendarDays, CreditCard, User, Car as CarIcon, Ban } from "lucide-react";
 import { C, mono, fmt } from "./theme";
 import { Card, Btn, StatusTag } from "./components";
 import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
+
+// Overview sub-tabs — a compact horizontal switcher that replaces the stacked
+// summary cards. Each shows one summary in a single content panel; Rental is
+// the default. Icons are lucide outline icons to match the FleetOpz line-icon
+// set used in the sidebar.
+const OVERVIEW_TABS = [
+  { id: "Rental", label: "Rental", icon: CalendarDays },
+  { id: "Payment", label: "Payment", icon: CreditCard },
+  { id: "Customer", label: "Customer", icon: User },
+  { id: "Vehicle", label: "Vehicle", icon: CarIcon },
+  { id: "Cancellation", label: "Cancellation", icon: Ban },
+];
 
 // Meta for the Bookings status summary cards — title, sub-label, icon, accent.
 const BOOKING_STAT_META = {
@@ -512,6 +525,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // booking's drop if one was entered earlier.
   const [returnLocation, setReturnLocation] = useState(booking.drop || "");
   const [showHandover, setShowHandover] = useState(false);
+  // Active Overview sub-tab (Rental | Payment | Customer | Vehicle | Cancellation).
+  const [overviewTab, setOverviewTab] = useState("Rental");
   // Security-deposit refund modal (replaces the old window.prompt). A refund
   // lower than the deposit held requires a reason, captured here and recorded
   // in the booking history + on the booking (depositRefundedReason).
@@ -1257,7 +1272,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         {/* Body */}
         <div style={{ padding: "16px 22px", overflowY: "auto", flex: 1 }}>
           {activeTab === "Overview" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Next Action bar — stage tracker + the single relevant action */}
               <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, background: "#fff" }}>
                 {/* Stage tracker */}
@@ -1379,7 +1394,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Vehicle on rental</div>
                       <div style={{ fontSize: 11.5, color: C.textMuted }}>When the customer returns the car, record the mileage &amp; fuel to close it out.</div>
                     </div>
-                    <Btn primary onClick={() => returnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}>Mark Vehicle Returned →</Btn>
+                    <Btn primary onClick={() => { setOverviewTab("Vehicle"); setTimeout(() => returnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); }}>Mark Vehicle Returned →</Btn>
                   </div>
                 )}
 
@@ -1401,7 +1416,38 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 )}
               </div>
 
+              {/* Overview sub-tab switcher — Rental | Payment | Customer |
+                  Vehicle | Cancellation. Only the active tab's summary shows
+                  below, in one panel, replacing the old stacked cards. */}
+              <div style={{ display: "flex", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: C.surface }}>
+                {OVERVIEW_TABS.map((t, i) => {
+                  const active = overviewTab === t.id;
+                  const Icon = t.icon;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setOverviewTab(t.id)}
+                      style={{
+                        flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                        padding: "11px 8px", border: "none", cursor: "pointer", fontFamily: "inherit",
+                        fontSize: 12.5, fontWeight: active ? 700 : 600,
+                        color: active ? C.teal : C.textSec,
+                        background: active ? C.tealFaint : C.surface,
+                        borderBottom: active ? `2px solid ${C.teal}` : "2px solid transparent",
+                        borderRight: i < OVERVIEW_TABS.length - 1 ? `1px solid ${C.border}` : "none",
+                        transition: "background 0.15s, color 0.15s",
+                      }}
+                    >
+                      <Icon size={16} strokeWidth={2} />
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Rental Summary */}
+              {overviewTab === "Rental" && (
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Rental Summary</SectionHeading>
                 {[
@@ -1431,14 +1477,19 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   )}
                 </div>
               </div>
+              )}
 
               {/* Cancellation — cancel an active/upcoming booking: records the
                   actual return date/time, deposit refunded and reason, then flags
                   the booking Cancelled so the car is released. Monthly contracts
                   keep their own cancel control inside the rent-schedule panel. */}
-              {booking.rentalType !== "monthly" && (() => {
+              {overviewTab === "Cancellation" && (booking.rentalType !== "monthly" ? (() => {
                 const isCancelled = booking.status === "Cancelled" || !!booking.cancelledAt;
-                if (!isCancelled && terminal) return null; // already returned/closed — nothing to cancel
+                if (!isCancelled && terminal) return (
+                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px", background: C.bg, fontSize: 12.5, color: C.textMuted }}>
+                    This booking has been returned/closed — there is nothing to cancel.
+                  </div>
+                );
                 return (
                   <div style={{ border: `1px solid ${isCancelled ? `${C.red}33` : C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
@@ -1532,9 +1583,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     )}
                   </div>
                 );
-              })()}
+              })() : (
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px", background: C.bg, fontSize: 12.5, color: C.textMuted }}>
+                  This is a monthly contract — manage cancellation from the Contract Schedule in the Pricing &amp; Payment tab.
+                </div>
+              ))}
 
               {/* Payment Summary */}
+              {overviewTab === "Payment" && (
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Payment Summary</SectionHeading>
                 {/* Grand Total folds the refundable deposit together with the
@@ -1571,8 +1627,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
                 )}
               </div>
+              )}
 
               {/* Customer Summary */}
+              {overviewTab === "Customer" && (
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Customer Summary</SectionHeading>
                 {[
@@ -1586,7 +1644,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
                 ))}
               </div>
+              )}
 
+              {/* Vehicle tab — Vehicle Summary, Distance Driven, Condition at
+                  Pickup, and the Vehicle Return form all live under this tab. */}
+              {overviewTab === "Vehicle" && (<>
               {/* Vehicle Summary */}
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                 <SectionHeading size="sm">Vehicle Summary</SectionHeading>
@@ -1755,10 +1817,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
                 )}
               </div>
+              </>)}
 
-              {/* Completion Summary — full financial close-out, shown once the rental is done (Completed or its fully-paid successor, Closed) */}
-              {isBookingClosedOut(booking.status) && (
-                <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+              {/* Completion Summary — full financial close-out, shown once the rental is done (Completed or its fully-paid successor, Closed). Lives under the Payment tab. */}
+              {overviewTab === "Payment" && isBookingClosedOut(booking.status) && (
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
                   <SectionHeading size="sm">Completion Summary</SectionHeading>
                   {[
                     { label: "Rental Charges", value: fmt(inv.agreementTotal) },
