@@ -110,7 +110,7 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   doc.setFontSize(7.5);
   doc.setTextColor(90);
   let hy = y + 8;
-  ["22 UB. HBE, Singapore 408830", "UEN: 202416072K", "Email: RDKtrading1995@gmail.com", "Mobile/WhatsApp: 84605545"].forEach((line) => {
+  ["81 UBI Avenue 4, #11-22 UB. HBE, Singapore 408830", "UEN: 202416072K", "Email: RDKtrading1995@gmail.com", "Mobile/WhatsApp: 84605545"].forEach((line) => {
     doc.text(line, hx, hy);
     hy += 3.6;
   });
@@ -159,7 +159,7 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   y += 1;
   y = drawGridBox(doc, margin, y, contentWidth, [
     [
-      { label: "Make", value: car?.make || "", width: 0.33 },
+      { label: "Brand", value: car?.make || "", width: 0.33 },
       { label: "Model", value: car?.model || "", width: 0.34 },
       { label: "Vehicle Registration Number", value: car?.plate || booking.plate, width: 0.33 },
     ],
@@ -170,10 +170,15 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   y = sectionHeading(doc, margin, y, "2. Rental Duration", { underline: true });
   y = bodyText(doc, margin, y, "The agreed rental period is as follows:");
   y += 1;
+  // Pickup Date & Time reflect the ACTUAL Vehicle Handover (booking.handoverAt,
+  // saved when the car is handed over) — not the originally selected pickup —
+  // falling back to the scheduled start only if no handover is recorded yet.
+  // The Return (End) Date & Time are left as the scheduled end.
+  const pickupTimestamp = booking.handoverAt || booking.start;
   y = drawGridBox(doc, margin, y, contentWidth, [
     [
-      { label: "Start Date", value: fmtDate(booking.start), width: 0.3 },
-      { label: "Start Time", value: fmtTime(booking.start), width: 0.2 },
+      { label: "Start Date", value: fmtDate(pickupTimestamp), width: 0.3 },
+      { label: "Start Time", value: fmtTime(pickupTimestamp), width: 0.2 },
       { label: "Pickup Location", value: booking.pickup, width: 0.5 },
     ],
     [
