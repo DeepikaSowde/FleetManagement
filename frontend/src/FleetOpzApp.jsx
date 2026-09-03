@@ -758,6 +758,18 @@ export default function FleetOpzApp() {
       );
       if (restrictedMatch) errors.license = "This driving license has an active criminal case. Booking cannot be created.";
     }
+    // Age is now mandatory — required and a sensible positive number.
+    if (String(newBookingData.age).trim() === "") {
+      errors.age = "Age is required";
+    } else if (isNaN(Number(newBookingData.age)) || Number(newBookingData.age) <= 0) {
+      errors.age = "Enter a valid age";
+    }
+    // Driving Experience (years) is now mandatory — required and non-negative.
+    if (String(newBookingData.drivingExperience).trim() === "") {
+      errors.drivingExperience = "Driving Experience is required";
+    } else if (isNaN(Number(newBookingData.drivingExperience)) || Number(newBookingData.drivingExperience) < 0) {
+      errors.drivingExperience = "Enter valid years of driving experience";
+    }
     return errors;
   };
 
@@ -789,6 +801,14 @@ export default function FleetOpzApp() {
 
   const validateStep3 = () => {
     const errors = {};
+    // Total Rental Amount is mandatory — it must be entered and greater than 0.
+    // (When blank it's normally pre-filled with the suggested total; this guards
+    // against it being cleared.)
+    if (String(newBookingData.rentalAmount).trim() === "") {
+      errors.rentalAmount = "Total Rental Amount is required. Enter an amount greater than 0.";
+    } else if (isNaN(Number(newBookingData.rentalAmount)) || Number(newBookingData.rentalAmount) <= 0) {
+      errors.rentalAmount = "Total Rental Amount must be greater than 0.";
+    }
     // Security Deposit is mandatory and must be greater than zero — every
     // booking has to collect a refundable deposit. It may be any amount,
     // including more than the Rate Charge (a high-value car can warrant a
@@ -885,7 +905,7 @@ export default function FleetOpzApp() {
   // Step 1 → Step 2.
   const handleBookingStep1Next = () => {
     const errors = validateStep1();
-    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, driverLicense: undefined, driverContact: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, age: undefined, drivingExperience: undefined, driverLicense: undefined, driverContact: undefined, ...errors }));
     if (errors.contact) setContactError(errors.contact); else setContactError("");
     if (Object.keys(errors).length) return;
     setBookingStep(2);
@@ -902,7 +922,7 @@ export default function FleetOpzApp() {
   // Step 3 → Step 4.
   const handleBookingStep3Next = () => {
     const errors = validateStep3();
-    setFieldErrors(prev => ({ ...prev, deductible: undefined, additionalDriverCharge: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, rentalAmount: undefined, deductible: undefined, additionalDriverCharge: undefined, ...errors }));
     if (Object.keys(errors).length) return;
     setBookingStep(4);
   };
@@ -1953,7 +1973,7 @@ export default function FleetOpzApp() {
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
                   <div>
-                    <label style={bookingFieldLabelStyle}>Contact Number</label>
+                    <label style={bookingFieldLabelStyle}>Contact Number <span style={{ color: C.red }}>*</span></label>
                     <div style={{ display: "flex", gap: 8 }}>
                       <select
                         value={newBookingData.contactCountryCode}
@@ -2058,7 +2078,7 @@ export default function FleetOpzApp() {
                       </select>
                     </div>
                   <div>
-                      <label style={bookingFieldLabelStyle}>Age</label>
+                      <label style={bookingFieldLabelStyle}>Age <span style={{ color: C.red }}>*</span></label>
                       <input
                         type="number"
                         min="0"
@@ -2066,22 +2086,24 @@ export default function FleetOpzApp() {
                         onChange={(e) => {
                           const v = e.target.value;
                           if (v !== "" && Number(v) < 0) return;
+                          clearFieldError("age");
                           setNewBookingData({ ...newBookingData, age: v });
                         }}
                         placeholder="e.g., 32"
-                        style={bookingFieldInputStyle(false)}
+                        style={bookingFieldInputStyle(false, !!fieldErrors.age)}
                       />
                       {newBookingData.age !== "" && (
                         <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 5, fontWeight: 600 }}>
                           Age Group: {getAgeGroup(newBookingData.age)}
                         </div>
                       )}
+                      <FieldErr msg={fieldErrors.age} />
                     </div>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
                   <div>
-                      <label style={bookingFieldLabelStyle}>Driving Experience (years)</label>
+                      <label style={bookingFieldLabelStyle}>Driving Experience (years) <span style={{ color: C.red }}>*</span></label>
                       <input
                         type="number"
                         min="0"
@@ -2089,11 +2111,13 @@ export default function FleetOpzApp() {
                         onChange={(e) => {
                           const v = e.target.value;
                           if (v !== "" && Number(v) < 0) return;
+                          clearFieldError("drivingExperience");
                           setNewBookingData({ ...newBookingData, drivingExperience: v });
                         }}
                         placeholder="e.g., 5"
-                        style={bookingFieldInputStyle(false)}
+                        style={bookingFieldInputStyle(false, !!fieldErrors.drivingExperience)}
                       />
+                      <FieldErr msg={fieldErrors.drivingExperience} />
                     </div>
                   <div>
                     <label style={bookingFieldLabelStyle}>Rental / Home Address</label>
@@ -2526,15 +2550,17 @@ export default function FleetOpzApp() {
                       {extendMode
                         ? `Extension Rental Amount${bookingExtensionDays > 0 ? ` — ${bookingExtensionDays} extra ${bookingUnitLabel}${bookingExtensionDays === 1 ? "" : "s"}` : ""}`
                         : `Total Rental Amount${bookingUnits > 0 ? ` — ${bookingUnits} ${bookingUnitLabel}${bookingUnits === 1 ? "" : "s"}` : ""}`}
+                      {" "}<span style={{ color: C.red }}>*</span>
                     </label>
                     <input
                       type="number"
                       min="0"
                       value={newBookingData.rentalAmount}
-                      onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; rentalPrefillEditedRef.current = true; setNewBookingData({ ...newBookingData, rentalAmount: v }); }}
+                      onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; clearFieldError("rentalAmount"); rentalPrefillEditedRef.current = true; setNewBookingData({ ...newBookingData, rentalAmount: v }); }}
                       placeholder={bookingSuggestedTotal ? String(bookingSuggestedTotal) : "0"}
-                      style={bookingFieldInputStyle(false)}
+                      style={bookingFieldInputStyle(false, !!fieldErrors.rentalAmount)}
                     />
+                    <FieldErr msg={fieldErrors.rentalAmount} />
                     {/* Derived per-unit rate + how it compares to the car's suggested rate */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                       <span style={{ fontSize: 11, color: C.textMuted }}>
