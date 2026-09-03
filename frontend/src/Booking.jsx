@@ -495,6 +495,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [actualReturnTime, setActualReturnTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
+  // Transaction ID / payment reference — optional for Cash, required for every
+  // other (non-cash) method. Same rule used across all payment-entry points.
+  const [paymentReference, setPaymentReference] = useState("");
   // Defaults to right now (still fully editable) — same pattern as
   // actualReturnDate/actualReturnTime above, so a payment recorded on the
   // spot needs no changes, but a backdated/late-logged payment can be corrected.
@@ -909,15 +912,22 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Enter the payment date & time");
       return;
     }
+    // Transaction ID is mandatory for every method except Cash.
+    if (paymentMethod !== "Cash" && !paymentReference.trim()) {
+      alert("Enter the Transaction ID (required unless the payment method is Cash).");
+      return;
+    }
     const newPayment = {
       id: `${Date.now()}`,
       amount: amt,
       method: paymentMethod,
+      reference: paymentReference.trim(),
       addedAt: `${paymentDate}T${paymentTime}`,
       by: actor,
     };
     onUpdateBooking(booking.id, { payments: [...inv.payments, newPayment] });
     setPaymentAmount("");
+    setPaymentReference("");
     setPaymentDate(new Date().toISOString().slice(0, 10));
     setPaymentTime(new Date().toTimeString().slice(0, 5));
   };
@@ -1789,6 +1799,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           <div style={detailFieldLabelStyle}>Time</div>
                           <input type="time" value={paymentTime} onChange={(e) => setPaymentTime(e.target.value)} style={detailInputStyle} />
                         </div>
+                      </div>
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={detailFieldLabelStyle}>Transaction ID{paymentMethod === "Cash" ? "" : " *"}</div>
+                        <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={paymentMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
                       </div>
                       <div style={{ fontSize: 11, color: C.textMuted, marginTop: -4, marginBottom: 10 }}>
                         Balance Due: <span style={{ fontWeight: 700, color: balanceColor }}>{fmt(inv.balanceDue)}</span>

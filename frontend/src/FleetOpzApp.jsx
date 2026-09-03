@@ -861,6 +861,17 @@ export default function FleetOpzApp() {
       && (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime)) {
       errors.depositDateTime = "Enter the Deposit Date & Time (or untick \u201CSecurity deposit received\u201D).";
     }
+    // Transaction ID is mandatory for non-cash payments \u2014 the rental advance and
+    // the deposit are each only checked when money is actually being collected.
+    if (amountCollectedNow > 0 && (newBookingData.paymentMethod || "").trim().toLowerCase() !== "cash"
+      && !(newBookingData.referenceCode || "").trim()) {
+      errors.referenceCode = "Transaction ID is required unless the payment method is Cash.";
+    }
+    if (newBookingData.depositCollected && depositAmount > 0
+      && (newBookingData.depositCollectedMethod || "").trim().toLowerCase() !== "cash"
+      && !(newBookingData.depositReference || "").trim()) {
+      errors.depositReference = "Deposit Reference is required unless the deposit method is Cash.";
+    }
     return errors;
   };
 
@@ -929,7 +940,7 @@ export default function FleetOpzApp() {
   // Step 4 → Step 5.
   const handleBookingStep4Next = () => {
     const errors = validateStep4();
-    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, depositCollected: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, depositCollected: undefined, referenceCode: undefined, depositReference: undefined, ...errors }));
     if (Object.keys(errors).length) return;
     setBookingStep(5);
   };
@@ -1473,6 +1484,12 @@ export default function FleetOpzApp() {
         // extension as a payment on the SAME booking (no separate invoice), so
         // it appends to Payment History and reduces the overall Balance Due.
         const extRentCollected = Number(newBookingData.amountCollected) || 0;
+        // Transaction ID is mandatory for non-cash extension payments.
+        if (extRentCollected > 0 && (newBookingData.paymentMethod || "").trim().toLowerCase() !== "cash"
+          && !(newBookingData.referenceCode || "").trim()) {
+          alert("Enter the Transaction ID (required unless the payment method is Cash).");
+          return;
+        }
         if (extRentCollected > 0) {
           const addedAt = (newBookingData.amountCollectedDate && newBookingData.amountCollectedTime)
             ? `${newBookingData.amountCollectedDate}T${newBookingData.amountCollectedTime}`
@@ -2745,8 +2762,9 @@ export default function FleetOpzApp() {
                         </select>
                       </div>
                       <div>
-                        <label style={bookingFieldLabelStyle}>Transaction ID</label>
-                        <input type="text" value={newBookingData.referenceCode} onChange={(e) => setNewBookingData({ ...newBookingData, referenceCode: e.target.value })} placeholder="Optional — reference / txn ID" style={bookingFieldInputStyle(false)} />
+                        <label style={bookingFieldLabelStyle}>Transaction ID{newBookingData.paymentMethod === "Cash" ? "" : " *"}</label>
+                        <input type="text" value={newBookingData.referenceCode} onChange={(e) => { clearFieldError("referenceCode"); setNewBookingData({ ...newBookingData, referenceCode: e.target.value }); }} placeholder={newBookingData.paymentMethod === "Cash" ? "Optional for Cash" : "Required"} style={bookingFieldInputStyle(false, !!fieldErrors.referenceCode)} />
+                        <FieldErr msg={fieldErrors.referenceCode} />
                       </div>
                       <div>
                         <label style={bookingFieldLabelStyle}>Payment Date</label>
@@ -2841,14 +2859,15 @@ export default function FleetOpzApp() {
                             </select>
                           </div>
                           <div>
-                            <label style={bookingFieldLabelStyle}>Deposit Reference</label>
+                            <label style={bookingFieldLabelStyle}>Deposit Reference{newBookingData.depositCollectedMethod === "Cash" ? "" : " *"}</label>
                             <input
                               type="text"
                               value={newBookingData.depositReference}
-                              onChange={(e) => setNewBookingData({ ...newBookingData, depositReference: e.target.value })}
-                              placeholder="Optional — reference / txn ID"
-                              style={bookingFieldInputStyle(false)}
+                              onChange={(e) => { clearFieldError("depositReference"); setNewBookingData({ ...newBookingData, depositReference: e.target.value }); }}
+                              placeholder={newBookingData.depositCollectedMethod === "Cash" ? "Optional for Cash" : "Required"}
+                              style={bookingFieldInputStyle(false, !!fieldErrors.depositReference)}
                             />
+                            <FieldErr msg={fieldErrors.depositReference} />
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>Deposit Date</label>
@@ -2931,12 +2950,12 @@ export default function FleetOpzApp() {
                             </div>
                           </div>
                           <div style={{ marginBottom: 16 }}>
-                            <label style={bookingFieldLabelStyle}>Transaction ID</label>
+                            <label style={bookingFieldLabelStyle}>Transaction ID{newBookingData.paymentMethod === "Cash" ? "" : " *"}</label>
                             <input
                               type="text"
                               value={newBookingData.referenceCode}
                               onChange={(e) => setNewBookingData({ ...newBookingData, referenceCode: e.target.value })}
-                              placeholder="Optional — Transaction ID / payment reference"
+                              placeholder={newBookingData.paymentMethod === "Cash" ? "Optional for Cash" : "Required"}
                               style={bookingFieldInputStyle(false)}
                             />
                           </div>
