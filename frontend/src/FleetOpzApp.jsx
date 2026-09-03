@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Car, CalendarCheck, CalendarDays, Users, ClipboardList,
   BookOpen, Briefcase, Coins, Receipt, TrendingUp, ArrowLeftRight,
-  UserCog, Settings as SettingsIcon,
+  UserCog, Settings as SettingsIcon, Wallet,
 } from "lucide-react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
@@ -19,6 +19,7 @@ import Fleet from "./Fleet";
 import CarAvailability from "./CarAvailability";
 import Investors from "./Investors";
 import Booking, { CHARGE_TYPES } from "./Booking";
+import DepositRefunds from "./DepositRefunds";
 import Customers from "./Customers";
 import TodayOperations from "./TodayOperations";
 import UserManagement from "./UserManagement";
@@ -1134,8 +1135,8 @@ export default function FleetOpzApp() {
     role: "Staff"
   });
 
-  // Order matters: the sidebar groups by index — Operations = slice(0,4),
-  // Finance = slice(4,8), System = slice(8).
+  // Order matters: the sidebar groups by index — Operations = slice(0,6),
+  // Finance = slice(6,13), System = slice(13).
   // Nav icons are lucide-react components (rendered as <n.icon />), giving the
   // sidebar a clean, consistent line-icon set instead of mixed emoji.
   const NAV = [
@@ -1153,6 +1154,7 @@ export default function FleetOpzApp() {
     { id: "expenses", label: "Expenses", icon: Receipt },
     { id: "pl", label: "P&L", icon: TrendingUp },
     { id: "cash-flow", label: "Cash Flow", icon: ArrowLeftRight },
+    { id: "deposit-refunds", label: "Deposit Refunds", icon: Wallet },
     // System
     { id: "usermgmt", label: "User Management", icon: UserCog },
     { id: "settings", label: "Settings", icon: SettingsIcon },
@@ -1290,6 +1292,13 @@ export default function FleetOpzApp() {
         onUpdateCar={fleetData.updateFleet}
         calculateCarMonthlyTarget={fleetData.calculateCarMonthlyTarget}
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}
+      />
+    ),
+    "deposit-refunds": (
+      <DepositRefunds
+        bookings={fleetData.bookings}
+        fleet={fleetData.fleet}
+        onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
       />
     ),
     pl: (
@@ -1817,7 +1826,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(6, 12).map(n => (
+          {NAV.slice(6, 13).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
@@ -1826,7 +1835,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
-          {NAV.slice(12).map(n => (
+          {NAV.slice(13).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
