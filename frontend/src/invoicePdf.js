@@ -15,7 +15,7 @@ import { INVOICE_LOGO_DATA_URI, INVOICE_LOGO_ASPECT } from "./invoiceLogo";
 const COMPANY_INFO = {
   name: "RDK Trading Pte Ltd",
   legalName: "RDK Trading Pte. Ltd.",
-  addressLines: ["22 UB. HBE, Singapore 408830"],
+  addressLines: ["81 UBI Avenue 4, #11-22 UB. HBE, Singapore 408830"],
   uen: "202416072K",
   email: "RDKtrading1995@gmail.com",
   phone: "84605545",
@@ -172,8 +172,8 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.6, text: booking.plate || "—" },
   ]);
   y = cellRow(y, [
-    { w: contentWidth * 0.4, text: "Vehicle Make & Model", bold: true },
-    { w: contentWidth * 0.6, text: car?.model || "—" },
+    { w: contentWidth * 0.4, text: "Vehicle Brand & Model", bold: true },
+    { w: contentWidth * 0.6, text: `${car?.make || ""} ${car?.model || ""}`.trim() || "—" },
   ]);
   const startMileage = booking.startingMileage;
   const returnMileage = booking.mileageIn;
@@ -279,10 +279,8 @@ export const generateInvoicePdf = (booking, car, inv) => {
   });
   // Security Deposit (Refundable) — its own charge line immediately after the
   // other charges, then rolled into the Total below. It's collected alongside the
-  // rental and returned at the end, so its collected portion is added into
-  // Payments Collected, which keeps the Balance Due correct.
+  // rental and returned at the end.
   const deposit = Number(inv.deposit) || 0;
-  const depositPaid = Number(booking.depositPaid) || 0;
   if (deposit > 0) {
     y = cellRow(y, [
       { w: contentWidth * 0.7, text: "Security Deposit (Refundable)" },
@@ -290,13 +288,11 @@ export const generateInvoicePdf = (booking, car, inv) => {
     ]);
   }
 
-  // Subtotal → VAT → Total → Payments Collected → Balance Due. The Total now
-  // includes the Security Deposit; VAT is unchanged (the refundable deposit is
-  // not taxed); Subtotal is derived as Total − VAT so it always reconciles
-  // regardless of the taxable/non-taxable charge mix.
+  // Subtotal → VAT → Total. The Total includes the Security Deposit; VAT is
+  // unchanged (the refundable deposit is not taxed); Subtotal is derived as
+  // Total − VAT so it always reconciles regardless of the taxable/non-taxable
+  // charge mix.
   const grandTotal = (Number(inv.finalInvoiceTotal) || 0) + deposit;
-  const grandPaid = (Number(inv.totalPaid) || 0) + depositPaid;
-  const grandBalance = Math.max(0, grandTotal - grandPaid);
   const invSubtotal = grandTotal - (Number(inv.finalVatAmount) || 0);
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Subtotal", bold: true },
@@ -309,14 +305,6 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y = cellRow(y, [
     { w: contentWidth * 0.7, text: "Total", bold: true },
     { w: contentWidth * 0.3, text: money(grandTotal), bold: true, align: "center" },
-  ], 8);
-  y = cellRow(y, [
-    { w: contentWidth * 0.7, text: "Payments Collected" },
-    { w: contentWidth * 0.3, text: grandPaid > 0 ? `- ${money(grandPaid)}` : money(0), align: "center" },
-  ]);
-  y = cellRow(y, [
-    { w: contentWidth * 0.7, text: "Balance Due", bold: true },
-    { w: contentWidth * 0.3, text: money(grandBalance), bold: true, align: "center" },
   ], 8);
   y += 6;
 
