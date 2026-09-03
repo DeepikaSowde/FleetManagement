@@ -532,6 +532,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // the teammate's Collect Rent / Collect Now fix.
   const [rentReference, setRentReference] = useState("");
   const [fullyCollectedNotice, setFullyCollectedNotice] = useState(false);
+  // Daily / Monthly collection cards (Pricing & Payment). A collection is a
+  // rental payment tagged with `kind` ("daily" | "monthly") so the two cards
+  // can each list their own entries while still folding into the one Total
+  // Paid / Balance Due the Payment Summary shows. Recording opens a small
+  // centered modal (collectionModal); "View full …" opens a read-only detail
+  // modal (viewCollections). The per-card dropdown filters by payment method.
+  const [collectionModal, setCollectionModal] = useState(null);   // "daily" | "monthly"
+  const [viewCollections, setViewCollections] = useState(null);   // "daily" | "monthly"
+  const [dailyMethodFilter, setDailyMethodFilter] = useState("All Methods");
+  const [monthlyMethodFilter, setMonthlyMethodFilter] = useState("All Methods");
   // Which monthly-contract rent row is currently being collected (index into
   // booking.rentSchedule), or null. Reuses the rentMethod/rentReference/rentDate/
   // rentTime state for the inline collect form.
@@ -948,6 +958,202 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     setPaymentReference("");
     setPaymentDate(new Date().toISOString().slice(0, 10));
     setPaymentTime(new Date().toTimeString().slice(0, 5));
+  };
+
+  // ── Daily / Monthly collections ─────────────────────────────────────────
+  // Collections are ordinary rental payments tagged with `kind`, so they reuse
+  // the payment form state and feed the same `payments` array (and therefore
+  // the same Total Paid / Balance Due) as everything else.
+  const openCollectionModal = (kind) => {
+    setPaymentAmount("");
+    setPaymentMethod("");          // "Select Method" until the user picks one
+    setPaymentReference("");
+    setPaymentDate(new Date().toISOString().slice(0, 10));
+    setPaymentTime(new Date().toTimeString().slice(0, 5));
+    setCollectionModal(kind);
+  };
+
+  const handleRecordCollection = () => {
+    const kind = collectionModal;
+    if (!kind) return;
+    const amt = Number(paymentAmount);
+    if (!paymentAmount || amt <= 0) {
+      alert("Enter a collection amount greater than 0");
+      return;
+    }
+    // Same integer-cents overpayment guard as handleRecordPayment.
+    const amtCents = Math.round(amt * 100);
+    const balanceDueCents = Math.round(inv.balanceDue * 100);
+    if (amtCents > balanceDueCents) {
+      alert(`Amount exceeds the Balance Due (${fmt(inv.balanceDue)}). Enter ${fmt(inv.balanceDue)} or less.`);
+      return;
+    }
+    if (!paymentMethod) {
+      alert("Select a payment method");
+      return;
+    }
+    if (!paymentDate || !paymentTime) {
+      alert("Enter the collection date & time");
+      return;
+    }
+    // Transaction ID stays mandatory for every non-cash method, matching every
+    // other payment entry point in the app.
+    if (paymentMethod !== "Cash" && !paymentReference.trim()) {
+      alert("Enter the Transaction ID (required unless the payment method is Cash).");
+      return;
+    }
+    const clearsBalance = amtCents >= balanceDueCents;
+    const remarks = kind === "monthly"
+      ? "Monthly collection"
+      : (clearsBalance ? "Full payment" : "Partial payment");
+    const entry = {
+      id: `${Date.now()}`,
+      amount: amt,
+      method: paymentMethod,
+      reference: paymentReference.trim(),
+      addedAt: `${paymentDate}T${paymentTime}`,
+      by: actor,
+      kind,
+      remarks,
+    };
+    onUpdateBooking(booking.id, {
+      payments: [...inv.payments, entry],
+      history: withHistory(histEntry("payment", `${kind === "monthly" ? "Monthly" : "Daily"} collection ${fmt(amt)} · ${paymentMethod}${entry.reference ? ` · Ref ${entry.reference}` : ""}`)),
+    });
+    setCollectionModal(null);
+    setPaymentAmount("");
+    setPaymentReference("");
+  };
+
+  // Export one collection type's rows to a CSV the browser downloads.
+  const exportCollectionsCsv = (kind, rows) => {
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const header = ["Date & Time", "Amount (SGD)", "Method", "Transaction ID", "Remarks"];
+    const body = rows.map(r => [formatDateTime(r.addedAt) || "", Number(r.amount) || 0, r.method || "", r.reference || "", r.remarks || ""]);
+    const csv = [header, ...body].map(a => a.map(esc).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${booking.id}-${kind}-collections.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Collections derived data ────────────────────────────────────────────
+  // Untagged/legacy payments count as Daily (general rental collection); only
+  // explicitly monthly-tagged entries go to the Monthly card.
+  const rawPayments = inv.payments || [];
+  const collectionsOf = (kind) => kind === "monthly"
+    ? rawPayments.filter(p => p.kind === "monthly")
+    : rawPayments.filter(p => p.kind !== "monthly");
+  const COLLECTION_METHODS = ["Cash", "Card", "Bank Transfer", "Online"];
+  const CARD_PREVIEW = 3; // rows shown on the card before "+N more"
+
+  // One Daily/Monthly summary card. Structure/styling is identical for both —
+  // only the label, icon and the filtered rows differ.
+  const renderCollectionCard = (kind) => {
+    const isMonthly = kind === "monthly";
+    const label = isMonthly ? "Monthly Collection" : "Daily Collection";
+    const filterVal = isMonthly ? monthlyMethodFilter : dailyMethodFilter;
+    const setFilterVal = isMonthly ? setMonthlyMethodFilter : setDailyMethodFilter;
+    const all = collectionsOf(kind);
+    const rows = filterVal === "All Methods" ? all : all.filter(p => (p.method || "") === filterVal);
+    const total = rows.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const preview = rows.slice(0, CARD_PREVIEW);
+    const cell = { fontSize: 11.5, color: C.textSec, padding: "7px 0" };
+    const hcell = { fontSize: 9.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, padding: "0 0 6px" };
+    const grid = "1.4fr 0.8fr 0.9fr 0.9fr 1fr";
+    return (
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", background: C.surface }}>
+        {/* Header: title + count · View full link */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 14 }}>📅</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{label}</span>
+            <span style={{ fontSize: 11.5, color: C.textMuted }}>({preview.length} of {rows.length})</span>
+          </div>
+          <button type="button" onClick={() => setViewCollections(kind)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 600, color: C.teal, fontFamily: "inherit" }}>
+            View full {isMonthly ? "monthly" : "daily"} collection →
+          </button>
+        </div>
+
+        {/* Summary line + method filter + export */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSec }}>
+            <span style={{ width: 16, height: 16, borderRadius: "50%", background: C.tealFaint, color: C.teal, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>✓</span>
+            <span>{rows.length} collection{rows.length === 1 ? "" : "s"}</span>
+            <span style={{ color: C.textMuted }}>·</span>
+            <span style={{ ...mono, fontWeight: 700, color: C.teal }}>{fmt(total)} collected</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <select value={filterVal} onChange={(e) => setFilterVal(e.target.value)} style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 11, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
+              <option value="All Methods">All Methods</option>
+              {COLLECTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button type="button" title="Export CSV" onClick={() => exportCollectionsCsv(kind, rows)} style={{ width: 30, height: 30, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, cursor: "pointer", fontSize: 14 }}>⬇</button>
+          </div>
+        </div>
+
+        {/* Table */}
+        {rows.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.textMuted, padding: "16px 0", textAlign: "center" }}>No collections recorded yet.</div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, borderBottom: `1px solid ${C.border}` }}>
+              {["Date & Time", "Amount", "Method", "Transaction ID", "Remarks"].map((h, i) => (
+                <span key={h} style={{ ...hcell, textAlign: i === 1 ? "right" : "left" }}>{h}</span>
+              ))}
+            </div>
+            {preview.map((p, i) => (
+              <div key={p.id || i} style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, alignItems: "center", borderBottom: i < preview.length - 1 ? `1px solid ${C.linen}` : "none" }}>
+                <span style={cell}>{formatDateTime(p.addedAt) || "—"}</span>
+                <span style={{ ...cell, ...mono, textAlign: "right" }}>{fmt(Number(p.amount) || 0)}</span>
+                <span style={cell}>{p.method || "—"}</span>
+                <span style={cell}>{p.reference || "—"}</span>
+                <span style={cell}>{p.remarks || "—"}</span>
+              </div>
+            ))}
+            {rows.length > CARD_PREVIEW && (
+              <button type="button" onClick={() => setViewCollections(kind)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 600, color: C.teal, fontFamily: "inherit", padding: "10px 0 0" }}>
+                +{rows.length - CARD_PREVIEW} more collection{rows.length - CARD_PREVIEW === 1 ? "" : "s"}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // One "Record …" card — a green button that opens the centered record modal.
+  const renderRecordCard = (kind) => {
+    const isMonthly = kind === "monthly";
+    const label = isMonthly ? "Record Monthly Collection" : "Record Daily Collection";
+    const hint = isMonthly
+      ? "Enter any amount to record a partial or monthly collection."
+      : "Enter any amount to record a partial or daily collection.";
+    const done = inv.balanceDue <= 0;
+    return (
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", background: C.surface }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 12 }}>{label}</div>
+        {done ? (
+          <div style={{ border: `1px solid ${C.teal}`, borderRadius: 10, padding: "10px 12px", background: `${C.teal}0f`, fontSize: 12, fontWeight: 600, color: C.teal }}>
+            ✓ Balance fully paid — no further collection needed.
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 12, alignItems: "stretch", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => openCollectionModal(kind)} style={{ background: C.teal, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+              ＋ {label}
+            </button>
+            <div style={{ flex: "1 1 180px", display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: C.greenFaint, padding: "8px 12px", fontSize: 11.5, color: C.textSec }}>
+              <span style={{ color: C.teal }}>ⓘ</span> {hint}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -1814,63 +2020,20 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     </div>
                   </div>
 
-                  {inv.payments.length > 0 && (
-                    <div style={{ marginBottom: 14, maxHeight: 180, overflowY: "auto" }}>
-                      {inv.payments.map(p => (
-                        <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 12px", marginBottom: 6 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{fmt(Number(p.amount) || 0)} · {p.method}{p.reference ? ` · Ref ${p.reference}` : ""}</div>
-                          <div style={{ fontSize: 10.5, color: C.textMuted }}>{p.addedAt ? formatDateTime(p.addedAt) : ""}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <SectionHeading size="sm">Record Payment</SectionHeading>
-                  {inv.balanceDue <= 0 ? (
-                    <div style={{
-                      border: `1px solid ${C.teal}`, borderRadius: 10, padding: "12px 14px",
-                      background: `${C.teal}0f`, fontSize: 12.5, fontWeight: 600, color: C.teal,
-                    }}>
-                      ✓ Balance fully paid — no further payment can be recorded.
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                        <div>
-                          <div style={detailFieldLabelStyle}>Amount</div>
-                          <input type="number" min="0" max={inv.balanceDue || undefined} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="0.00" style={detailInputStyle} />
-                        </div>
-                        <div>
-                          <div style={detailFieldLabelStyle}>Payment Method</div>
-                          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={detailInputStyle}>
-                            <option value="Cash">Cash</option>
-                            <option value="Card">Card</option>
-                            <option value="Bank Transfer">Bank Transfer</option>
-                            <option value="Online">Online</option>
-                          </select>
-                        </div>
-                        <div>
-                          <div style={detailFieldLabelStyle}>Date</div>
-                          <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} style={detailInputStyle} />
-                        </div>
-                        <div>
-                          <div style={detailFieldLabelStyle}>Time</div>
-                          <input type="time" value={paymentTime} onChange={(e) => setPaymentTime(e.target.value)} style={detailInputStyle} />
-                        </div>
-                      </div>
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={detailFieldLabelStyle}>Transaction ID{paymentMethod === "Cash" ? "" : " *"}</div>
-                        <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={paymentMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
-                      </div>
-                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: -4, marginBottom: 10 }}>
-                        Balance Due: <span style={{ fontWeight: 700, color: balanceColor }}>{fmt(inv.balanceDue)}</span>
-                      </div>
-                      <div style={{ width: "100%" }}>
-                        <Btn primary onClick={handleRecordPayment}>+ Record Payment</Btn>
-                      </div>
-                    </>
-                  )}
                 </div>
+              </div>
+
+              {/* Daily / Monthly collection cards — two identical cards, each
+                  listing its own tagged collections. */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
+                {renderCollectionCard("daily")}
+                {renderCollectionCard("monthly")}
+              </div>
+
+              {/* Record cards — each green button opens a centered modal. */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
+                {renderRecordCard("daily")}
+                {renderRecordCard("monthly")}
               </div>
             </>
           ) : (
@@ -1910,6 +2073,118 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
                 <Btn onClick={() => setShowRefund(false)}>Cancel</Btn>
                 <Btn primary onClick={handleConfirmRefund}>Confirm Refund</Btn>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Record Daily / Monthly Collection — small centered modal (dimmed
+          background stays visible behind it). Title names the selected type
+          and the booking id. Fields: Amount, Payment Method, Date, Time,
+          Transaction ID, Current Balance Due, Cancel + Record Collection. */}
+      {collectionModal && (
+        <>
+          <div onClick={() => setCollectionModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+          <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(460px, 92vw)", maxHeight: "90vh", overflowY: "auto", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>
+                Record {collectionModal === "monthly" ? "Monthly" : "Daily"} Collection – {booking.id}
+              </div>
+              <button type="button" onClick={() => setCollectionModal(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: "18px 20px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={detailFieldLabelStyle}>Amount (SGD)</div>
+                  <input type="number" min="0" max={inv.balanceDue || undefined} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="0.00" style={detailInputStyle} autoFocus />
+                </div>
+                <div>
+                  <div style={detailFieldLabelStyle}>Payment Method</div>
+                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={detailInputStyle}>
+                    <option value="">Select Method</option>
+                    {COLLECTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={detailFieldLabelStyle}>Date</div>
+                  <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} style={detailInputStyle} />
+                </div>
+                <div>
+                  <div style={detailFieldLabelStyle}>Time</div>
+                  <input type="time" value={paymentTime} onChange={(e) => setPaymentTime(e.target.value)} style={detailInputStyle} />
+                </div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={detailFieldLabelStyle}>Transaction ID {paymentMethod && paymentMethod !== "Cash" ? <span style={{ color: C.red }}>*</span> : "(Optional)"}</div>
+                <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={paymentMethod && paymentMethod !== "Cash" ? "Required" : "Optional for Cash"} style={detailInputStyle} />
+              </div>
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.bg, padding: "9px 12px", fontSize: 12, color: C.textSec }}>
+                Current Balance Due: <span style={{ fontWeight: 700, color: balanceColor, ...mono }}>{fmt(inv.balanceDue)}</span>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "14px 20px", borderTop: `1px solid ${C.border}` }}>
+              <Btn onClick={() => setCollectionModal(null)}>Cancel</Btn>
+              <Btn primary onClick={handleRecordCollection}>Record Collection</Btn>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* View full collection — read-only detail modal listing every entry of
+          the selected type, with the same three-figure header and a count. */}
+      {viewCollections && (() => {
+        const kind = viewCollections;
+        const rows = collectionsOf(kind);
+        const collected = rows.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const grid = "1.4fr 0.8fr 0.9fr 0.9fr 1fr";
+        const hcell = { fontSize: 9.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, padding: "0 0 6px" };
+        const cell = { fontSize: 11.5, color: C.textSec, padding: "8px 0" };
+        return (
+          <>
+            <div onClick={() => setViewCollections(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+            <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(640px, 94vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>
+                  {kind === "monthly" ? "Monthly" : "Daily"} Collection – {booking.id}
+                </div>
+                <button type="button" onClick={() => setViewCollections(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${C.border}` }}>
+                {[
+                  { label: "Total Agreement", value: inv.grandTotal, color: C.navy },
+                  { label: "Total Collected", value: collected, color: C.teal },
+                  { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
+                ].map(s => (
+                  <div key={s.label} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", background: C.bg }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{s.label}</div>
+                    <div style={{ ...mono, fontSize: 15, fontWeight: 700, color: s.color }}>{fmt(s.value)}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "6px 20px", fontSize: 12, fontWeight: 600, color: C.navy }}>{rows.length} collection{rows.length === 1 ? "" : "s"}</div>
+              <div style={{ padding: "0 20px 16px", overflowY: "auto" }}>
+                {rows.length === 0 ? (
+                  <div style={{ fontSize: 12, color: C.textMuted, padding: "24px 0", textAlign: "center" }}>No collections recorded yet.</div>
+                ) : (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, borderBottom: `1px solid ${C.border}` }}>
+                      {["Date & Time", "Amount", "Method", "Transaction ID", "Remarks"].map((h, i) => (
+                        <span key={h} style={{ ...hcell, textAlign: i === 1 ? "right" : "left" }}>{h}</span>
+                      ))}
+                    </div>
+                    {rows.map((p, i) => (
+                      <div key={p.id || i} style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, alignItems: "center", borderBottom: i < rows.length - 1 ? `1px solid ${C.linen}` : "none" }}>
+                        <span style={cell}>{formatDateTime(p.addedAt) || "—"}</span>
+                        <span style={{ ...cell, ...mono, textAlign: "right" }}>{fmt(Number(p.amount) || 0)}</span>
+                        <span style={cell}>{p.method || "—"}</span>
+                        <span style={cell}>{p.reference || "—"}</span>
+                        <span style={cell}>{p.remarks || "—"}</span>
+                      </div>
+                    ))}
+                    <div style={{ fontSize: 10.5, color: C.textMuted, paddingTop: 10 }}>Showing 1 to {rows.length} of {rows.length} collections</div>
+                  </>
+                )}
               </div>
             </div>
           </>
