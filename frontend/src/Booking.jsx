@@ -1808,12 +1808,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     </div>
 
                     <Btn primary onClick={handleConfirmReturn}>Confirm Return & Generate Invoice</Btn>
-                    <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
-                      <strong style={{ color: C.navy }}>Customer Return Odo</strong> is the reading when the customer handed the car back — if they returned it directly, enter the same value as the <strong style={{ color: C.navy }}>Final Odometer</strong>. Any extra distance up to the Final Odometer is counted as company/internal (drive-back), not customer usage.
-                    </div>
-                    <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
-                      Starting Fuel (at Handover): <strong style={{ color: C.navy }}>{booking.fuelLevel || "—"}</strong> · compare against Fuel In above to decide the Fuel Charge. Any amount entered here is added to the invoice and Balance Due on confirm.
-                    </div>
                   </div>
                 )}
               </div>
