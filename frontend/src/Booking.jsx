@@ -2029,11 +2029,6 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
   const timelineCar = timelinePlate ? fleet.find(c => c.plate === timelinePlate) : null;
   const openDetailBooking = openDetailId ? bookings.find(b => b.id === openDetailId) : null;
 
-  const handleDelete = (bookingId) => {
-    if (window.confirm("Are you sure you want to delete this booking?")) {
-      onDeleteBooking(bookingId);
-    }
-  };
 
   // "Mark Done" force-completes a booking early (e.g. the customer returned
   // the car ahead of schedule) — this is the one manual booking action the
@@ -2212,7 +2207,6 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                       <IconBtn testid="booking-row-view" title="View booking" color={C.green} onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}>👁</IconBtn>
                       <IconBtn testid="booking-row-edit" title="Edit booking" color={C.green} onClick={() => onEditBooking?.(b)}>✏️</IconBtn>
-                      <IconBtn testid="booking-row-delete" title="Delete booking" color={C.red} onClick={() => handleDelete(b.id)}>🗑️</IconBtn>
                     </div>
                   </td>
                 </tr>
@@ -2243,7 +2237,6 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
                     <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                       <IconBtn testid="booking-row-view" title="View booking" color={C.green} onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}>👁</IconBtn>
                       <IconBtn testid="booking-row-edit" title="Edit booking" color={C.green} onClick={() => onEditBooking?.(b)}>✏️</IconBtn>
-                      <IconBtn testid="booking-row-delete" title="Delete booking" color={C.red} onClick={() => handleDelete(b.id)}>🗑️</IconBtn>
                     </div>
                   </div>
                 </div>
