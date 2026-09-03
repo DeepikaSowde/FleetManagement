@@ -8,6 +8,7 @@ import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
 import { useViewport } from "./useViewport";
+import { CONTACT_COUNTRY_CODES, contactDigitsRequired } from "./contactCodes";
 import { useAuth } from "./context/AuthContext";
 import api from "./services/api";
 
@@ -52,42 +53,10 @@ const bookingFieldInputStyle = (readOnly, hasError) => ({
 const FieldErr = ({ msg }) =>
   msg ? <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>{msg}</div> : null;
 
-// Country codes offered on the Contact Number field (Step 1 only). Each
-// entry's `digits` is the number of digits the user types into the field
-// (excludes the dial code itself) — drives both the "N digits required"
-// helper text and the validation in validateStep1. `prefix`, when set, is a
-// fixed local prefix shown ahead of the editable digits and baked into the
-// stored value — Singapore's legacy format is "65" + 6 digits (8 total),
-// matching how Additional Driver contact numbers are already validated
-// elsewhere in this form (isValidContactNumber's /^65\d{8}$/).
-const CONTACT_COUNTRY_CODES = [
-  { code: "+65", country: "Singapore", flag: "🇸🇬", prefix: "65", digits: 8 },
-  { code: "+91", country: "India", flag: "🇮🇳", digits: 10 },
-  { code: "+1", country: "US / Canada", flag: "🇺🇸", digits: 10 },
-  { code: "+44", country: "United Kingdom", flag: "🇬🇧", digits: 10 },
-  { code: "+61", country: "Australia", flag: "🇦🇺", digits: 9 },
-  { code: "+971", country: "UAE", flag: "🇦🇪", digits: 9 },
-  { code: "+966", country: "Saudi Arabia", flag: "🇸🇦", digits: 9 },
-  { code: "+974", country: "Qatar", flag: "🇶🇦", digits: 8 },
-  { code: "+965", country: "Kuwait", flag: "🇰🇼", digits: 8 },
-  { code: "+968", country: "Oman", flag: "🇴🇲", digits: 8 },
-  { code: "+973", country: "Bahrain", flag: "🇧🇭", digits: 8 },
-  { code: "+60", country: "Malaysia", flag: "🇲🇾", digits: 9 },
-];
-const contactCountryEntry = (dialCode) =>
-  CONTACT_COUNTRY_CODES.find(c => c.code === dialCode) || CONTACT_COUNTRY_CODES[0];
-const contactDigitsRequired = (dialCode) => contactCountryEntry(dialCode).digits;
-const contactPrefix = (dialCode) => contactCountryEntry(dialCode).prefix || "";
-const contactHelperText = (dialCode) => {
-  const { prefix, digits } = contactCountryEntry(dialCode);
-  return prefix ? `${prefix} + ${digits} digits required` : `${digits} digits required`;
-};
-const contactErrorMsg = (dialCode) => {
-  const { prefix, digits } = contactCountryEntry(dialCode);
-  return prefix
-    ? `Contact number must be ${prefix.length + digits} digits and start with ${prefix}`
-    : `Contact number must be exactly ${digits} digits`;
-};
+// Contact / Phone Number country codes + validation helpers now live in the
+// shared contactCodes module so the New Booking wizard and the Add / Edit
+// Customer form stay identical. (CONTACT_COUNTRY_CODES, contactDigitsRequired,
+// etc. are imported at the top of this file.)
 
 const CALENDAR_STATUS_BG = { Available: "#dcfce7", "On Rental": "#ffedd5", "Ending Today": "#ffedd5" };
 const CALENDAR_STATUS_TEXT = { Available: "#166534", "On Rental": "#9a3412", "Ending Today": "#9a3412" };

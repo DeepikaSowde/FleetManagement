@@ -3,6 +3,7 @@ import { C, mono, fmt, daysUntil } from "./theme";
 import { Card, Badge, Btn, Modal, Input, Select } from "./components";
 import { computeBookingInvoice } from "./useFleetData";
 import RestrictedLicenses from "./RestrictedLicenses";
+import { CONTACT_COUNTRY_CODES, contactDigitsRequired, combineContact, splitContact } from "./contactCodes";
 
 // Customer Management — master customer directory with live, booking-derived
 // stats (pending amount, pending bookings, last booking/payment) joined in from
@@ -32,7 +33,10 @@ const fmtDate = (d) => {
 };
 
 const emptyForm = {
-  ic: "", name: "", contact: "", email: "", license: "", licenseExpiry: "",
+  // `contact` holds the LOCAL digits only; `contactCountryCode` the dial code —
+  // same two-part shape as the New Booking form. They're combined into the full
+  // stored number on save (see handleSubmit / combineContact).
+  ic: "", name: "", contact: "", contactCountryCode: "+65", email: "", license: "", licenseExpiry: "",
   customerType: "Local", age: "", dob: "", nationality: "", drivingExperience: "", address: "",
 };
 
@@ -61,6 +65,9 @@ const Customers = ({
   const [formCustomer, setFormCustomer] = useState(null); // customer being edited
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
+  // Per-field inline errors (keyed by field name), rendered under each field —
+  // same behavior as the New Booking form's Customer Details step.
+  const [fieldErrors, setFieldErrors] = useState({});
   const [historyFor, setHistoryFor] = useState(null); // customer whose booking history modal is open
 
   // ── Per-IC booking stats, computed once from bookings ─────────────────────
@@ -154,22 +161,51 @@ const Customers = ({
   ];
 
   // ── Modal handlers ────────────────────────────────────────────────────────
-  const openAdd = () => { setForm(emptyForm); setError(""); setFormCustomer(null); setMode("add"); };
+  const openAdd = () => { setForm(emptyForm); setError(""); setFieldErrors({}); setFormCustomer(null); setMode("add"); };
   const openEdit = (c) => {
     setForm({
       ...emptyForm, ...c,
+      // Split the stored full number back into dial code + local digits so the
+      // two-part editor round-trips cleanly.
+      ...splitContact(c.contact ?? ""),
       age: c.age ?? "", drivingExperience: c.drivingExperience ?? "",
       email: c.email ?? "", licenseExpiry: c.licenseExpiry ?? "", dob: c.dob ?? "", nationality: c.nationality ?? "",
     });
-    setError(""); setFormCustomer(c); setMode("edit");
+    setError(""); setFieldErrors({}); setFormCustomer(c); setMode("edit");
   };
-  const close = () => { setMode(null); setFormCustomer(null); setError(""); };
+  const close = () => { setMode(null); setFormCustomer(null); setError(""); setFieldErrors({}); };
+
+  // IC / ID Number and Driving License Number are the same value, so mirror the
+  // IC into the license field as it's typed (same as the New Booking form). The
+  // license stays editable in case a record ever needs to differ. Normalizes to
+  // uppercase alphanumerics, capped at 15 chars (fits a full Emirates ID).
+  const handleICChange = (raw) => {
+    let v = (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (v.length > 15) v = v.slice(0, 15);
+    setForm((prev) => ({ ...prev, ic: v, license: v }));
+    setFieldErrors((prev) => ({ ...prev, ic: undefined, license: undefined }));
+  };
 
   const handleSubmit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!form.ic.trim()) { setError("IC / ID is required"); return; }
-    if (!form.name.trim()) { setError("Customer name is required"); return; }
-    if (!String(form.license || "").trim()) { setError("License Number is required"); return; }
+    // ── Per-field validation (mirrors the New Booking Customer Details step) ──
+    const errors = {};
+    if (!form.ic.trim()) errors.ic = "IC / ID Number is required";
+    if (!form.name.trim()) errors.name = "Customer Name is required";
+    {
+      const requiredDigits = contactDigitsRequired(form.contactCountryCode);
+      if (!form.contact.trim()) errors.contact = "Phone Number is required";
+      else if (form.contact.length !== requiredDigits) errors.contact = `Contact number must be exactly ${requiredDigits} digits`;
+    }
+    if (form.age === "" || form.age === null) errors.age = "Age is required";
+    else if (isNaN(Number(form.age)) || Number(form.age) <= 0) errors.age = "Enter a valid age";
+    if (!String(form.license || "").trim()) errors.license = "Driving License Number is required";
+    if (form.drivingExperience === "" || form.drivingExperience === null) errors.drivingExperience = "Driving Experience is required";
+    else if (isNaN(Number(form.drivingExperience)) || Number(form.drivingExperience) < 0) errors.drivingExperience = "Enter valid years of driving experience";
+
+    if (Object.keys(errors).length) { setFieldErrors(errors); setError(""); return; }
+    setFieldErrors({});
+
     // One customer name maps to one IC — block reusing a name under a different IC.
     {
       const nameKey = form.name.trim().toLowerCase();
@@ -182,7 +218,10 @@ const Customers = ({
       if (clash) { setError(`A customer named "${form.name.trim()}" already exists with IC ${clash.ic}. Use the same IC, or a different name.`); return; }
     }
     const payload = {
-      ic: form.ic, name: form.name, contact: form.contact, email: form.email,
+      ic: form.ic, name: form.name,
+      // Store the full international number (dial digits + local) in `contact`.
+      contact: combineContact(form.contactCountryCode, form.contact),
+      email: form.email,
       license: form.license, licenseExpiry: form.licenseExpiry || null,
       customerType: form.customerType, nationality: form.nationality, dob: form.dob || null,
       address: form.address,
@@ -210,6 +249,9 @@ const Customers = ({
   const th = { textAlign: "left", padding: "10px 14px", fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", background: C.bg };
   const td = { padding: "10px 14px", fontSize: 12, color: C.textSec, borderBottom: `1px solid ${C.border}`, verticalAlign: "middle" };
   const controlStyle = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none", boxSizing: "border-box" };
+  // Phone control (country-code select + digits input) — matches the shared
+  // Input's look, red border on error, same as the New Booking form's field.
+  const phoneCtlStyle = (hasError) => ({ width: "100%", padding: "8px 12px", border: `1px solid ${hasError ? C.red : C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: C.surface });
 
   const StatusPill = ({ status }) => {
     const active = status === "Active";
@@ -457,17 +499,60 @@ const Customers = ({
         submitText={mode === "edit" ? "Save Changes" : "Add Customer"}
       >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input id="customer-ic" label="IC / ID Number *" value={form.ic} onChange={(e) => setForm({ ...form, ic: e.target.value })} placeholder="e.g. S8901234A" />
-          <Input id="customer-name" label="Customer Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Ravi Kumar" />
-          <Input id="customer-contact" label="Phone Number" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="e.g. 9123 4567" />
+          <Input id="customer-ic" label="IC / ID Number *" value={form.ic} onChange={(e) => handleICChange(e.target.value)} placeholder="e.g. S8901234A" error={fieldErrors.ic} />
+          <Input id="customer-name" label="Customer Name *" value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setFieldErrors((p) => ({ ...p, name: undefined })); }} placeholder="e.g. Ravi Kumar" error={fieldErrors.name} />
+
+          {/* Phone Number — same two-part Country Code + digits control, digit
+              rules, and error message as the New Booking form. */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>Phone Number *</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <select
+                id="customer-contact-code"
+                value={form.contactCountryCode}
+                onChange={(e) => {
+                  const newCode = e.target.value;
+                  const requiredDigits = contactDigitsRequired(newCode);
+                  const clamped = form.contact.slice(0, requiredDigits);
+                  setForm({ ...form, contactCountryCode: newCode, contact: clamped });
+                  setFieldErrors((p) => ({ ...p, contact: clamped && clamped.length !== requiredDigits ? `Contact number must be exactly ${requiredDigits} digits` : undefined }));
+                }}
+                style={{ ...phoneCtlStyle(false), width: 110, flex: "0 0 auto", cursor: "pointer" }}
+              >
+                {CONTACT_COUNTRY_CODES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
+                ))}
+              </select>
+              <input
+                id="customer-contact"
+                type="text"
+                value={form.contact}
+                onChange={(e) => {
+                  const requiredDigits = contactDigitsRequired(form.contactCountryCode);
+                  const v = e.target.value.replace(/\D/g, "").slice(0, requiredDigits);
+                  setForm({ ...form, contact: v });
+                  if (fieldErrors.contact && (v === "" || v.length === requiredDigits)) setFieldErrors((p) => ({ ...p, contact: undefined }));
+                }}
+                onBlur={() => {
+                  const requiredDigits = contactDigitsRequired(form.contactCountryCode);
+                  if (form.contact && form.contact.length !== requiredDigits) setFieldErrors((p) => ({ ...p, contact: `Contact number must be exactly ${requiredDigits} digits` }));
+                }}
+                placeholder="e.g. 98765432"
+                style={{ ...phoneCtlStyle(!!fieldErrors.contact), flex: 1 }}
+              />
+            </div>
+            <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 5 }}>{contactDigitsRequired(form.contactCountryCode)} digits required</div>
+            {fieldErrors.contact && <div style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{fieldErrors.contact}</div>}
+          </div>
+
           <Input id="customer-email" label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="e.g. ravi.kumar@email.com" />
           <Input id="customer-dob" label="Date of Birth" type="date" value={form.dob || ""} onChange={(e) => setForm({ ...form, dob: e.target.value })} />
           <Input id="customer-nationality" label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} placeholder="e.g. Singaporean" />
           <Select id="customer-type" label="Customer Type" value={form.customerType} onChange={(e) => setForm({ ...form, customerType: e.target.value })} options={CUSTOMER_TYPES} />
-          <Input id="customer-age" label="Age" type="number" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} placeholder="e.g. 32" />
-          <Input id="customer-license" label="Driving License Number *" value={form.license} onChange={(e) => setForm({ ...form, license: e.target.value })} placeholder="e.g. S1234567A" readOnly={mode === "edit"} style={mode === "edit" ? { background: C.bg, color: C.textMuted, cursor: "not-allowed" } : undefined} />
+          <Input id="customer-age" label="Age *" type="number" value={form.age} onChange={(e) => { setForm({ ...form, age: e.target.value }); setFieldErrors((p) => ({ ...p, age: undefined })); }} placeholder="e.g. 32" error={fieldErrors.age} />
+          <Input id="customer-license" label="Driving License Number *" value={form.license} onChange={(e) => { setForm({ ...form, license: e.target.value }); setFieldErrors((p) => ({ ...p, license: undefined })); }} placeholder="e.g. S1234567A" error={fieldErrors.license} />
           <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
-          <Input id="customer-driving-experience" label="Driving Experience (years)" type="number" value={form.drivingExperience} onChange={(e) => setForm({ ...form, drivingExperience: e.target.value })} placeholder="e.g. 5" />
+          <Input id="customer-driving-experience" label="Driving Experience (years) *" type="number" value={form.drivingExperience} onChange={(e) => { setForm({ ...form, drivingExperience: e.target.value }); setFieldErrors((p) => ({ ...p, drivingExperience: undefined })); }} placeholder="e.g. 5" error={fieldErrors.drivingExperience} />
         </div>
         <Input id="customer-address" label="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="e.g. 12, Jalan Bukit Merah, #04-15, Singapore 150012" />
         {error && <div style={{ background: C.redFaint, color: C.red, fontSize: 12, padding: "9px 12px", borderRadius: 8 }}>{error}</div>}
