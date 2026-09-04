@@ -555,6 +555,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // modal (viewCollections). The per-card dropdown filters by payment method.
   const [collectionModal, setCollectionModal] = useState(null);   // "daily" | "monthly"
   const [viewCollections, setViewCollections] = useState(null);   // "daily" | "monthly"
+  // Single-select toggle: which collection section (Daily or Monthly) is shown.
+  const [collectionType, setCollectionType] = useState("daily");   // "daily" | "monthly"
+  // Method filter used inside the "View full …" detail modal.
   const [dailyMethodFilter, setDailyMethodFilter] = useState("All Methods");
   const [monthlyMethodFilter, setMonthlyMethodFilter] = useState("All Methods");
   // Which monthly-contract rent row is currently being collected (index into
@@ -979,8 +982,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // Collections are ordinary rental payments tagged with `kind`, so they reuse
   // the payment form state and feed the same `payments` array (and therefore
   // the same Total Paid / Balance Due) as everything else.
+  // Opens the record modal. Keeps whatever amount was already typed into the
+  // card's inline "Enter amount to record" field so it carries into the modal;
+  // the other fields start fresh.
   const openCollectionModal = (kind) => {
-    setPaymentAmount("");
     setPaymentMethod("");          // "Select Method" until the user picks one
     setPaymentReference("");
     setPaymentDate(new Date().toISOString().slice(0, 10));
@@ -1065,90 +1070,46 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     ? rawPayments.filter(p => p.kind === "monthly")
     : rawPayments.filter(p => p.kind !== "monthly");
   const COLLECTION_METHODS = ["Cash", "Card", "Bank Transfer", "Online"];
-  const CARD_PREVIEW = 3; // rows shown on the card before "+N more"
 
-  // One Daily/Monthly summary card. Structure/styling is identical for both —
-  // only the label, icon and the filtered rows differ.
+  // Summary-only collection card for the selected type — collection count +
+  // total collected, with a "View full …" link that opens the detailed modal
+  // (where the records and the All Methods filter live).
   const renderCollectionCard = (kind) => {
     const isMonthly = kind === "monthly";
     const label = isMonthly ? "Monthly Collection" : "Daily Collection";
-    const filterVal = isMonthly ? monthlyMethodFilter : dailyMethodFilter;
-    const setFilterVal = isMonthly ? setMonthlyMethodFilter : setDailyMethodFilter;
-    const all = collectionsOf(kind);
-    const rows = filterVal === "All Methods" ? all : all.filter(p => (p.method || "") === filterVal);
+    const rows = collectionsOf(kind);
     const total = rows.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const preview = rows.slice(0, CARD_PREVIEW);
-    const cell = { fontSize: 11.5, color: C.textSec, padding: "7px 0" };
-    const hcell = { fontSize: 9.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, padding: "0 0 6px" };
-    const grid = "1.4fr 0.8fr 0.9fr 0.9fr 1fr";
     return (
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", background: C.surface }}>
         {/* Header: title + count · View full link */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 14 }}>📅</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{label}</span>
-            <span style={{ fontSize: 11.5, color: C.textMuted }}>({preview.length} of {rows.length})</span>
+            <span style={{ fontSize: 11.5, color: C.textMuted }}>({rows.length})</span>
           </div>
           <button type="button" onClick={() => setViewCollections(kind)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 600, color: C.teal, fontFamily: "inherit" }}>
             View full {isMonthly ? "monthly" : "daily"} collection →
           </button>
         </div>
 
-        {/* Summary line + method filter + export */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSec }}>
-            <span style={{ width: 16, height: 16, borderRadius: "50%", background: C.tealFaint, color: C.teal, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>✓</span>
-            <span>{rows.length} collection{rows.length === 1 ? "" : "s"}</span>
+        {/* Summary line — count + total collected only */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", background: C.bg }}>
+          <span style={{ width: 34, height: 34, borderRadius: 9, background: C.tealFaint, color: C.teal, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>📅</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.textSec }}>
+            <span style={{ fontWeight: 600 }}>{rows.length} collection{rows.length === 1 ? "" : "s"}</span>
             <span style={{ color: C.textMuted }}>·</span>
             <span style={{ ...mono, fontWeight: 700, color: C.teal }}>{fmt(total)} collected</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select value={filterVal} onChange={(e) => setFilterVal(e.target.value)} style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 11, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
-              <option value="All Methods">All Methods</option>
-              {COLLECTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <button type="button" title="Export CSV" onClick={() => exportCollectionsCsv(kind, rows)} style={{ width: 30, height: 30, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, cursor: "pointer", fontSize: 14 }}>⬇</button>
-          </div>
         </div>
-
-        {/* Table */}
-        {rows.length === 0 ? (
-          <div style={{ fontSize: 12, color: C.textMuted, padding: "16px 0", textAlign: "center" }}>No collections recorded yet.</div>
-        ) : (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, borderBottom: `1px solid ${C.border}` }}>
-              {["Date & Time", "Amount", "Method", "Transaction ID", "Remarks"].map((h, i) => (
-                <span key={h} style={{ ...hcell, textAlign: i === 1 ? "right" : "left" }}>{h}</span>
-              ))}
-            </div>
-            {preview.map((p, i) => (
-              <div key={p.id || i} style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, alignItems: "center", borderBottom: i < preview.length - 1 ? `1px solid ${C.linen}` : "none" }}>
-                <span style={cell}>{formatDateTime(p.addedAt) || "—"}</span>
-                <span style={{ ...cell, ...mono, textAlign: "right" }}>{fmt(Number(p.amount) || 0)}</span>
-                <span style={cell}>{p.method || "—"}</span>
-                <span style={cell}>{p.reference || "—"}</span>
-                <span style={cell}>{p.remarks || "—"}</span>
-              </div>
-            ))}
-            {rows.length > CARD_PREVIEW && (
-              <button type="button" onClick={() => setViewCollections(kind)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 600, color: C.teal, fontFamily: "inherit", padding: "10px 0 0" }}>
-                +{rows.length - CARD_PREVIEW} more collection{rows.length - CARD_PREVIEW === 1 ? "" : "s"}
-              </button>
-            )}
-          </>
-        )}
       </div>
     );
   };
 
-  // One "Record …" card — a green button that opens the centered record modal.
+  // Compact "Record …" card — an inline amount field + a normal-size Record
+  // Collection button that opens the record modal (carrying the typed amount).
   const renderRecordCard = (kind) => {
     const isMonthly = kind === "monthly";
     const label = isMonthly ? "Record Monthly Collection" : "Record Daily Collection";
-    const hint = isMonthly
-      ? "Enter any amount to record a partial or monthly collection."
-      : "Enter any amount to record a partial or daily collection.";
     const done = inv.balanceDue <= 0;
     return (
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", background: C.surface }}>
@@ -1158,14 +1119,23 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
             ✓ Balance fully paid — no further collection needed.
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 12, alignItems: "stretch", flexWrap: "wrap" }}>
-            <button type="button" onClick={() => openCollectionModal(kind)} style={{ background: C.teal, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-              ＋ {label}
-            </button>
-            <div style={{ flex: "1 1 180px", display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: C.greenFaint, padding: "8px 12px", fontSize: 11.5, color: C.textSec }}>
-              <span style={{ color: C.teal }}>ⓘ</span> {hint}
+          <>
+            <div style={{ position: "relative", marginBottom: 12 }}>
+              <input
+                type="number"
+                min="0"
+                max={inv.balanceDue || undefined}
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                placeholder="Enter amount to record"
+                style={{ ...detailInputStyle, paddingRight: 44 }}
+              />
+              <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 11.5, fontWeight: 600, color: C.textMuted, pointerEvents: "none" }}>SGD</span>
             </div>
-          </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Btn secondary onClick={() => openCollectionModal(kind)}>Record Collection</Btn>
+            </div>
+          </>
         )}
       </div>
     );
@@ -1995,11 +1965,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 );
               })()}
 
-              {/* Single-page, two-column layout: Pricing Summary + Additional
-                  Charges on the left, Payment Summary / Balance Due / Record
-                  Payment on the right — kept together so nothing here needs
-                  its own scroll. */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+              {/* Top row: Pricing Summary · Payment Summary · Select Collection
+                  Type (a single-select toggle that decides which collection
+                  section shows below). */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
                 {/* LEFT: agreement Pricing Summary + post-return Additional Charges */}
                 <div>
                   <SectionHeading size="sm">Pricing Summary</SectionHeading>
@@ -2078,19 +2047,44 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
 
                 </div>
+
+                {/* Select Collection Type — single-select toggle. Only the
+                    chosen collection section is shown below. */}
+                <div>
+                  <SectionHeading size="sm">Select Collection Type</SectionHeading>
+                  <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg }}>
+                    <div style={{ fontSize: 11.5, color: C.teal, marginBottom: 12 }}>Choose the type of collection to view and manage.</div>
+                    {[["daily", "Daily Collection"], ["monthly", "Monthly Collection"]].map(([id, label]) => {
+                      const active = collectionType === id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setCollectionType(id)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 10, width: "100%",
+                            padding: "12px 14px", marginBottom: id === "daily" ? 10 : 0,
+                            border: `1px solid ${active ? C.teal : C.border}`, borderRadius: 10,
+                            background: active ? C.greenFaint : C.surface, cursor: "pointer",
+                            fontFamily: "inherit", textAlign: "left", transition: "background 0.15s, border-color 0.15s",
+                          }}
+                        >
+                          <span style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${active ? C.teal : C.border}`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            {active && <span style={{ width: 9, height: 9, borderRadius: "50%", background: C.teal }} />}
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: active ? C.navy : C.textSec }}>{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
-              {/* Daily / Monthly collection cards — two identical cards, each
-                  listing its own tagged collections. */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
-                {renderCollectionCard("daily")}
-                {renderCollectionCard("monthly")}
-              </div>
-
-              {/* Record cards — each green button opens a centered modal. */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
-                {renderRecordCard("daily")}
-                {renderRecordCard("monthly")}
+              {/* Selected collection section — summary card + compact record
+                  card for the chosen collection type only. */}
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, marginTop: 20 }}>
+                {renderCollectionCard(collectionType)}
+                {renderRecordCard(collectionType)}
               </div>
             </>
           ) : (
@@ -2192,7 +2186,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           the selected type, with the same three-figure header and a count. */}
       {viewCollections && (() => {
         const kind = viewCollections;
-        const rows = collectionsOf(kind);
+        const filterVal = kind === "monthly" ? monthlyMethodFilter : dailyMethodFilter;
+        const setFilterVal = kind === "monthly" ? setMonthlyMethodFilter : setDailyMethodFilter;
+        const all = collectionsOf(kind);
+        const rows = filterVal === "All Methods" ? all : all.filter(p => (p.method || "") === filterVal);
         const collected = rows.reduce((s, p) => s + (Number(p.amount) || 0), 0);
         const grid = "1.4fr 0.8fr 0.9fr 0.9fr 1fr";
         const hcell = { fontSize: 9.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, padding: "0 0 6px" };
@@ -2219,7 +2216,13 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
                 ))}
               </div>
-              <div style={{ padding: "6px 20px", fontSize: 12, fontWeight: 600, color: C.navy }}>{rows.length} collection{rows.length === 1 ? "" : "s"}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px 6px" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.navy }}>{rows.length} collection{rows.length === 1 ? "" : "s"}</div>
+                <select value={filterVal} onChange={(e) => setFilterVal(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, fontSize: 11.5, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}>
+                  <option value="All Methods">All Methods</option>
+                  {COLLECTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
               <div style={{ padding: "0 20px 16px", overflowY: "auto" }}>
                 {rows.length === 0 ? (
                   <div style={{ fontSize: 12, color: C.textMuted, padding: "24px 0", textAlign: "center" }}>No collections recorded yet.</div>
