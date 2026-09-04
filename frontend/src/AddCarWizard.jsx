@@ -210,10 +210,13 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const validateStep0 = () => {
     const e = {};
     if (!String(car.plate).trim()) e.plate = "Car Plate is required";
-    const maxYr = new Date().getFullYear() + 1;
+    // Any past year or the current year is allowed; only a future year is
+    // rejected. currentYr is read fresh on every validation call, so the
+    // cutoff always tracks today's real year with nothing hardcoded.
+    const currentYr = new Date().getFullYear();
     const yr = Number(car.year);
     if (!String(car.year).trim()) e.year = "Year is required";
-    else if (!Number.isInteger(yr) || yr < 1980 || yr > maxYr) e.year = `Enter a year between 1980 and ${maxYr}`;
+    else if (!Number.isInteger(yr) || yr > currentYr) e.year = `Year cannot be later than ${currentYr}`;
     if (!String(car.make).trim()) e.make = "Brand is required";
     if (!String(car.model).trim()) e.model = "Model is required";
     if (!String(car.color).trim()) e.color = "Colour is required";
