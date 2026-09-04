@@ -1488,8 +1488,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         return (
                         <>
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 10 }}>Cancel this booking</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                          <div style={{ flex: "1 1 200px" }}>
+                        {/* 5-column grid, weighted so the longest select option
+                            ("Company (RDK) — deposit refunded") and the Refund
+                            Reference placeholder both fit without clipping. */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 0.85fr 1fr 1.3fr", gap: 10 }}>
+                          <div>
                             <div style={detailFieldLabelStyle}>Cancelled by</div>
                             <select value={cancelBy} onChange={(e) => {
                               const v = e.target.value;
@@ -1502,43 +1505,38 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                               <option value="customer">Customer — deposit forfeited</option>
                             </select>
                           </div>
-                          <div style={{ flex: "1 1 120px" }}>
+                          <div>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
                             <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
                           </div>
-                          <div style={{ flex: "1 1 100px" }}>
+                          <div>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>
                             <input type="time" value={cancelTime} onChange={(e) => setCancelTime(e.target.value)} style={detailInputStyle} />
                           </div>
                           {cancelBy === "company" ? (
                             <>
-                              <div style={{ flex: "1 1 130px" }}>
+                              <div>
                                 <div style={detailFieldLabelStyle}>Deposit Refund (SGD)</div>
                                 <input type="number" min="0" max={depositHeld} value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
                               </div>
-                              <div style={{ flex: "1 1 150px" }}>
+                              <div>
                                 <div style={detailFieldLabelStyle}>Refund Reference</div>
                                 <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
                               </div>
                             </>
                           ) : (
-                            <div style={{ flex: "1 1 100%", fontSize: 11.5, fontWeight: 700, color: C.red, background: "#FDECEC", border: `1px solid ${C.red}33`, borderRadius: 8, padding: "9px 12px" }}>
+                            <div style={{ gridColumn: "1 / -1", fontSize: 11.5, fontWeight: 700, color: C.red, background: "#FDECEC", border: `1px solid ${C.red}33`, borderRadius: 8, padding: "9px 12px" }}>
                               Security Deposit forfeited: {fmt(depositHeld)} — kept by the company and recorded as income (not refunded).
                             </div>
                           )}
-                          <div style={{ flex: "1 1 100%" }}>
-                            <div style={detailFieldLabelStyle}>Reason</div>
-                            <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason for cancellation" style={detailInputStyle} />
-                          </div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <div style={detailFieldLabelStyle}>Reason</div>
+                          <input type="text" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason for cancellation" style={detailInputStyle} />
                         </div>
                         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                           <button type="button" onClick={handleCancelRental} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Confirm Cancellation · {cancelBy === "company" ? `Refund ${fmt(Number(cancelDepositOut) || 0)}` : `Forfeit ${fmt(depositHeld)}`}</button>
                           <button type="button" onClick={() => setShowCancelForm(false)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
-                        </div>
-                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>
-                          {cancelBy === "company"
-                            ? "Company cancellation — the deposit is refunded to the customer (edit the amount for a partial refund). Any withheld portion is recorded as income."
-                            : "Customer cancellation — the deposit is forfeited and recorded as company income; nothing is refunded to the customer."}
                         </div>
                         </>
                         );
