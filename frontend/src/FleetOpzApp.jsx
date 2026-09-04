@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Car, CalendarCheck, CalendarDays, Users, ClipboardList,
   BookOpen, Briefcase, Coins, Receipt, TrendingUp, ArrowLeftRight,
-  UserCog, Settings as SettingsIcon, Wallet,
+  UserCog, Settings as SettingsIcon, Wallet, Bell,
 } from "lucide-react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
@@ -457,6 +457,9 @@ export default function FleetOpzApp() {
   // Booking.jsx consumes it once and calls back to clear it — see
   // onDetailBookingIdHandled below — so it never re-triggers.
   const [detailBookingId, setDetailBookingId] = useState(null);
+  // Same "consume once" pattern, for the Alerts page's Renew Now / View
+  // Vehicle buttons deep-linking into a specific car's edit modal on Fleet.
+  const [renewPlate, setRenewPlate] = useState(null);
 
   // Real auth: the logged-in user comes from AuthContext (JWT-backed). Role
   // gates (like who can see Restricted Driving Licenses) read currentUserRole,
@@ -1145,6 +1148,7 @@ export default function FleetOpzApp() {
     { id: "cash-flow", label: "Cash Flow", icon: ArrowLeftRight },
     { id: "deposit-refunds", label: "Deposit Refunds", icon: Wallet },
     // System
+    { id: "alerts", label: "Alerts & Notifications", icon: Bell, badge: fleetData.alerts.length },
     { id: "usermgmt", label: "User Management", icon: UserCog },
     { id: "settings", label: "Settings", icon: SettingsIcon },
   ];
@@ -1188,6 +1192,8 @@ export default function FleetOpzApp() {
         expenses={fleetData.expenses}
         onAddExpense={fleetData.addExpense}
         customers={fleetData.customers}
+        initialOpenPlate={renewPlate}
+        onInitialOpenPlateHandled={() => setRenewPlate(null)}
       />
     ),
     "car-availability": (
@@ -1316,6 +1322,8 @@ export default function FleetOpzApp() {
       <Alert
         alerts={fleetData.alerts}
         fleet={fleetData.fleet}
+        onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
+        onRenewVehicle={(plate) => { setRenewPlate(plate); setActive("fleet"); }}
       />
     ),
     settings: (

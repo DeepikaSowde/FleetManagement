@@ -1277,11 +1277,41 @@ export const useFleetData = () => {
           type: "coe",
           plate: car.plate,
           car: `${car.make} ${car.model}`,
-          msg: `Vehicle registration renewal due ${car.coe}`,
+          msg: `Registration renewal for ${car.plate} is due soon.`,
+          dueDate: car.coe,
           days: Math.max(0, daysUntil),
           urgent: daysUntil <= 30,
         });
       }
+    });
+
+    // Monthly rental payment alerts — one per unpaid rent-schedule row on an
+    // active monthly contract, subtyped by how the due date compares to today
+    // (overdue / due today / due soon / upcoming) so the Alerts page can group
+    // and colour them without re-deriving this logic itself.
+    bookings.forEach(b => {
+      if (b.rentalType !== "monthly" || b.cancelled) return;
+      const car = fleet.find(c => c.plate === b.plate);
+      (b.rentSchedule || []).forEach(row => {
+        if (row.paid || !row.dueDate) return;
+        const daysUntilDue = Math.ceil((new Date(row.dueDate) - new Date(today)) / (1000 * 60 * 60 * 24));
+        const subtype = daysUntilDue < 0 ? "overdue" : daysUntilDue === 0 ? "due_today" : daysUntilDue <= 3 ? "due_soon" : "upcoming";
+        const subtypeLabel = { overdue: "is overdue", due_today: "is due today", due_soon: "is due soon", upcoming: "is upcoming" }[subtype];
+        alerts.push({
+          id: alertId++,
+          type: "monthly_rent",
+          subtype,
+          bookingId: b.id,
+          plate: b.plate,
+          car: car ? `${car.make} ${car.model}` : b.plate,
+          customer: b.customer,
+          msg: `Month ${row.month} rental for booking ${b.id} ${subtypeLabel}.`,
+          dueDate: row.dueDate,
+          amount: Number(row.amount) || 0,
+          days: Math.abs(daysUntilDue),
+          urgent: subtype === "overdue" || subtype === "due_today",
+        });
+      });
     });
 
     // Maintenance pending alerts — a car that's been sitting in "Maintenance"
@@ -1310,9 +1340,12 @@ export const useFleetData = () => {
         alerts.push({
           id: alertId++,
           type: "return",
+          bookingId: b.id,
           plate: b.plate,
           car: fleet.find(c => c.plate === b.plate)?.make + " " + fleet.find(c => c.plate === b.plate)?.model,
-          msg: `${b.customer} — Return by 6 PM`,
+          customer: b.customer,
+          msg: `Vehicle ${b.plate} is scheduled to return today by 6 PM.`,
+          dueDate: endDate,
           days: 0,
           urgent: true,
         });
@@ -1327,9 +1360,12 @@ export const useFleetData = () => {
         alerts.push({
           id: alertId++,
           type: "booking",
+          bookingId: b.id,
           plate: b.plate,
           car: fleet.find(c => c.plate === b.plate)?.make + " " + fleet.find(c => c.plate === b.plate)?.model,
-          msg: `${b.customer} booking starts tomorrow`,
+          customer: b.customer,
+          msg: `Booking ${b.id} is scheduled to start tomorrow.`,
+          dueDate: startDate,
           days: 1,
           urgent: false,
         });

@@ -632,7 +632,7 @@ const FlPageBtn = ({ children, active, disabled, onClick }) => (
 // ─────────────────────────────────────────────────────────────────────────
 // Fleet — table/filter list + modal details overlay
 // ─────────────────────────────────────────────────────────────────────────
-const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense }) => {
+const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense, initialOpenPlate, onInitialOpenPlateHandled }) => {
   // Which car's details modal is open, keyed by plate (not a row index) so it
   // stays correct across pagination/filtering/sorting.
   const [openPlate, setOpenPlate] = useState(null);
@@ -648,6 +648,19 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+
+  // Deep-link support — e.g. the Alerts page's "Renew Now" / "View Vehicle"
+  // buttons set initialOpenPlate to jump straight to that car's edit modal.
+  // Same "consume once" pattern as Booking.jsx's detailBookingId: the parent
+  // hands off a plate, this opens it, then immediately clears it via the
+  // handler so the same plate doesn't re-trigger on the next render.
+  useEffect(() => {
+    if (!initialOpenPlate) return;
+    setEditOnOpen(true);
+    setOpenPlate(initialOpenPlate);
+    onInitialOpenPlateHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOpenPlate]);
 
   // Generate unique plates from fleet (automatically updates when fleet changes)
   const uniquePlates = useMemo(() => {
