@@ -12,7 +12,7 @@ const OVERVIEW_TABS = [
   { id: "Rental", label: "Rental", icon: CalendarDays },
   { id: "Payment", label: "Payment", icon: CreditCard },
   { id: "Customer", label: "Customer", icon: User },
-  { id: "Vehicle", label: "Vehicle", icon: CarIcon },
+  { id: "Vehicle", label: "Vehicle Returned", icon: CarIcon },
   { id: "Cancellation", label: "Cancellation", icon: Ban },
 ];
 
@@ -1357,16 +1357,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   </div>
                 ))}
 
-                {action === "return" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontSize: 22 }}>🏁</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Vehicle on rental</div>
-                      <div style={{ fontSize: 11.5, color: C.textMuted }}>When the customer returns the car, record the mileage &amp; fuel to close it out.</div>
-                    </div>
-                    <Btn primary onClick={() => { setOverviewTab("Vehicle"); setTimeout(() => returnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); }}>Mark Vehicle Returned →</Btn>
-                  </div>
-                )}
+                {/* "return" stage: no action here anymore — recording the return
+                    is handled entirely inside the Vehicle Returned tab below, so
+                    the old "Mark Vehicle Returned" button (and this panel) would
+                    just duplicate that. */}
 
                 {action === "payment" && (
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
