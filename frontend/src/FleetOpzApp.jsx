@@ -1904,7 +1904,10 @@ export default function FleetOpzApp() {
                   🔁 <b>Extending this booking.</b> Change the drop-off date below — the <b>Total Rental Amount</b> recalculates automatically (original price + extra days at the daily rate) and the extra rent flows into the Balance Due. You can still fine-tune it on <b>Pricing &amp; Charges</b>. The security deposit was already collected and <b>will not be charged again</b>.
                 </div>
               )}
-              <div style={{ display: "flex", alignItems: "center", marginTop: 16 }}>
+              {/* Horizontally scrollable on narrow screens so the 5 step labels never
+                  clip — the modal shell itself has overflow:hidden, so without this
+                  the step row would be cut off on mobile instead of scrolling. */}
+              <div style={{ display: "flex", alignItems: "center", marginTop: 16, overflowX: "auto", paddingBottom: 2 }}>
                 {BOOKING_STEP_LABELS.flatMap((label, i) => {
                   const stepNum = i + 1;
                   const isActive = stepNum === bookingStep;
@@ -1939,7 +1942,7 @@ export default function FleetOpzApp() {
                 <>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 16 }}>👤 Customer Information</div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14, alignItems: "start" }}>
                   <div>
                     <label style={bookingFieldLabelStyle}>IC Number <span style={{ color: C.red }}>*</span></label>
                     <input
@@ -1973,7 +1976,7 @@ export default function FleetOpzApp() {
                   </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14, alignItems: "start" }}>
                   <div>
                     <label style={bookingFieldLabelStyle}>Contact Number <span style={{ color: C.red }}>*</span></label>
                     <div style={{ display: "flex", gap: 8 }}>
@@ -2068,7 +2071,7 @@ export default function FleetOpzApp() {
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14, alignItems: "start" }}>
                   <div>
                       <label style={bookingFieldLabelStyle}>Customer Type</label>
                       <select
@@ -2103,7 +2106,7 @@ export default function FleetOpzApp() {
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14, alignItems: "start" }}>
                   <div>
                       <label style={bookingFieldLabelStyle}>Driving Experience (years) <span style={{ color: C.red }}>*</span></label>
                       <input
@@ -2305,7 +2308,7 @@ export default function FleetOpzApp() {
 
                   <FieldErr msg={fieldErrors.returnTime} />
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 14 }}>
                     <div>
                       <Input
                         label={extendMode ? "Pickup Location 🔒 Fixed" : "Pickup Location"}
@@ -2382,7 +2385,7 @@ export default function FleetOpzApp() {
                             Remove
                           </button>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
                           <div>
                             <label style={bookingFieldLabelStyle}>Name</label>
                             <input
@@ -2489,7 +2492,7 @@ export default function FleetOpzApp() {
 
                   {/* File Attachment + Comments — paired into two columns to keep
                       the step compact. */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, alignItems: "start" }}>
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 600, color: C.textSec, display: "block", marginBottom: 6 }}>
                       File Attachment <span style={{ fontWeight: 400, color: C.textMuted }}>( image or document, max 5MB)</span>
@@ -2745,9 +2748,9 @@ export default function FleetOpzApp() {
                       );
                     })()}
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                      <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "flex-end", gap: 10 }}>
-                        <div style={{ flex: 1 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
+                      <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ flex: "1 1 160px" }}>
                           <label style={bookingFieldLabelStyle}>Extended Rent — Collect Now</label>
                           <input type="number" min="0" max={bookingTotal || undefined} value={newBookingData.amountCollected}
                             onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, amountCollected: v }); }}
@@ -2823,7 +2826,7 @@ export default function FleetOpzApp() {
                       </label>
 
                       {newBookingData.depositCollected ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
                           <div style={{ gridColumn: "1 / -1" }}>
                             <label style={bookingFieldLabelStyle}>Amount Collected Now</label>
                             <input
@@ -2907,7 +2910,7 @@ export default function FleetOpzApp() {
                           Optional: also collect rent now (same-day / backdated rentals)
                         </summary>
                         <div style={{ marginTop: 12 }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
                             <div>
                               <label style={bookingFieldLabelStyle}>Rent Collected Now</label>
                               <input
@@ -3161,7 +3164,7 @@ export default function FleetOpzApp() {
                                 ? "This rental period is already in the past. Fill in the handover and return readings to record it as a completed rental — or leave them blank to save it and record them later."
                                 : "Pickup has arrived. Record Kilometer Out & Fuel Level to hand the car over now — the booking becomes Active and the Rental Agreement is generated on create. Leave blank to hand over later."}
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
                               <div>
                                 <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
                                 <input type="number" min="0" value={newBookingData.startingMileage}
@@ -3181,7 +3184,7 @@ export default function FleetOpzApp() {
                               </div>
                             </div>
                             {hasEnded && (
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 14 }}>
                                 <div>
                                   <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
                                   <input type="number" min="0" value={newBookingData.customerReturnMileage}

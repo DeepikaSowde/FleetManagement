@@ -290,7 +290,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     <>
       {/* Backdrop click no longer closes the wizard — close only via ✕ / Cancel. */}
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200 }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: C.surface, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.15)", zIndex: 201, width: 560, maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: C.surface, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.15)", zIndex: 201, width: "min(560px, calc(100vw - 24px))", maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", borderBottom: `1px solid ${C.border}` }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Add New Car</div>
@@ -310,11 +310,11 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
           {/* STEP 1 — Purchase & Vehicle Details */}
           {step === 0 && (
             <div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
                 <Input label="Car Plate" value={car.plate} onChange={e => setField("plate", e.target.value)} placeholder="e.g., SBJ 4488 F" error={errors.plate} />
                 <Input label="Year" type="number" value={car.year} onChange={e => setField("year", e.target.value)} placeholder="e.g., 2024" error={errors.year} />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Combobox label="Brand" listId="brand-options" value={car.make}
                   onChange={e => {
                     const value = e.target.value;
@@ -329,22 +329,22 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
                   options={modelOptions} placeholder="e.g., Corolla" error={errors.model} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Input label={<>Colour <span style={{ color: C.red }}>*</span></>} value={car.color} onChange={e => setField("color", e.target.value)} placeholder="e.g., Silver" error={errors.color} />
                 <SelectField label={<>Fuel Type <span style={{ color: C.red }}>*</span></>} value={car.fuelType} onChange={e => handleFuelTypeChange(e.target.value)} options={["Petrol", "Diesel", "EV"]} error={errors.fuelType} />
                 <SelectField label={<>Transmission <span style={{ color: C.red }}>*</span></>} value={car.transmission} onChange={e => setField("transmission", e.target.value)}
                   options={car.fuelType === "EV" ? ["Automatic"] : ["Automatic", "Manual"]} error={errors.transmission} />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" value={car.purchase} onChange={e => setField("purchase", e.target.value)} placeholder="e.g., 26000" error={errors.purchase} />
                 <Input label="Purchase Advance (SGD)" type="number" value={car.purchaseAdvance} onChange={e => setField("purchaseAdvance", e.target.value)} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Input label="Insurance (SGD)" type="number" value={car.insurance} onChange={e => setField("insurance", e.target.value)} placeholder="e.g., 1200" error={errors.insurance} />
                 <Input label="Registration (SGD)" type="number" value={car.reg} onChange={e => setField("reg", e.target.value)} placeholder="e.g., 1300" error={errors.reg} />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" error={errors.otherCharges} />
                 <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
               </div>
@@ -355,11 +355,11 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
           {step === 1 && (
             <div>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Enter each validity date — days remaining and status are calculated automatically.</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
                 <ComplianceField label="Insurance Expiry" value={car.insuranceExpiry} onChange={e => setField("insuranceExpiry", e.target.value)} />
                 <ComplianceField label="LTA Transfer Validity" value={car.ltaTransferDate} onChange={e => setField("ltaTransferDate", e.target.value)} />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
                 <ComplianceField label="Road Tax Expiry" value={car.roadTaxExpiry} onChange={e => setField("roadTaxExpiry", e.target.value)} />
                 <ComplianceField label="Inspection Due" value={car.inspectionExpiry} onChange={e => setField("inspectionExpiry", e.target.value)} />
               </div>
@@ -394,7 +394,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
           {step === 3 && options && (
             <div>
               <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Pick the target that fits — each tier targets a different annual return (CAGR) compounded over the car's remaining COE runway; higher-return tiers assume fewer running days per month.</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
                 {options.map(o => {
                   const isBalanced = /balanced/i.test(o.label);
                   const isChosen = chosen?.label === o.label;

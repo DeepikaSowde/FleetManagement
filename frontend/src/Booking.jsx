@@ -1160,9 +1160,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       }}>
         {/* Header */}
         <div style={{ padding: "16px 22px 0", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                 <span style={{ ...mono, fontSize: 15, fontWeight: 700, color: C.navy }}>{booking.id}</span>
                 <StatusTag status={booking.status} />
                 <span style={{
@@ -1172,7 +1172,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               </div>
               <div style={{ fontSize: 12, color: C.textMuted }}>{booking.customer} · {booking.plate}</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Btn onClick={() => onEditBooking?.(booking)}>✏️ Edit</Btn>
               {!booking.cancelled && onExtendBooking && (
                 <Btn onClick={() => onExtendBooking(booking)}>📅 Extend</Btn>
@@ -1247,8 +1247,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Next Action bar — stage tracker + the single relevant action */}
               <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, background: "#fff" }}>
-                {/* Stage tracker */}
-                <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+                {/* Stage tracker — horizontally scrollable on narrow screens so the
+                    5 nowrap stage labels never force the whole page to scroll. */}
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 12, overflowX: "auto", paddingBottom: 2 }}>
                   {STAGES.map((label, i) => (
                     <div key={label} style={{ display: "flex", alignItems: "center", flex: i < STAGES.length - 1 ? 1 : "0 0 auto" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1490,11 +1491,13 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         return (
                         <>
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: C.red, marginBottom: 10 }}>Cancel this booking</div>
-                        {/* 5-column grid, weighted so the longest select option
-                            ("Company (RDK) — deposit refunded") and the Refund
-                            Reference placeholder both fit without clipping. */}
-                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 0.85fr 1fr 1.3fr", gap: 10 }}>
-                          <div>
+                        {/* Flex-wrap layout, weighted via flex-basis so the longest select
+                            option ("Company (RDK) — deposit refunded") and the Refund
+                            Reference placeholder both fit without clipping on desktop —
+                            and, unlike a fixed grid, wraps cleanly onto multiple rows
+                            on narrow/mobile screens instead of squeezing unreadably. */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                          <div style={{ flex: "1.5 1 220px" }}>
                             <div style={detailFieldLabelStyle}>Cancelled by</div>
                             <select value={cancelBy} onChange={(e) => {
                               const v = e.target.value;
@@ -1507,27 +1510,27 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                               <option value="customer">Customer — deposit forfeited</option>
                             </select>
                           </div>
-                          <div>
+                          <div style={{ flex: "1 1 130px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
                             <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
                           </div>
-                          <div>
+                          <div style={{ flex: "0.85 1 110px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>
                             <input type="time" value={cancelTime} onChange={(e) => setCancelTime(e.target.value)} style={detailInputStyle} />
                           </div>
                           {cancelBy === "company" ? (
                             <>
-                              <div>
+                              <div style={{ flex: "1 1 130px" }}>
                                 <div style={detailFieldLabelStyle}>Deposit Refund (SGD)</div>
                                 <input type="number" min="0" max={depositHeld} value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
                               </div>
-                              <div>
+                              <div style={{ flex: "1.3 1 160px" }}>
                                 <div style={detailFieldLabelStyle}>Refund Reference</div>
                                 <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
                               </div>
                             </>
                           ) : (
-                            <div style={{ gridColumn: "1 / -1", fontSize: 11.5, fontWeight: 700, color: C.red, background: "#FDECEC", border: `1px solid ${C.red}33`, borderRadius: 8, padding: "9px 12px" }}>
+                            <div style={{ flex: "1 1 100%", fontSize: 11.5, fontWeight: 700, color: C.red, background: "#FDECEC", border: `1px solid ${C.red}33`, borderRadius: 8, padding: "9px 12px" }}>
                               Security Deposit forfeited: {fmt(depositHeld)} — kept by the company and recorded as income (not refunded).
                             </div>
                           )}
@@ -1900,6 +1903,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8 }}>This releases the car immediately and stops all future rent. Deposit Out is recorded as a refund, not revenue.</div>
                       </div>
                     )}
+                    {/* Horizontally scrollable on narrow screens — the fixed-width
+                        columns (Month/Amount/Status) can't shrink further, so the
+                        table scrolls sideways instead of clipping on mobile. */}
+                    <div style={{ overflowX: "auto" }}>
+                    <div style={{ minWidth: 420 }}>
                     <div style={{ display: "grid", gridTemplateColumns: cols, columnGap: 10, padding: "0 0 6px", borderBottom: `1px solid ${C.border}` }}>
                       {["Month", "Due Date", "Amount", "Status", ""].map((h, i) => (
                         <span key={i} style={{ fontSize: 9.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, textAlign: i === 2 ? "right" : "left" }}>{h}</span>
@@ -1955,6 +1963,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         </div>
                       );
                     })}
+                    </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -1962,7 +1972,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               {/* Top row: Pricing Summary · Payment Summary · Select Collection
                   Type (a single-select toggle that decides which collection
                   section shows below). */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
                 {/* LEFT: agreement Pricing Summary + post-return Additional Charges */}
                 <div>
                   <SectionHeading size="sm">Pricing Summary</SectionHeading>
@@ -2076,7 +2086,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
 
               {/* Selected collection section — summary card + compact record
                   card for the chosen collection type only. */}
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, marginTop: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginTop: 20 }}>
                 {renderCollectionCard(collectionType)}
                 {renderRecordCard(collectionType)}
               </div>
@@ -2141,7 +2151,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               <button type="button" onClick={() => setCollectionModal(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>×</button>
             </div>
             <div style={{ padding: "18px 20px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={detailFieldLabelStyle}>Amount (SGD)</div>
                   <input type="number" min="0" max={inv.balanceDue || undefined} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="0.00" style={detailInputStyle} autoFocus />
@@ -2201,7 +2211,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 </div>
                 <button type="button" onClick={() => setViewCollections(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>×</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${C.border}` }}>
                 {[
                   { label: "Total Agreement", value: inv.grandTotal, color: C.navy },
                   { label: "Total Collected", value: collected, color: C.teal },

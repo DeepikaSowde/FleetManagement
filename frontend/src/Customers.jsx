@@ -428,7 +428,7 @@ const Customers = ({
                 </div>
 
                 {/* Two-column field grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 28px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0 28px" }}>
                   <div>
                     <DetailField label="Email" value={selected.email || "—"} />
                     <DetailField label="Date of Birth" value={fmtDate(selected.dob)} />
@@ -456,7 +456,7 @@ const Customers = ({
                   <span style={{ fontSize: 14, fontWeight: 700, color: selected.stats.pendingAmount > 0 ? C.red : C.navy }}>Payment Summary</span>
                   <button onClick={() => setHistoryFor(selected)} style={{ fontSize: 11, fontWeight: 600, color: C.green, background: C.surface, border: `1px solid ${C.green}`, borderRadius: 6, padding: "4px 12px", cursor: "pointer" }}>View All Bookings</button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px 10px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "16px 10px" }}>
                   <SummaryStat label="Total Bookings" value={`${selected.stats.count}${selected.stats.count >= REPEAT_THRESHOLD ? " · Repeated" : ""}`} valueColor={selected.stats.count >= REPEAT_THRESHOLD ? "#6D5BB3" : undefined} />
                   <SummaryStat label="Pending Bookings" value={selected.stats.pendingBookings} />
                   <SummaryStat
@@ -498,7 +498,7 @@ const Customers = ({
         onSubmit={handleSubmit}
         submitText={mode === "edit" ? "Save Changes" : "Add Customer"}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
           <Input id="customer-ic" label="IC / ID Number *" value={form.ic} onChange={(e) => handleICChange(e.target.value)} placeholder="e.g. S8901234A" error={fieldErrors.ic} />
           <Input id="customer-name" label="Customer Name *" value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setFieldErrors((p) => ({ ...p, name: undefined })); }} placeholder="e.g. Ravi Kumar" error={fieldErrors.name} />
 
@@ -567,7 +567,7 @@ const Customers = ({
           ) : historyBookings.map((b) => {
             const inv = computeBookingInvoice(b);
             return (
-              <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 11.5 }}>
+              <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, rowGap: 4, flexWrap: "wrap", padding: "8px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 11.5 }}>
                 <span style={{ ...mono, color: C.navyMid }}>{b.id}</span>
                 <span style={{ color: C.textSec }}>{b.plate || "—"}</span>
                 <span style={{ color: C.textMuted, whiteSpace: "nowrap" }}>{fmtDate(b.start)} → {fmtDate(b.end)}</span>

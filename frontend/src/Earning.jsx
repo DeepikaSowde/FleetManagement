@@ -453,7 +453,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
               <div style={{ padding: "18px 20px" }}>
                 {/* Booking & Earning Information */}
                 <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Booking &amp; Earning Information</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px 16px", border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg }}>
                   {[
                     ["Booking ID", e.bookingId || "–"],
                     ["Car Plate", e.plate || "–"],
@@ -482,7 +482,10 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                 {/* Payment History */}
                 <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, textTransform: "uppercase", letterSpacing: 0.5, margin: "20px 0 10px" }}>Payment History</div>
                 <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  {/* Horizontally scrollable on narrow screens — the Date & Time
+                      column is nowrap, so it scrolls sideways instead of clipping. */}
+                  <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", minWidth: 460, borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ background: C.bg }}>
                         {["Date & Time", "Amount", "Payment Method", "Reference"].map((h) => (
@@ -512,6 +515,7 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
                       </tfoot>
                     )}
                   </table>
+                  </div>
                 </div>
 
                 {/* Notes (only if present) */}

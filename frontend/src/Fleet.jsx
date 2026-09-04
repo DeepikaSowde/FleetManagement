@@ -186,7 +186,7 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
             <input type="text" value={description} onChange={(e) => setDescription(e.target.value)}
               placeholder="Enter description" style={fieldStyle} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 8 }}>
             <div>
               <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Amount (SGD)</div>
               <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
@@ -353,7 +353,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Vehicle</div>
             {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Make</div>
                   <input type="text" value={editForm.make} onChange={(e) => setEditForm({ ...editForm, make: e.target.value })} style={fieldStyle} />
@@ -402,7 +402,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Compliance & Validity</div>
             {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Insurance Expiry</div>
                   <input type="date" value={editForm.insuranceExpiry} onChange={(e) => setEditForm({ ...editForm, insuranceExpiry: e.target.value })} style={fieldStyle} />
@@ -438,7 +438,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Investment</div>
             {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Purchase (SGD)</div>
                   <input type="number" min="0" value={editForm.purchase} onChange={(e) => setEditForm({ ...editForm, purchase: e.target.value })} style={fieldStyle} />
@@ -476,7 +476,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Target</div>
             {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Target Rate (SGD/day)</div>
                   <input type="number" min="0" value={editForm.targetRate} onChange={(e) => setEditForm({ ...editForm, targetRate: e.target.value })} style={fieldStyle} />
