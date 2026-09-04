@@ -3,7 +3,6 @@ import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions } from "./them
 import { fleetDisplayStatus } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
-import StatTiles from "./StatTiles";
 
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -609,13 +608,36 @@ const getStatusPillFaint = (status) => STATUS_PILL_FAINT[status] || C.tealFaint;
 //   everything else passes through unchanged
 const toFleetPageStatus = (status) => fleetDisplayStatus(status);
 
+// Compact rounded-square icon action button used in the Fleet table rows —
+// same visual language as the Bookings list's row actions.
+const IconBtn = ({ children, title, color, testid, onClick }) => (
+  <button data-testid={testid} title={title} onClick={onClick} style={{
+    width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center",
+    borderRadius: 8, cursor: "pointer", fontSize: 13, lineHeight: 1,
+    background: `${color}14`, border: `1px solid ${color}33`, color,
+  }}>{children}</button>
+);
+
+// Pagination button for the Fleet table footer.
+const FlPageBtn = ({ children, active, disabled, onClick }) => (
+  <button onClick={onClick} disabled={disabled} style={{
+    minWidth: 28, height: 28, padding: "0 8px", borderRadius: 6,
+    border: `1px solid ${active ? C.teal : C.border}`,
+    background: active ? C.teal : C.surface,
+    color: active ? "#fff" : disabled ? C.textMuted : C.textSec,
+    fontSize: 12, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
+  }}>{children}</button>
+);
+
 // ─────────────────────────────────────────────────────────────────────────
 // Fleet — table/filter list + modal details overlay
 // ─────────────────────────────────────────────────────────────────────────
-const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense, customers = [] }) => {
-  const [selected, setSelected] = useState(null);
+const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense }) => {
+  // Which car's details modal is open, keyed by plate (not a row index) so it
+  // stays correct across pagination/filtering/sorting.
+  const [openPlate, setOpenPlate] = useState(null);
   // True when the details modal should open straight into edit mode — set by
-  // the table's "Edit" link, as opposed to "Details →" which opens read-only.
+  // the table's Edit icon, as opposed to the View icon which opens read-only.
   const [editOnOpen, setEditOnOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -624,6 +646,8 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   const [statusPillFilter, setStatusPillFilter] = useState("All");
   const [sortField, setSortField] = useState(null);   // 'plate' | 'purchaseDate' | 'coe'
   const [sortDir, setSortDir] = useState("asc");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // Generate unique plates from fleet (automatically updates when fleet changes)
   const uniquePlates = useMemo(() => {
@@ -689,8 +713,9 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
     return arr;
   }, [filteredFleet, sortField, sortDir]);
 
-  // Get selected car from sorted fleet
-  const car = selected !== null ? sortedFleet[selected] : null;
+  // Car whose details modal is open, resolved by plate against the current
+  // sorted/filtered list (falls back to null if it's since been filtered out).
+  const car = openPlate ? sortedFleet.find(c => c.plate === openPlate) : null;
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -701,6 +726,12 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
     }
   };
 
+  // Pagination — 10 vehicles per page over the filtered + sorted list.
+  const totalPages = Math.max(1, Math.ceil(sortedFleet.length / PAGE_SIZE));
+  const curPage = Math.min(page, totalPages);
+  const pageRows = sortedFleet.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
+  useEffect(() => { setPage(1); }, [searchTerm, selectedPlate, coeFilter, statusPillFilter, sortField, sortDir]);
+
   const handleWizardComplete = (carData) => {
     onAddFleet(carData);
     setWizardOpen(false);
@@ -709,45 +740,80 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   const handleDelete = (plate) => {
     if (window.confirm("Are you sure you want to delete this car? This action cannot be undone.")) {
       onDeleteCar(plate);
-      setSelected(null);
+      setOpenPlate(null);
     }
   };
 
   return (
     <div>
-      {/* Fleet / customer / booking stat tiles */}
-      <div style={{ marginBottom: 16 }}>
-        <StatTiles
-          compact
-          showMaintenance={false}
-          totalVehicles={fleet.length}
-          onRent={fleet.filter((c) => toFleetPageStatus(c.status) === "On Rental").length}
-          available={fleet.filter((c) => toFleetPageStatus(c.status) === "Available").length}
-          maintenance={fleet.filter((c) => toFleetPageStatus(c.status) === "Maintenance").length}
-          totalCustomers={customers.length}
-          totalBookings={bookings.length}
-          links={{
-            "Total Vehicles": { text: "View All Vehicles", onClick: () => setStatusPillFilter("All") },
-            "Available": { text: "View Available", onClick: () => setStatusPillFilter("Available") },
-            "On Rent": { text: "View On Rental", onClick: () => setStatusPillFilter("On Rental") },
-            "Under Maintenance": { text: "View Maintenance", onClick: () => setStatusPillFilter("Maintenance") },
-          }}
-        />
+      {/* Page header — icon + title + subtitle, with the primary action on the right */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>🚗</div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: C.navy, lineHeight: 1.1 }}>Fleet</div>
+            <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 2 }}>Manage your vehicles, investment, and registration status</div>
+          </div>
+        </div>
+        <Btn primary id="fleet-add-car" onClick={() => setWizardOpen(true)}>＋ Add New Car</Btn>
       </div>
 
-      {/* Add New Car button (page title is shown by the app top bar) */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 11, color: C.textMuted }}>Click a row to view details</div>
-        <Btn primary id="fleet-add-car" onClick={() => setWizardOpen(true)}>+ Add New Car</Btn>
+      {/* Add Car Wizard Modal */}
+      {wizardOpen && (
+        <AddCarWizard onComplete={handleWizardComplete} onClose={() => setWizardOpen(false)} fleet={fleet} />
+      )}
+
+      {/* Toolbar — search + plate filter + registration filter, same compact
+          style as the Bookings page toolbar. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textMuted, fontSize: 13, pointerEvents: "none" }}>🔍</span>
+          <input
+            id="fleet-search"
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by plate, make, model, year, colour, or status…"
+            style={{ width: "100%", padding: "9px 12px 9px 34px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, color: C.textPri, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+          />
+        </div>
+        <select
+          id="fleet-filter-plate"
+          value={selectedPlate}
+          onChange={(e) => setSelectedPlate(e.target.value)}
+          style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}
+        >
+          <option value="All Plates">All Plates ({fleet.length})</option>
+          {uniquePlates.map((plate) => <option key={plate} value={plate}>{plate}</option>)}
+        </select>
+        <select
+          id="fleet-filter-status"
+          value={coeFilter}
+          onChange={(e) => setCoeFilter(e.target.value)}
+          style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}
+        >
+          <option value="All Registration">Registration: All</option>
+          <option value="Active">Active</option>
+          <option value="Expiring in 180 Days">Expiring in 180 Days</option>
+          <option value="Expiring in 90 Days">Expiring in 90 Days</option>
+          <option value="Expiring in 30 Days">Expiring in 30 Days</option>
+          <option value="Expired">Expired</option>
+        </select>
+        {(searchTerm || selectedPlate !== "All Plates" || coeFilter !== "All Registration") && (
+          <button id="fleet-clear-filters" onClick={() => { setSearchTerm(""); setSelectedPlate("All Plates"); setCoeFilter("All Registration"); }}
+            style={{ padding: "9px 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.textSec, cursor: "pointer", fontFamily: "inherit" }}>
+            Clear filters
+          </button>
+        )}
       </div>
 
-      {/* Status filter pills — click a status to show only that status, click All to reset */}
+      {/* Status filter tabs — click a status to show only that status, click All to reset */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
         {[["All", fleet.length], ...statusPillOptions.map(s => [s, statusCounts[s]])].map(([label, count]) => {
           const isActive = statusPillFilter === label;
           const dotColor = label === "All" ? C.navy : getStatusPillColor(label);
           return (
-            <button key={label} onClick={() => setStatusPillFilter(label)} style={{
+            <button key={label} data-testid="fleet-status-filter" data-filter={label} onClick={() => setStatusPillFilter(label)} style={{
               display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 999,
               border: `1.5px solid ${isActive ? dotColor : C.border}`,
               background: isActive ? `${dotColor}14` : C.surface,
@@ -767,145 +833,28 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
         })}
       </div>
 
-      {/* Add Car Wizard Modal */}
-      {wizardOpen && (
-        <AddCarWizard onComplete={handleWizardComplete} onClose={() => setWizardOpen(false)} fleet={fleet} />
-      )}
-
-      {/* Filter and Search Section */}
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ padding: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
-            {/* Search Box */}
-            <div>
-              <label style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, display: "block", marginBottom: 6 }}>
-                Search Vehicles
-              </label>
-              <input
-                id="fleet-search"
-                type="text"
-                placeholder="Search by plate, make, model, year, colour, or status..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${C.border}`,
-                  fontSize: 13,
-                  fontFamily: "inherit",
-                  outline: "none",
-                  boxSizing: "border-box",
-                  transition: "border-color 0.2s",
-                }}
-                onFocus={(e) => e.target.style.borderColor = C.teal}
-                onBlur={(e) => e.target.style.borderColor = C.border}
-              />
-            </div>
-
-            {/* Plate Filter */}
-            <div>
-              <label style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, display: "block", marginBottom: 6 }}>
-                Filter by Plate
-              </label>
-              <select
-                id="fleet-filter-plate"
-                value={selectedPlate}
-                onChange={(e) => setSelectedPlate(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${C.border}`,
-                  fontSize: 13,
-                  fontFamily: "inherit",
-                  background: C.surface,
-                  cursor: "pointer",
-                  outline: "none",
-                  color: C.textPri,
-                }}
-              >
-                <option value="All Plates">All Plates ({fleet.length})</option>
-                {uniquePlates.map((plate) => (
-                  <option key={plate} value={plate}>
-                    {plate}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Registration Expiry Filter */}
-            <div>
-              <label style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, display: "block", marginBottom: 6 }}>
-                Filter by  Status
-              </label>
-              <select
-                id="fleet-filter-status"
-                value={coeFilter}
-                onChange={(e) => setCoeFilter(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${C.border}`,
-                  fontSize: 13,
-                  fontFamily: "inherit",
-                  background: C.surface,
-                  cursor: "pointer",
-                  outline: "none",
-                  color: C.textPri,
-                }}
-              >
-                <option value="All Registration">All </option>
-                <option value="Active">Active</option>
-                <option value="Expiring in 180 Days">Expiring in 180 Days</option>
-                <option value="Expiring in 90 Days">Expiring in 90 Days</option>
-                <option value="Expiring in 30 Days">Expiring in 30 Days</option>
-                <option value="Expired">Expired</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Filter Status */}
-          {(searchTerm || selectedPlate !== "All Plates" || coeFilter !== "All Registration") && (
-            <div style={{ marginTop: 12, padding: 10, background: C.bg, borderRadius: 6, fontSize: 12, color: C.textMuted, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-              <div>
-                Showing <span style={{ fontWeight: 700, color: C.navy }}>{filteredFleet.length}</span> of{" "}
-                <span style={{ fontWeight: 700, color: C.navy }}>{fleet.length}</span> vehicles
-                {searchTerm && <span> • Search: "{searchTerm}"</span>}
-                {selectedPlate !== "All Plates" && <span> • Plate: {selectedPlate}</span>}
-                {coeFilter !== "All Registration" && <span> • Registration: {coeFilter}</span>}
-              </div>
-              <Btn small id="fleet-clear-filters" onClick={() => { setSearchTerm(""); setSelectedPlate("All Plates"); setCoeFilter("All Registration"); }} style={{ flexShrink: 0 }}>
-                Clear All
-              </Btn>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {/* Fleet Table */}
+      {/* Fleet Table — full-width, compact rows, same shell as the Bookings list */}
       <Card>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", minWidth: 780, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bg }}>
               {[
                 { label: "Plate", field: "plate" },
-                { label: "Make / Model", field: null },
-                { label: "Year", field: null },
-                { label: "Colour", field: null },
-                { label: "Investment (SGD)", field: null },
+                { label: "Vehicle", field: null },
+                { label: "Investment", field: null },
                 { label: "Purchase Date", field: "purchaseDate" },
                 { label: "Reg. Expiry", field: "coe" },
                 { label: "Status", field: null },
-                { label: "", field: null },
+                { label: "Actions", field: null },
               ].map(({ label, field }) => {
                 const isActive = field && sortField === field;
+                const centered = label === "Actions";
                 return (
-                  <th key={label || "actions"}
+                  <th key={label}
                     onClick={field ? () => handleSort(field) : undefined}
                     style={{
-                      textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600,
+                      textAlign: centered ? "center" : "left", padding: "11px 14px", fontSize: 10, fontWeight: 700,
                       color: isActive ? C.navy : C.textMuted, textTransform: "uppercase", letterSpacing: 0.5,
                       borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap",
                       cursor: field ? "pointer" : "default", userSelect: "none",
@@ -922,42 +871,37 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
             </tr>
           </thead>
           <tbody>
-            {sortedFleet.map((c, i) => {
+            {pageRows.map((c) => {
               const inv = totalInv(c);
               const d = daysUntil(c.coe);
               return (
-                <tr key={c.plate} data-testid="fleet-row" data-plate={c.plate} onClick={() => { setEditOnOpen(false); setSelected(i); }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                <tr key={c.plate} data-testid="fleet-row" data-plate={c.plate}
+                  onClick={() => { setEditOnOpen(false); setOpenPlate(c.plate); }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = C.bg; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: "transparent", transition: "background 0.12s" }}>
-                  <td style={{ padding: "11px 12px" }}><PlateBadge plate={c.plate} /></td>
-                  <td style={{ padding: "11px 12px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{c.make}</div>
-                    <div style={{ fontSize: 10, color: C.textMuted }}>{c.model}</div>
+                  <td style={{ padding: "12px 14px", borderLeft: `3px solid ${C.green}`, whiteSpace: "nowrap" }}>
+                    <PlateBadge plate={c.plate} small />
                   </td>
-                  <td style={{ padding: "11px 12px", fontSize: 12 }}>{c.year}</td>
-                  <td style={{ padding: "11px 12px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: { Silver: "#C0C0C0", White: "#F5F5F5", Blue: "#4472C4", Black: "#222", Red: "#D64045", Grey: "#888" }[c.color] || "#aaa", border: `1px solid ${C.border}` }} />
-                      <span style={{ fontSize: 12 }}>{c.color}</span>
+                  <td style={{ padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: { Silver: "#C0C0C0", White: "#F5F5F5", Blue: "#4472C4", Black: "#222", Red: "#D64045", Grey: "#888" }[c.color] || "#aaa", border: `1px solid ${C.border}` }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, whiteSpace: "nowrap" }}>{c.make} {c.model}</div>
+                        <div style={{ fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{c.year} · {c.color}</div>
+                      </div>
                     </div>
                   </td>
-                  <td style={{ padding: "11px 12px", ...mono, fontSize: 11 }}>{fmt(inv)}</td>
-                  <td style={{ padding: "11px 12px", fontSize: 11, color: C.textSec }}>{c.purchaseDate || "—"}</td>
-                  <td style={{ padding: "11px 12px", fontSize: 11, color: d < 30 ? C.red : d < 90 ? C.amber : C.textMuted, fontWeight: d < 90 ? 700 : 400 }}>
-                    {c.coe} {d < 30 ? "⚠" : d < 90 ? "⚡" : ""}
+                  <td style={{ padding: "12px 14px", ...mono, fontSize: 12, fontWeight: 700, color: C.navy, whiteSpace: "nowrap" }}>{fmt(inv)}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{c.purchaseDate || "—"}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 11, whiteSpace: "nowrap", color: d < 30 ? C.red : d < 90 ? C.amber : C.textMuted, fontWeight: d < 90 ? 700 : 400 }}>
+                    {c.coe || "—"} {d < 30 ? "⚠" : d < 90 ? "⚡" : ""}
                   </td>
-                  <td style={{ padding: "11px 12px" }}><StatusTag status={toFleetPageStatus(c.status)} /></td>
-                  <td style={{ padding: "11px 12px" }} onClick={(e) => e.stopPropagation()}>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <span data-testid="fleet-row-details" onClick={() => { setEditOnOpen(false); setSelected(i); }}
-                        style={{ fontSize: 11, color: C.teal, fontWeight: 600, cursor: "pointer" }}>
-                        Details →
-                      </span>
-                      <span data-testid="fleet-row-edit" onClick={() => { setEditOnOpen(true); setSelected(i); }}
-                        style={{ fontSize: 11, color: C.navy, fontWeight: 600, cursor: "pointer" }}>
-                        Edit
-                      </span>
+                  <td style={{ padding: "12px 14px" }}><StatusTag status={toFleetPageStatus(c.status)} /></td>
+                  <td style={{ padding: "9px 14px" }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <IconBtn testid="fleet-row-details" title="View details" color={C.green} onClick={() => { setEditOnOpen(false); setOpenPlate(c.plate); }}>👁</IconBtn>
+                      <IconBtn testid="fleet-row-edit" title="Edit vehicle" color={C.green} onClick={() => { setEditOnOpen(true); setOpenPlate(c.plate); }}>✏️</IconBtn>
                     </div>
                   </td>
                 </tr>
@@ -965,9 +909,27 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
             })}
           </tbody>
         </table>
+        </div>
+
         {sortedFleet.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>
             {fleet.length === 0 ? "No cars registered yet" : "No vehicles match your filters"}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {sortedFleet.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderTop: `1px solid ${C.border}`, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 11, color: C.textMuted }}>
+              Showing {(curPage - 1) * PAGE_SIZE + 1} to {Math.min(curPage * PAGE_SIZE, sortedFleet.length)} of {sortedFleet.length} vehicles
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <FlPageBtn disabled={curPage === 1} onClick={() => setPage(curPage - 1)}>‹</FlPageBtn>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <FlPageBtn key={p} active={p === curPage} onClick={() => setPage(p)}>{p}</FlPageBtn>
+              ))}
+              <FlPageBtn disabled={curPage === totalPages} onClick={() => setPage(curPage + 1)}>›</FlPageBtn>
+            </div>
           </div>
         )}
       </Card>
@@ -981,7 +943,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
           onAddExpense={onAddExpense}
           onUpdateCar={onUpdateCar}
           onDelete={() => handleDelete(car.plate)}
-          onClose={() => { setSelected(null); setEditOnOpen(false); }}
+          onClose={() => { setOpenPlate(null); setEditOnOpen(false); }}
           startEditing={editOnOpen}
         />
       )}
