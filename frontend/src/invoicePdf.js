@@ -171,9 +171,14 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.4, text: "Vehicle Registration Number", bold: true },
     { w: contentWidth * 0.6, text: booking.plate || "—" },
   ]);
+  // Brand and Model together, joined with "&" (e.g. "Toyota & Vios") — not a
+  // space, and not split into separate fields. Falls back to whichever one is
+  // present if the other is missing, so a partial record never prints a
+  // dangling "&".
+  const brandModel = [car?.make, car?.model].filter(Boolean).join(" & ") || "—";
   y = cellRow(y, [
     { w: contentWidth * 0.4, text: "Vehicle Brand & Model", bold: true },
-    { w: contentWidth * 0.6, text: `${car?.make || ""} ${car?.model || ""}`.trim() || "—" },
+    { w: contentWidth * 0.6, text: brandModel },
   ]);
   const startMileage = booking.startingMileage;
   const returnMileage = booking.mileageIn;
@@ -198,15 +203,15 @@ export const generateInvoicePdf = (booking, car, inv) => {
   // --- Rental Schedule ---
   y = sectionHeader(y, "Rental Schedule");
   y += 1;
-  // The invoice ALWAYS shows the original Pick-up date/time from the initial
-  // booking — it must never change when the booking is edited or extended.
-  // originalPickupDate/Time are frozen at creation; older bookings without them
-  // fall back to the current pickupDate/pickupTime, and finally to the date/time
-  // parts of `start` (booking.start = "YYYY-MM-DDTHH:MM") so the Pick-up Time is
-  // always shown even when the separate pickupTime field wasn't stored.
+  // Pick-up Date & Time reflect the ACTUAL Vehicle Handover (booking.handoverAt,
+  // saved when the car is handed over) — not the originally scheduled pickup —
+  // same rule the Rental Agreement PDF already uses. Falls back to the frozen
+  // original pickup / current pickup / start date-time for a booking that
+  // hasn't been handed over yet, so the invoice never shows a blank Pick-up.
   const [startDatePart, startTimePart] = (booking.start || "").split("T");
-  const pickupDateEffective = booking.originalPickupDate || booking.pickupDate || startDatePart || "";
-  const pickupTimeEffective = booking.originalPickupTime || booking.pickupTime || (startTimePart ? startTimePart.slice(0, 5) : "");
+  const [handoverDatePart, handoverTimePart] = booking.handoverAt ? booking.handoverAt.split("T") : [null, null];
+  const pickupDateEffective = handoverDatePart || booking.originalPickupDate || booking.pickupDate || startDatePart || "";
+  const pickupTimeEffective = (handoverTimePart ? handoverTimePart.slice(0, 5) : null) || booking.originalPickupTime || booking.pickupTime || (startTimePart ? startTimePart.slice(0, 5) : "");
 
   // Once the vehicle has actually been returned, actualReturnAt ("YYYY-MM-DDTHH:MM")
   // reflects the real return date/time — possibly edited for an early or late
