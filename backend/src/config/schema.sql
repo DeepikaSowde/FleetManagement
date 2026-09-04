@@ -201,6 +201,27 @@ INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_
   ('Staff','Alerts',   true,false,false,false)
 ON CONFLICT (role, module) DO NOTHING;
 
+-- The Role & Permission matrix's module list was extended to mirror the full
+-- operations sidebar (Car Availability, Customers, Today's Operations,
+-- Ledger, Cash Flow, Deposit Refunds — Investors is seeded separately below).
+-- Admin gets full access to each by default, matching every other Admin row
+-- above; Staff gets the same view-only-on-operational/false-on-finance shape
+-- already used for Earnings/P&L. Safe to re-run — existing edits preserved.
+INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_delete) VALUES
+  ('Admin','Car Availability',   true,true,true,true),
+  ('Admin','Customers',          true,true,true,true),
+  ('Admin','Today''s Operations',true,true,true,true),
+  ('Admin','Ledger',             true,true,true,true),
+  ('Admin','Cash Flow',          true,true,true,true),
+  ('Admin','Deposit Refunds',    true,true,true,true),
+  ('Staff','Car Availability',   true,false,false,false),
+  ('Staff','Customers',          true,true,true,false),
+  ('Staff','Today''s Operations',true,true,true,false),
+  ('Staff','Ledger',             false,false,false,false),
+  ('Staff','Cash Flow',          false,false,false,false),
+  ('Staff','Deposit Refunds',    false,false,false,false)
+ON CONFLICT (role, module) DO NOTHING;
+
 -- Audit trail — one row per recorded action (user CRUD, permission changes,
 -- logins). Newest-first when listed.
 CREATE TABLE IF NOT EXISTS audit_logs (

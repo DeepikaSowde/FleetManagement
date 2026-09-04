@@ -11,9 +11,14 @@ const ROLE_META = [
   { id: "Staff", name: "Staff", desc: "Daily rental operations", icon: "🧑" },
 ];
 
-// Canonical module list — mirrors FleetOpzApp's real NAV items. Single
-// source of truth for the role permission matrix.
-const PERMISSION_MODULE_NAMES = ["Dashboard", "Fleet", "Bookings", "Earnings", "Expenses", "P&L", "Alerts"];
+// Canonical module list for the Role & Permission matrix — every OPERATIONS
+// and FINANCE sidebar item (User Management and Settings are deliberately
+// excluded: they're the pages that manage permissions themselves, not
+// something a role should be toggled on/off for).
+const PERMISSION_MODULE_NAMES = [
+  "Dashboard", "Fleet", "Car Availability", "Bookings", "Customers", "Today's Operations",
+  "Ledger", "Investors", "Earnings", "Expenses", "P&L", "Cash Flow", "Deposit Refunds",
+];
 const PERMISSION_ACTIONS = ["view", "create", "edit", "delete"];
 
 const emptyPermissions = () =>
@@ -109,22 +114,20 @@ const ToggleSwitch = ({ checked, onChange, disabled }) => (
   </button>
 );
 
-// Image-1 style bottom stat card: icon in a soft circle, title + subtitle,
-// one big number, and a "View all" link — used for the Users / Role &
-// Permission / Audit Logs summary cards under the Users tab.
-const StatCard = ({ icon, iconBg, iconColor, title, subtitle, value, valueLabel, linkText, onLinkClick }) => (
+// Compact KPI card: icon + big number share one row, then a bold label, a
+// muted description line, and a "View all" link underneath — shorter overall
+// than a stacked icon/title/subtitle header, so the 3-card row (plus tabs and
+// the permission table below) fit with minimal page scrolling.
+const StatCard = ({ icon, iconBg, iconColor, value, label, description, linkText, onLinkClick }) => (
   <Card>
-    <div style={{ padding: 20 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <div style={{ width: 44, height: 44, borderRadius: 12, background: iconBg, color: iconColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, flexShrink: 0 }}>{icon}</div>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{title}</div>
-          <div style={{ fontSize: 11, color: C.textMuted }}>{subtitle}</div>
-        </div>
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: iconBg, color: iconColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>{icon}</div>
+        <div style={{ fontSize: 26, fontWeight: 700, color: C.navy, letterSpacing: -0.5 }}>{value}</div>
       </div>
-      <div style={{ fontSize: 30, fontWeight: 700, color: C.navy, letterSpacing: -0.5, marginBottom: 2 }}>{value}</div>
-      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 14 }}>{valueLabel}</div>
-      <div onClick={onLinkClick} style={{ fontSize: 12.5, fontWeight: 700, color: C.teal, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>{linkText} →</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>{description}</div>
+      <div onClick={onLinkClick} style={{ fontSize: 12, fontWeight: 700, color: C.teal, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>{linkText} →</div>
     </div>
   </Card>
 );
@@ -265,26 +268,23 @@ const UserManagement = ({
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 4 }}>User Management</div>
-      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 18 }}>Manage system users, role permissions and audit logs</div>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 16 }}>Manage team roles, permissions and view system audit logs</div>
 
-      {/* Image-1 style summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18, marginBottom: 20 }}>
+      {/* Compact summary cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 18 }}>
         <StatCard
           icon="👥" iconBg={C.tealFaint} iconColor={C.teal}
-          title="Users" subtitle="Manage system users"
-          value={users.length} valueLabel="Total Users"
+          value={users.length} label="Total Users" description="Manage system users"
           linkText="View all users" onLinkClick={() => setTab("users")}
         />
         <StatCard
           icon="🛡️" iconBg="#efeafb" iconColor="#6d5bd0"
-          title="Role & Permission" subtitle="Manage roles and permissions"
-          value={totalPermissionsGranted} valueLabel="Total Permissions Granted"
+          value={totalPermissionsGranted} label="Total Permissions" description="Permissions granted across all roles"
           linkText="Manage role & permissions" onLinkClick={() => setTab("permissions")}
         />
         <StatCard
           icon="📄" iconBg="#EEF2FF" iconColor="#4F46E5"
-          title="Audit Logs" subtitle="View system activity logs"
-          value={auditLogs.length} valueLabel="Recent Activity Entries"
+          value={auditLogs.length} label="Recent Activity Logs" description="View system activity logs"
           linkText="View all logs" onLinkClick={() => setTab("logs")}
         />
       </div>
@@ -365,7 +365,7 @@ const UserManagement = ({
                       border: `1px solid ${active ? C.teal : "transparent"}`,
                     }}
                   >
-                    <div style={{ width: 36, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0, background: r.id === "Admin" ? "#efeafb" : "#eaf1ff", color: r.id === "Admin" ? "#6d5bd0" : "#2563eb" }}>{r.icon}</div>
+                    <div style={{ width: 36, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0, background: r.id === "Admin" ? C.amberFaint : "#efeafb", color: r.id === "Admin" ? C.amber : "#6d5bd0" }}>{r.icon}</div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{r.name}</div>
                       <div style={{ fontSize: 11, color: C.textMuted }}>{roleCounts[r.id] || 0} user{roleCounts[r.id] === 1 ? "" : "s"}</div>
@@ -373,6 +373,20 @@ const UserManagement = ({
                   </div>
                 );
               })}
+              {/* Admin and Staff cover every permission this app enforces — a
+                  third custom role isn't wired up yet, so this stays a clear,
+                  honest "not yet" rather than pretending to create one. */}
+              <button
+                type="button"
+                onClick={() => alert("Custom roles aren't supported yet — Admin and Staff cover all current permissions.")}
+                style={{
+                  width: "100%", marginTop: 4, padding: "10px 12px", borderRadius: 10,
+                  border: `1.5px dashed ${C.teal}`, background: "transparent", color: C.teal,
+                  fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                ＋ Add New Role
+              </button>
             </div>
           </Card>
 
@@ -381,21 +395,21 @@ const UserManagement = ({
               title={`${selectedRole} Permissions`}
               subtitle={ROLE_META.find(r => r.id === selectedRole)?.desc || "Toggle what this role can access"}
             />
-            <div style={{ padding: 18 }}>
+            <div style={{ padding: "10px 18px 14px" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     {["Module", "View", "Create", "Edit", "Delete"].map((h, i) => (
-                      <th key={h} style={{ textAlign: i === 0 ? "left" : "center", fontSize: 10, color: C.textMuted, textTransform: "uppercase", fontWeight: 700, padding: "8px 10px", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                      <th key={h} style={{ textAlign: i === 0 ? "left" : "center", fontSize: 10, color: C.textMuted, textTransform: "uppercase", fontWeight: 700, padding: "7px 10px", borderBottom: `1px solid ${C.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {PERMISSION_MODULE_NAMES.map((m, idx) => (
                     <tr key={m} style={{ borderTop: idx === 0 ? "none" : `1px solid ${C.border}` }}>
-                      <td style={{ padding: "12px 10px", fontSize: 13, fontWeight: 600, color: C.navy }}>{m}</td>
+                      <td style={{ padding: "8px 10px", fontSize: 12.5, fontWeight: 600, color: C.navy }}>{m}</td>
                       {PERMISSION_ACTIONS.map(action => (
-                        <td key={action} style={{ padding: "12px 10px", textAlign: "center" }}>
+                        <td key={action} style={{ padding: "8px 10px", textAlign: "center" }}>
                           <ToggleSwitch
                             checked={!!rolePermissions[selectedRole]?.[m]?.[action]}
                             onChange={() => onToggleRolePermission(selectedRole, m, action)}
