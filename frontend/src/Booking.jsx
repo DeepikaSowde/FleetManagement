@@ -324,7 +324,8 @@ const TimelineModal = ({ car, bookings, onClose }) => {
         @keyframes bookingModalFade { from { opacity: 0; } to { opacity: 1; } }
         @keyframes bookingModalPop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
       `}</style>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.22)", zIndex: 60, animation: "bookingModalFade 0.15s ease" }} />
+      {/* Backdrop click no longer closes the modal — close only via ✕. */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.22)", zIndex: 60, animation: "bookingModalFade 0.15s ease" }} />
       <div style={{
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
         width: "100%", maxWidth: 520, margin: "0 14px", maxHeight: "85vh",
@@ -1147,7 +1148,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         @keyframes bookingDetailFade { from { opacity: 0; } to { opacity: 1; } }
         @keyframes bookingDetailPop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.97); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
       `}</style>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.35)", zIndex: 200, animation: "bookingDetailFade 0.15s ease" }} />
+      {/* Backdrop click no longer closes the detail modal — close only via ✕. */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.35)", zIndex: 200, animation: "bookingDetailFade 0.15s ease" }} />
       <div style={{
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
         width: "94vw", maxWidth: 900, height: "90vh", maxHeight: 900,
@@ -2093,7 +2095,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         const isPartial = validNum && amount < inv.depositPaid;
         return (
           <>
-            <div onClick={() => setShowRefund(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+            {/* Backdrop click no longer closes the refund modal — close only via Cancel. */}
+            <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
             <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(440px, 92vw)", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" }}>
               <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Return Security Deposit</div>
@@ -2128,7 +2131,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           Transaction ID, Current Balance Due, Cancel + Record Collection. */}
       {collectionModal && (
         <>
-          <div onClick={() => setCollectionModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+          {/* Backdrop click no longer closes the collection modal — close only via ✕ / Cancel. */}
+          <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
           <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(460px, 92vw)", maxHeight: "90vh", overflowY: "auto", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>
@@ -2188,7 +2192,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         const cell = { fontSize: 11.5, color: C.textSec, padding: "8px 0" };
         return (
           <>
-            <div onClick={() => setViewCollections(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+            {/* Backdrop click no longer closes the modal — close only via ✕. */}
+            <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
             <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(640px, 94vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>

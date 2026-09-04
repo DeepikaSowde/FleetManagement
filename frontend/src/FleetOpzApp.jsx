@@ -1882,7 +1882,9 @@ export default function FleetOpzApp() {
             @keyframes bookingWizardFade { from { opacity: 0; } to { opacity: 1; } }
             @keyframes bookingWizardPop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.97); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
           `}</style>
-          <div onClick={closeNewBookingModal} style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.35)", zIndex: 200, animation: "bookingWizardFade 0.15s ease" }} />
+          {/* Backdrop click no longer closes the wizard — close only via ✕ — so an
+              accidental outside click never discards a half-entered booking. */}
+          <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.35)", zIndex: 200, animation: "bookingWizardFade 0.15s ease" }} />
           <div style={{
             position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
             width: "94vw", maxWidth: 820, height: "90vh", maxHeight: 880,

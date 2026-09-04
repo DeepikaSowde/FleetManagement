@@ -157,7 +157,8 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
         @keyframes fleetModalPop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
       `}</style>
       {/* Light backdrop — keeps the Fleet Details page visible behind the modal */}
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.22)", zIndex: 60, animation: "fleetModalFade 0.15s ease" }} />
+      {/* Backdrop click no longer closes the modal — close only via ✕. */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.22)", zIndex: 60, animation: "fleetModalFade 0.15s ease" }} />
       <div style={{
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
         width: "100%", maxWidth: 380, margin: "0 14px", maxHeight: "85vh",
@@ -312,7 +313,8 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
         @keyframes detailsSlide { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
       {/* Backdrop */}
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.3)", zIndex: 40, animation: "detailsFade 0.15s ease" }} />
+      {/* Backdrop click no longer closes the details panel — close only via ✕. */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.3)", zIndex: 40, animation: "detailsFade 0.15s ease" }} />
       
       {/* Modal */}
       <div style={{

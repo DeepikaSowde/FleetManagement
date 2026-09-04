@@ -438,7 +438,6 @@ const Earning = ({ earnings = [], fleet = [], bookings = [], onAddEarning, onUpd
         const e = r.e;
         return (
           <div
-            onClick={() => setSelected(null)}
             style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(21,40,43,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
           >
             <div
