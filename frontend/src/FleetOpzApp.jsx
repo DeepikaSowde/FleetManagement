@@ -1149,6 +1149,15 @@ export default function FleetOpzApp() {
     { id: "settings", label: "Settings", icon: SettingsIcon },
   ];
 
+  // Today's Operations "Assigned To" dropdown is populated from active Staff
+  // accounts in User Management — not the separate (unused) employees table —
+  // so creating a Staff user makes them assignable immediately, Admins never
+  // appear, and a user disappears the moment they're deactivated or deleted
+  // (both just filter them out of fleetData.users, which this recomputes from).
+  const activeStaffAssignees = fleetData.users
+    .filter(u => u.role === "Staff" && u.status === "Active")
+    .map(u => ({ id: u.id, name: u.name }));
+
   const TAB_CONTENT = {
     dashboard: (
       <Dashboard
@@ -1222,7 +1231,7 @@ export default function FleetOpzApp() {
       <TodayOperations
         bookings={fleetData.bookings}
         fleet={fleetData.fleet}
-        employees={fleetData.employees}
+        employees={activeStaffAssignees}
         onUpdateBooking={fleetData.updateBooking}
         onAddExpense={fleetData.addExpense}
         onNewBooking={openNewBookingModal}
