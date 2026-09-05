@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import { computeBookingInvoice } from "./useFleetData";
 import { INVOICE_LOGO_DATA_URI, INVOICE_LOGO_ASPECT } from "./invoiceLogo";
+import { appendTermsAndConditionsPages } from "./rentalTermsPdf";
 
 // ---------- formatting helpers ----------
 const fmtDate = (v) => {
@@ -344,6 +345,10 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
     doc.setTextColor(140);
     doc.text(`Generated for booking ${booking.id || ""} — ${companyName}`, margin, pageHeight - 10);
   }
+
+  // Pages 2-4: the signed Vehicle Rental Agreement's Terms & Conditions —
+  // fixed legal boilerplate, appended after this Page 1.
+  appendTermsAndConditionsPages(doc, { pageWidth, pageHeight, margin });
 
   doc.save(`Rental-Agreement-${car?.plate || booking.plate || "vehicle"}-${booking.id || Date.now()}.pdf`);
   return doc;
