@@ -23,7 +23,7 @@ function toUiUser(u, req) {
   return {
     id: u.id,
     name: u.name,
-    email: u.email || u.username || "",
+    username: u.username || "",
     role: toUiRole(u.role),
     status: u.status || "Active",
     lastLogin: fmtLastLogin(u.last_login),
@@ -40,18 +40,18 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, email, role, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "name, email and password are required" });
+    const { name, username: rawUsername, role, password } = req.body;
+    const username = String(rawUsername || "").trim();
+    if (!name || !username || !password) {
+      return res.status(400).json({ message: "name, username and password are required" });
     }
-    // Managed users log in with their email as the username handle.
-    const username = String(email).trim();
+    // The username IS the login handle, and it has to be unique across users.
     if (await User.findByUsername(username)) {
-      return res.status(409).json({ message: "A user with this email already exists" });
+      return res.status(409).json({ message: "This username is already taken" });
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const created = await User.createUser({
-      name, username, email: username, passwordHash, role: toDbRole(role), status: "Active",
+      name, username, passwordHash, role: toDbRole(role), status: "Active",
     });
     audit.record(req, { module: "User Management", action: "Added", description: `Added ${toUiRole(created.role)} user - ${name}` });
     res.status(201).json(toUiUser(created, req));
@@ -61,10 +61,19 @@ async function create(req, res, next) {
 async function update(req, res, next) {
   try {
     const id = Number(req.params.id);
-    const { name, email, role, status, password } = req.body;
+    const { name, username, role, status, password } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
-    if (email !== undefined) updates.email = String(email).trim();
+    if (username !== undefined) {
+      const handle = String(username).trim();
+      if (!handle) return res.status(400).json({ message: "username cannot be empty" });
+      // Renaming is fine as long as the handle isn't already on another user.
+      const clash = await User.findByUsername(handle);
+      if (clash && clash.id !== id) {
+        return res.status(409).json({ message: "This username is already taken" });
+      }
+      updates.username = handle;
+    }
     if (role !== undefined) updates.role = toDbRole(role);
     if (status !== undefined) updates.status = status;
     if (password) updates.passwordHash = await bcrypt.hash(password, 10);

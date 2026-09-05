@@ -37,7 +37,7 @@ async function listUsers() {
 // changed. `password` (already hashed by the controller) maps to the password
 // column. Returns the updated safe row, or null if the id doesn't exist.
 async function updateUser(id, updates) {
-  const map = { name: "name", email: "email", role: "role", status: "status", passwordHash: "password" };
+  const map = { name: "name", username: "username", email: "email", role: "role", status: "status", passwordHash: "password" };
   const sets = [];
   const vals = [];
   let i = 1;

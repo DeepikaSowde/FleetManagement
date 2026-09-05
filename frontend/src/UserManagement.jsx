@@ -132,7 +132,7 @@ const StatCard = ({ icon, iconBg, iconColor, value, label, description, linkText
   </Card>
 );
 
-const EMPTY_USER_DRAFT = () => ({ name: "", email: "", role: "Staff", password: "" });
+const EMPTY_USER_DRAFT = () => ({ name: "", username: "", role: "Staff", password: "" });
 
 // ── MAIN MODULE ──────────────────────────────────────────────────────────────
 const UserManagement = ({
@@ -175,7 +175,7 @@ const UserManagement = ({
   const openEditUser = (u) => {
     setDraft({
       name: u.name || "",
-      email: u.email || "",
+      username: u.username || "",
       role: u.role || "Staff",
       password: "",
     });
@@ -185,8 +185,16 @@ const UserManagement = ({
   const closeUserModal = () => { setShowUserModal(false); setEditingId(null); setDraft(EMPTY_USER_DRAFT()); };
 
   const submitUserModal = () => {
-    if (!draft.name.trim() || !draft.email.trim()) {
-      alert("Please enter a name and email.");
+    const username = draft.username.trim();
+    if (!draft.name.trim() || !username) {
+      alert("Please enter a name and username.");
+      return;
+    }
+    // The username is the login handle, so it has to be unique. Checked here
+    // for an instant, friendly message; the DB's UNIQUE constraint (and the
+    // API's 409) stay the real backstop.
+    if (users.some(u => u.id !== editingId && (u.username || "").trim().toLowerCase() === username.toLowerCase())) {
+      alert(`The username "${username}" is already taken. Please choose a different one.`);
       return;
     }
     // Password is required when creating a user, optional when editing —
@@ -195,11 +203,12 @@ const UserManagement = ({
       alert("Please set a password for this user.");
       return;
     }
+    const payload = { ...draft, name: draft.name.trim(), username };
     if (editingId) {
-      const { password, ...rest } = draft;
+      const { password, ...rest } = payload;
       onUpdateUser(editingId, password.trim() ? { ...rest, password } : rest);
     } else {
-      onAddUser({ ...draft });
+      onAddUser(payload);
     }
     closeUserModal();
   };
@@ -305,7 +314,7 @@ const UserManagement = ({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Name", "Email", "Role", "Status", "Last Login", "Actions"].map(h => (
+                  {["Name", "Username", "Role", "Status", "Last Login", "Actions"].map(h => (
                     <th key={h} style={{ textAlign: "left", fontSize: 10.5, letterSpacing: 0.5, color: C.textMuted, textTransform: "uppercase", fontWeight: 700, padding: "10px 8px", borderBottom: `1px solid ${C.border}` }}>{h}</th>
                   ))}
                 </tr>
@@ -322,7 +331,7 @@ const UserManagement = ({
                         {u.isYou && <span style={{ background: C.tealFaint, color: C.teal, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 20 }}>You</span>}
                       </div>
                     </td>
-                    <td style={{ padding: "12px 8px", borderBottom: `1px solid ${C.border}`, fontSize: 12.5, color: C.textSec }}>{u.email}</td>
+                    <td style={{ padding: "12px 8px", borderBottom: `1px solid ${C.border}`, fontSize: 12.5, color: C.textSec }}>{u.username}</td>
                     <td style={{ padding: "12px 8px", borderBottom: `1px solid ${C.border}` }}><RolePill role={u.role} /></td>
                     <td style={{ padding: "12px 8px", borderBottom: `1px solid ${C.border}` }}><StatusDot active={u.status === "Active"} /></td>
                     <td style={{ padding: "12px 8px", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.textMuted }}>{u.lastLogin}</td>
@@ -573,7 +582,7 @@ const UserManagement = ({
           Role & Permission tab) apply automatically. */}
       <Modal testId="user-modal" open={showUserModal} title={editingId ? "Edit User" : "Add New User"} onClose={closeUserModal} onSubmit={submitUserModal} submitText={editingId ? "Save Changes" : "Add User"}>
         <Input id="user-name" label="Full Name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g., Nur Aisyah" />
-        <Input id="user-email" label="Email" type="email" value={draft.email} onChange={e => setDraft(d => ({ ...d, email: e.target.value }))} placeholder="e.g., aisyah@fleetopz.com" />
+        <Input id="user-username" label="Username *" value={draft.username} onChange={e => setDraft(d => ({ ...d, username: e.target.value }))} placeholder="e.g.,john.smith" />
         <Input
           id="user-password"
           label={editingId ? "Password" : "Password *"}
