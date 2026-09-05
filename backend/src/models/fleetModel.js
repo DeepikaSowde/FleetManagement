@@ -50,6 +50,17 @@ async function getByPlate(plate) {
   return toCar(rows[0]);
 }
 
+// Case/space-insensitive lookup used to reject duplicate plates on create —
+// the plate column itself is a case/space-sensitive PRIMARY KEY, so "SBA1234A"
+// and "sba 1234 a" wouldn't collide there even though they're the same plate.
+async function findByNormalizedPlate(plate) {
+  const { rows } = await db.query(
+    "SELECT * FROM cars WHERE LOWER(REPLACE(plate, ' ', '')) = LOWER(REPLACE($1, ' ', ''))",
+    [plate]
+  );
+  return toCar(rows[0]);
+}
+
 async function create(car) {
   const { rows } = await db.query(
     `INSERT INTO cars (
@@ -116,4 +127,4 @@ async function remove(plate) {
   return rowCount > 0;
 }
 
-module.exports = { getAll, getByPlate, create, update, remove, toCar };
+module.exports = { getAll, getByPlate, findByNormalizedPlate, create, update, remove, toCar };

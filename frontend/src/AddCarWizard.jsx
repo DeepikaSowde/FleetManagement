@@ -41,6 +41,11 @@ const emptyCar = () => ({
   coe: "",
 });
 
+// Normalizes a plate for duplicate comparison: strips whitespace and
+// lower-cases it, so "SBA1234A", "sba1234a" and "SBA 1234 A" are all treated
+// as the same plate.
+const normalizePlate = (v) => String(v || "").replace(/\s+/g, "").toLowerCase();
+
 // Base catalog of common brands/models (Singapore rental fleet defaults) —
 // merged at render time with any brand/model pairs already present in the
 // live fleet, so the dropdown always reflects real inventory too.
@@ -95,7 +100,7 @@ const selectFieldStyle = {
 // one), since <select> alone can't do that. Backed by <input list=...>.
 const Combobox = ({ label, value, onChange, options, placeholder, listId, error }) => (
   <div>
-    <div style={{ fontSize: 10.5, color: C.textMuted, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+    <div style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>{label}</div>
     <input
       list={listId}
       value={value}
@@ -114,7 +119,7 @@ const Combobox = ({ label, value, onChange, options, placeholder, listId, error 
 
 const SelectField = ({ label, value, onChange, options, error }) => (
   <div>
-    <div style={{ fontSize: 10.5, color: C.textMuted, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+    <div style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>{label}</div>
     <select value={value} onChange={onChange} style={{ ...selectFieldStyle, ...(error ? { borderColor: C.red } : {}) }}>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
@@ -135,18 +140,30 @@ const complianceStatus = (days) => {
 
 // A single Compliance & Validity field: a date input plus an auto-computed
 // days-remaining / status readout underneath — no manual status entry.
-const ComplianceField = ({ label, value, onChange }) => {
+const ComplianceField = ({ label, value, onChange, blocking = false }) => {
   const days = value ? daysUntil(value) : null;
   const st = complianceStatus(days);
+  const isPast = days != null && days < 0;
   return (
     <div>
-      <Input label={label} type="date" value={value} onChange={onChange} />
+      <Input label={label} type="date" value={value} onChange={onChange} style={blocking && isPast ? { borderColor: C.red } : undefined} />
       {value && (
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, marginBottom: 4, fontSize: 10.5 }}>
           <span style={{ color: C.textMuted }}>
             {days >= 0 ? `${days} day${days === 1 ? "" : "s"} remaining` : `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`}
           </span>
           <span style={{ fontWeight: 700, color: st.color }}>{st.label}</span>
+        </div>
+      )}
+      {/* Detected immediately (not just on submit) — a stale date is never
+          silently accepted; blocking fields (COE) additionally stop the
+          wizard from proceeding until it's corrected. */}
+      {isPast && (
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-start", background: C.redFaint, border: `1px solid ${C.red}55`, borderRadius: 6, padding: "6px 8px", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: C.red }}>⚠</span>
+          <span style={{ fontSize: 10.5, color: C.red, fontWeight: 600 }}>
+            This date has already passed{blocking ? " — choose today or a future date to continue." : "."}
+          </span>
         </div>
       )}
     </div>
@@ -173,6 +190,28 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const setField = (key, value) => {
     setCar(c => ({ ...c, [key]: value }));
     setErrors(e => (e[key] === undefined ? e : { ...e, [key]: undefined }));
+  };
+
+  // Car Plate: strip anything that isn't a letter or digit as it's typed (so
+  // invalid characters can never be entered at all), then check for a
+  // duplicate against the live fleet immediately — case/space variations of
+  // an existing plate count as the same plate.
+  const handlePlateChange = (raw) => {
+    const sanitized = raw.replace(/[^A-Za-z0-9]/g, "");
+    setCar(c => ({ ...c, plate: sanitized }));
+    const normalized = normalizePlate(sanitized);
+    const isDuplicate = normalized !== "" && fleet.some(c => normalizePlate(c.plate) === normalized);
+    setErrors(e => ({ ...e, plate: isDuplicate ? "Car Plate already exists" : undefined }));
+  };
+
+  // Purchase Price / Advance / Insurance / Registration / Other Charges: block
+  // a negative value from ever being entered, mirroring the required
+  // "must not accept negative values" rule at the point of typing rather than
+  // only flagging it after the fact.
+  const handleNonNegativeChange = (key) => (e) => {
+    const v = e.target.value;
+    if (v !== "" && Number(v) < 0) return;
+    setField(key, v);
   };
 
   // Base brand/model catalog merged with whatever's already in the live
@@ -210,6 +249,8 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const validateStep0 = () => {
     const e = {};
     if (!String(car.plate).trim()) e.plate = "Car Plate is required";
+    else if (!/^[A-Za-z0-9]+$/.test(car.plate)) e.plate = "Car Plate can only contain letters and numbers";
+    else if (fleet.some(c => normalizePlate(c.plate) === normalizePlate(car.plate))) e.plate = "Car Plate already exists";
     // Any past year or the current year is allowed; only a future year is
     // rejected. currentYr is read fresh on every validation call, so the
     // cutoff always tracks today's real year with nothing hardcoded.
@@ -240,7 +281,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   // Step 2 — Compliance & Validity. COE Expiry is REQUIRED (it also drives the
   // investment horizon / target-rate math); the other validity dates stay
   // optional, so only COE gates proceeding from this step.
-  const canProceedStep1 = !!car.coe;
+  const canProceedStep1 = !!car.coe && daysUntil(car.coe) >= 0;
 
   const handleGenerate = () => {
     // theme.js's generateTargetOptions now targets a CAGR per tier (Conservative/
@@ -314,11 +355,11 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
           {step === 0 && (
             <div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-                <Input label="Car Plate" value={car.plate} onChange={e => setField("plate", e.target.value)} placeholder="e.g., SBJ 4488 F" error={errors.plate} />
-                <Input label="Year" type="number" value={car.year} onChange={e => setField("year", e.target.value)} placeholder="e.g., 2024" error={errors.year} />
+                <Input label="Car Plate" value={car.plate} onChange={e => handlePlateChange(e.target.value)} placeholder="e.g., SBA1234A" error={errors.plate} />
+                <Input label={<>Year <span style={{ color: C.red }}>*</span></>} type="number" value={car.year} onChange={e => setField("year", e.target.value)} placeholder="e.g., 2024" error={errors.year} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Combobox label="Brand" listId="brand-options" value={car.make}
+                <Combobox label={<>Brand <span style={{ color: C.red }}>*</span></>} listId="brand-options" value={car.make}
                   onChange={e => {
                     const value = e.target.value;
                     // Changing Brand invalidates a Model picked under the
@@ -327,7 +368,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
                     setErrors(er => ({ ...er, make: undefined, model: undefined }));
                   }}
                   options={brandOptions} placeholder="e.g., Toyota" error={errors.make} />
-                <Combobox label="Model" listId="model-options" value={car.model}
+                <Combobox label={<>Model <span style={{ color: C.red }}>*</span></>} listId="model-options" value={car.model}
                   onChange={e => setField("model", e.target.value)}
                   options={modelOptions} placeholder="e.g., Corolla" error={errors.model} />
               </div>
@@ -340,15 +381,15 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" value={car.purchase} onChange={e => setField("purchase", e.target.value)} placeholder="e.g., 26000" error={errors.purchase} />
-                <Input label="Purchase Advance (SGD)" type="number" value={car.purchaseAdvance} onChange={e => setField("purchaseAdvance", e.target.value)} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
+                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" min="0" value={car.purchase} onChange={handleNonNegativeChange("purchase")} placeholder="e.g., 26000" error={errors.purchase} />
+                <Input label="Purchase Advance (SGD)" type="number" min="0" value={car.purchaseAdvance} onChange={handleNonNegativeChange("purchaseAdvance")} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label="Insurance (SGD)" type="number" value={car.insurance} onChange={e => setField("insurance", e.target.value)} placeholder="e.g., 1200" error={errors.insurance} />
-                <Input label="Registration (SGD)" type="number" value={car.reg} onChange={e => setField("reg", e.target.value)} placeholder="e.g., 1300" error={errors.reg} />
+                <Input label="Insurance (SGD)" type="number" min="0" value={car.insurance} onChange={handleNonNegativeChange("insurance")} placeholder="e.g., 1200" error={errors.insurance} />
+                <Input label="Registration (SGD)" type="number" min="0" value={car.reg} onChange={handleNonNegativeChange("reg")} placeholder="e.g., 1300" error={errors.reg} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label="Other Charges (SGD)" type="number" value={car.otherCharges} onChange={e => setField("otherCharges", e.target.value)} placeholder="e.g., 200" error={errors.otherCharges} />
+                <Input label="Other Charges (SGD)" type="number" min="0" value={car.otherCharges} onChange={handleNonNegativeChange("otherCharges")} placeholder="e.g., 200" error={errors.otherCharges} />
                 <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
               </div>
             </div>
@@ -366,7 +407,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
                 <ComplianceField label="Road Tax Expiry" value={car.roadTaxExpiry} onChange={e => setField("roadTaxExpiry", e.target.value)} />
                 <ComplianceField label="Inspection Due" value={car.inspectionExpiry} onChange={e => setField("inspectionExpiry", e.target.value)} />
               </div>
-              <ComplianceField label="COE Expiry Date *" value={car.coe} onChange={e => setField("coe", e.target.value)} />
+              <ComplianceField label="COE Expiry Date *" value={car.coe} onChange={e => setField("coe", e.target.value)} blocking />
             </div>
           )}
 

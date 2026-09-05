@@ -275,6 +275,14 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
       setEditError("COE Expiry Date is required.");
       return;
     }
+    const negativeField = [
+      ["purchase", "Purchase"], ["purchaseAdvance", "Purchase Advance"],
+      ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"],
+    ].find(([key]) => editForm[key] !== "" && Number(editForm[key]) < 0);
+    if (negativeField) {
+      setEditError(`${negativeField[1]} can't be negative.`);
+      return;
+    }
     if (typeof onUpdateCar !== "function") {
       setEditError("Saving isn't wired up yet.");
       return;
@@ -608,6 +616,38 @@ const getStatusPillFaint = (status) => STATUS_PILL_FAINT[status] || C.tealFaint;
 //   everything else passes through unchanged
 const toFleetPageStatus = (status) => fleetDisplayStatus(status);
 
+// Common rental-fleet colour names mapped to an accurate swatch — covers the
+// descriptive names staff actually type (e.g. "Pearl White", "Jet Black")
+// that a plain CSS colour keyword wouldn't recognize on its own. Keys are
+// matched case-insensitively.
+const COLOR_ALIASES = {
+  silver: "#C0C0C0", white: "#F5F5F5", "pearl white": "#F5F5F5", ivory: "#F5F0E6",
+  black: "#1A1A1A", "jet black": "#1A1A1A",
+  blue: "#4472C4", "dark blue": "#1F3A66", navy: "#0F172A", "sky blue": "#7EC8E3",
+  red: "#D64045", maroon: "#7C1D2E", wine: "#722F37",
+  grey: "#8A8A8A", gray: "#8A8A8A", "dark grey": "#555555", "dark gray": "#555555",
+  green: "#3E8E5A", "dark green": "#2F5D3A",
+  gold: "#C9A15A", champagne: "#D9C6A5", beige: "#D8CDB8", brown: "#6B4226", bronze: "#8C5E32",
+  orange: "#E0792C", yellow: "#E6C64A", purple: "#6C4FA1", pink: "#E38AAE",
+};
+
+// Resolves any free-typed vehicle colour to an accurate swatch: the alias
+// table above first, then the browser's own CSS colour parser (covers any
+// standard CSS keyword, hex, or rgb() typed directly), and only a neutral
+// grey when the text genuinely isn't a recognizable colour.
+const resolveColorSwatch = (name) => {
+  const key = String(name || "").trim().toLowerCase();
+  if (!key) return "#ccc";
+  if (COLOR_ALIASES[key]) return COLOR_ALIASES[key];
+  if (typeof document !== "undefined") {
+    const probe = document.createElement("span").style;
+    probe.color = "";
+    probe.color = key;
+    if (probe.color) return key;
+  }
+  return "#aaa";
+};
+
 // Compact rounded-square icon action button used in the Fleet table rows —
 // same visual language as the Bookings list's row actions.
 const IconBtn = ({ children, title, color, testid, onClick }) => (
@@ -898,7 +938,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                   </td>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: { Silver: "#C0C0C0", White: "#F5F5F5", Blue: "#4472C4", Black: "#222", Red: "#D64045", Grey: "#888" }[c.color] || "#aaa", border: `1px solid ${C.border}` }} />
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: resolveColorSwatch(c.color), border: `1px solid ${C.border}` }} />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, whiteSpace: "nowrap" }}>{c.make} {c.model}</div>
                         <div style={{ fontSize: 10, color: C.textMuted, whiteSpace: "nowrap" }}>{c.year} · {c.color}</div>
