@@ -283,6 +283,14 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
       setEditError(`${negativeField[1]} can't be negative.`);
       return;
     }
+    const nonWholeField = [
+      ["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"],
+      ["reg", "Registration"], ["otherCharges", "Other Charges"],
+    ].find(([key]) => editForm[key] !== "" && !Number.isInteger(Number(editForm[key])));
+    if (nonWholeField) {
+      setEditError(`${nonWholeField[1]} must be a whole number.`);
+      return;
+    }
     if (typeof onUpdateCar !== "function") {
       setEditError("Saving isn't wired up yet.");
       return;
@@ -452,19 +460,19 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Purchase Advance (SGD)</div>
-                  <input type="number" min="0" value={editForm.purchaseAdvance} onChange={(e) => setEditForm({ ...editForm, purchaseAdvance: e.target.value })} style={fieldStyle} />
+                  <input type="number" min="0" step="1" value={editForm.purchaseAdvance} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, purchaseAdvance: v }); }} style={fieldStyle} />
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Insurance (SGD)</div>
-                  <input type="number" min="0" value={editForm.insurance} onChange={(e) => setEditForm({ ...editForm, insurance: e.target.value })} style={fieldStyle} />
+                  <input type="number" min="0" step="1" value={editForm.insurance} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, insurance: v }); }} style={fieldStyle} />
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Registration (SGD)</div>
-                  <input type="number" min="0" value={editForm.reg} onChange={(e) => setEditForm({ ...editForm, reg: e.target.value })} style={fieldStyle} />
+                  <input type="number" min="0" step="1" value={editForm.reg} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, reg: v }); }} style={fieldStyle} />
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Other Charges (SGD)</div>
-                  <input type="number" min="0" value={editForm.otherCharges} onChange={(e) => setEditForm({ ...editForm, otherCharges: e.target.value })} style={fieldStyle} />
+                  <input type="number" min="0" step="1" value={editForm.otherCharges} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, otherCharges: v }); }} style={fieldStyle} />
                 </div>
               </div>
             ) : (
@@ -648,6 +656,30 @@ const resolveColorSwatch = (name) => {
   return "#aaa";
 };
 
+// In-app replacement for window.confirm() on Delete — a real dialog styled
+// like the rest of the app, with no browser chrome or "<site> says" text.
+const DeleteConfirmModal = ({ car, onConfirm, onCancel }) => (
+  <>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", zIndex: 300 }} />
+    <div style={{
+      position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+      background: C.surface, borderRadius: 14, boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)",
+      zIndex: 301, width: "min(400px, calc(100vw - 32px))", padding: 24, textAlign: "center",
+      boxSizing: "border-box",
+    }}>
+      <div style={{ width: 48, height: 48, borderRadius: "50%", background: C.redFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, margin: "0 auto 14px" }}>🗑</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Delete this vehicle?</div>
+      <div style={{ fontSize: 12.5, color: C.textMuted, lineHeight: 1.5, marginBottom: 20 }}>
+        <strong style={{ color: C.textPri }}>{car.make} {car.model} ({car.plate})</strong> will be permanently removed. This action cannot be undone.
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn secondary onClick={onCancel} style={{ flex: 1 }}>Cancel</Btn>
+        <Btn onClick={onConfirm} style={{ flex: 1, background: C.red, color: "#fff" }}>Delete</Btn>
+      </div>
+    </div>
+  </>
+);
+
 // Compact rounded-square icon action button used in the Fleet table rows —
 // same visual language as the Bookings list's row actions.
 const IconBtn = ({ children, title, color, testid, onClick }) => (
@@ -680,6 +712,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   // the table's Edit icon, as opposed to the View icon which opens read-only.
   const [editOnOpen, setEditOnOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [confirmDeleteCar, setConfirmDeleteCar] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPlate, setSelectedPlate] = useState("All Plates");
   const [coeFilter, setCoeFilter] = useState("All Registration");
@@ -687,7 +720,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   const [sortField, setSortField] = useState(null);   // 'plate' | 'purchaseDate' | 'coe'
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 10;
+  const [pageSize, setPageSize] = useState(10);
 
   // Deep-link support — e.g. the Alerts page's "Renew Now" / "View Vehicle"
   // buttons set initialOpenPlate to jump straight to that car's edit modal.
@@ -779,22 +812,26 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
     }
   };
 
-  // Pagination — 10 vehicles per page over the filtered + sorted list.
-  const totalPages = Math.max(1, Math.ceil(sortedFleet.length / PAGE_SIZE));
+  // Pagination — over the filtered + sorted list, so it always reflects
+  // whatever Search/Filters/Sorting currently produced. Any change to those
+  // (including the page size itself) resets back to page 1, so a search or
+  // filter change never leaves the user stranded on a now-empty later page.
+  const totalPages = Math.max(1, Math.ceil(sortedFleet.length / pageSize));
   const curPage = Math.min(page, totalPages);
-  const pageRows = sortedFleet.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
-  useEffect(() => { setPage(1); }, [searchTerm, selectedPlate, coeFilter, statusPillFilter, sortField, sortDir]);
+  const pageRows = sortedFleet.slice((curPage - 1) * pageSize, curPage * pageSize);
+  useEffect(() => { setPage(1); }, [searchTerm, selectedPlate, coeFilter, statusPillFilter, sortField, sortDir, pageSize]);
 
   const handleWizardComplete = (carData) => {
     onAddFleet(carData);
     setWizardOpen(false);
   };
 
-  const handleDelete = (plate) => {
-    if (window.confirm("Are you sure you want to delete this car? This action cannot be undone.")) {
-      onDeleteCar(plate);
-      setOpenPlate(null);
-    }
+  const handleDelete = (targetCar) => setConfirmDeleteCar(targetCar);
+
+  const handleConfirmDelete = () => {
+    onDeleteCar(confirmDeleteCar.plate);
+    setConfirmDeleteCar(null);
+    setOpenPlate(null);
   };
 
   return (
@@ -974,18 +1011,30 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
         {sortedFleet.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderTop: `1px solid ${C.border}`, flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: 11, color: C.textMuted }}>
-              Showing {(curPage - 1) * PAGE_SIZE + 1} to {Math.min(curPage * PAGE_SIZE, sortedFleet.length)} of {sortedFleet.length} vehicles
+              Showing {(curPage - 1) * pageSize + 1} to {Math.min(curPage * pageSize, sortedFleet.length)} of {sortedFleet.length} vehicles
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <FlPageBtn disabled={curPage === 1} onClick={() => setPage(curPage - 1)}>‹</FlPageBtn>
+              <FlPageBtn disabled={curPage === 1} onClick={() => setPage(curPage - 1)}>‹ Previous</FlPageBtn>
               {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
                 <FlPageBtn key={p} active={p === curPage} onClick={() => setPage(p)}>{p}</FlPageBtn>
               ))}
-              <FlPageBtn disabled={curPage === totalPages} onClick={() => setPage(curPage + 1)}>›</FlPageBtn>
+              <FlPageBtn disabled={curPage === totalPages} onClick={() => setPage(curPage + 1)}>Next ›</FlPageBtn>
+              <select
+                id="fleet-page-size"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                style={{ marginLeft: 6, fontSize: 11.5, fontWeight: 600, color: C.textPri, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 8px", cursor: "pointer", outline: "none", fontFamily: "inherit" }}
+              >
+                {[10, 20, 50].map(n => <option key={n} value={n}>{n} / page</option>)}
+              </select>
             </div>
           </div>
         )}
       </Card>
+
+      {confirmDeleteCar && (
+        <DeleteConfirmModal car={confirmDeleteCar} onConfirm={handleConfirmDelete} onCancel={() => setConfirmDeleteCar(null)} />
+      )}
 
       {/* Vehicle Details Modal Overlay */}
       {car && (
@@ -995,7 +1044,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
           expenses={expenses}
           onAddExpense={onAddExpense}
           onUpdateCar={onUpdateCar}
-          onDelete={() => handleDelete(car.plate)}
+          onDelete={() => handleDelete(car)}
           onClose={() => { setOpenPlate(null); setEditOnOpen(false); }}
           startEditing={editOnOpen}
         />

@@ -18,6 +18,20 @@ function findNegativeFieldError(body) {
   return null;
 }
 
+const WHOLE_NUMBER_FIELDS = [
+  ["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"],
+  ["reg", "Registration"], ["otherCharges", "Other Charges"],
+];
+function findNonWholeFieldError(body) {
+  for (const [key, label] of WHOLE_NUMBER_FIELDS) {
+    const v = body[key];
+    if (v !== undefined && v !== null && v !== "" && !Number.isInteger(Number(v))) {
+      return `${label} must be a whole number`;
+    }
+  }
+  return null;
+}
+
 async function list(req, res, next) {
   try {
     res.json(await Fleet.getAll());
@@ -39,6 +53,10 @@ async function create(req, res, next) {
     if (negativeFieldError) {
       return res.status(400).json({ message: negativeFieldError });
     }
+    const nonWholeFieldError = findNonWholeFieldError(req.body);
+    if (nonWholeFieldError) {
+      return res.status(400).json({ message: nonWholeFieldError });
+    }
     // Case/space variations of an already-registered plate are the same
     // plate — the plate column's own uniqueness wouldn't catch that.
     if (await Fleet.findByNormalizedPlate(plate)) {
@@ -55,6 +73,10 @@ async function update(req, res, next) {
     const negativeFieldError = findNegativeFieldError(req.body);
     if (negativeFieldError) {
       return res.status(400).json({ message: negativeFieldError });
+    }
+    const nonWholeFieldError = findNonWholeFieldError(req.body);
+    if (nonWholeFieldError) {
+      return res.status(400).json({ message: nonWholeFieldError });
     }
     const car = await Fleet.update(req.params.plate, req.body);
     if (!car) return res.status(404).json({ message: "Car not found" });

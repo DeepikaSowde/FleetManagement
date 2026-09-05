@@ -214,6 +214,15 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     setField(key, v);
   };
 
+  // Purchase Advance / Insurance / Registration / Other Charges must be whole
+  // numbers — reject anything but digits (so no "-", ".", or exponent form
+  // can land in the field at all).
+  const handleWholeNumberChange = (key) => (e) => {
+    const v = e.target.value;
+    if (v !== "" && !/^\d+$/.test(v)) return;
+    setField(key, v);
+  };
+
   // Base brand/model catalog merged with whatever's already in the live
   // fleet — recomputed only when the fleet list actually changes.
   const brandModelMap = useMemo(() => buildBrandModelMap(fleet), [fleet]);
@@ -265,7 +274,9 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     if (!String(car.transmission).trim()) e.transmission = "Transmission is required";
     if (String(car.purchase).trim() === "" || Number(car.purchase) <= 0) e.purchase = "Purchase Price must be greater than 0";
     [["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"]].forEach(([k, l]) => {
-      if (String(car[k]).trim() !== "" && Number(car[k]) < 0) e[k] = `${l} can't be negative`;
+      if (String(car[k]).trim() === "") return;
+      if (Number(car[k]) < 0) e[k] = `${l} can't be negative`;
+      else if (!Number.isInteger(Number(car[k]))) e[k] = `${l} must be a whole number`;
     });
     if (String(car.purchase).trim() !== "" && String(car.purchaseAdvance).trim() !== "" && Number(car.purchaseAdvance) > Number(car.purchase)) {
       e.purchaseAdvance = "Advance can't exceed Purchase Price";
@@ -382,14 +393,14 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" min="0" value={car.purchase} onChange={handleNonNegativeChange("purchase")} placeholder="e.g., 26000" error={errors.purchase} />
-                <Input label="Purchase Advance (SGD)" type="number" min="0" value={car.purchaseAdvance} onChange={handleNonNegativeChange("purchaseAdvance")} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
+                <Input label="Purchase Advance (SGD)" type="number" min="0" step="1" value={car.purchaseAdvance} onChange={handleWholeNumberChange("purchaseAdvance")} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label="Insurance (SGD)" type="number" min="0" value={car.insurance} onChange={handleNonNegativeChange("insurance")} placeholder="e.g., 1200" error={errors.insurance} />
-                <Input label="Registration (SGD)" type="number" min="0" value={car.reg} onChange={handleNonNegativeChange("reg")} placeholder="e.g., 1300" error={errors.reg} />
+                <Input label="Insurance (SGD)" type="number" min="0" step="1" value={car.insurance} onChange={handleWholeNumberChange("insurance")} placeholder="e.g., 1200" error={errors.insurance} />
+                <Input label="Registration (SGD)" type="number" min="0" step="1" value={car.reg} onChange={handleWholeNumberChange("reg")} placeholder="e.g., 1300" error={errors.reg} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label="Other Charges (SGD)" type="number" min="0" value={car.otherCharges} onChange={handleNonNegativeChange("otherCharges")} placeholder="e.g., 200" error={errors.otherCharges} />
+                <Input label="Other Charges (SGD)" type="number" min="0" step="1" value={car.otherCharges} onChange={handleWholeNumberChange("otherCharges")} placeholder="e.g., 200" error={errors.otherCharges} />
                 <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
               </div>
             </div>
