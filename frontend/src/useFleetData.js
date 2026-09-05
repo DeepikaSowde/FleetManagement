@@ -27,6 +27,19 @@ const toDateStr = (v) => {
   return isNaN(d) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10);
 };
 
+// Adds `months` calendar months to a date, clamping the day-of-month so e.g.
+// 31 Jan + 1 month lands on 28/29 Feb rather than rolling into March. Used by
+// generateAlerts' auto-detected multi-month installment schedule below.
+const addMonthsClamped = (date, months) => {
+  const d = new Date(date);
+  const day = d.getDate();
+  const target = new Date(d.getFullYear(), d.getMonth() + months, 1);
+  const lastDayOfTarget = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDayOfTarget));
+  target.setHours(d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+  return target;
+};
+
 // Single source of truth for "what date/time does this booking actually
 // block through" — used by computeCarAvailabilityTimeline (the calendar),
 // findOverlappingBooking (the conflict check), and buildAvailabilityConflictMessage
@@ -1311,6 +1324,77 @@ export const useFleetData = () => {
           days: Math.abs(daysUntilDue),
           urgent: subtype === "overdue" || subtype === "due_today",
         });
+      });
+    });
+
+    // Automatic multi-month payment alerts — no separate "monthly contract"
+    // has to be created for this: ANY ordinary booking whose Pickup → Return
+    // span crosses a real calendar-month boundary is automatically treated as
+    // a multi-month rental. Its Total Rental Amount is split evenly into
+    // monthly installments due on the same day-of-month as pickup — Month 1
+    // covers the pickup month and is billed through the existing deposit /
+    // rent-at-pickup collection, so it's never itself a reminder. Payments
+    // actually received (booking.payments) are applied against installments
+    // in order to find the ONE next unpaid month; that's the single live
+    // alert for this booking, so a 12-month booking never floods the list
+    // with 11 future reminders at once — as each month is paid, the alert
+    // automatically rolls forward to the next unpaid one.
+    bookings.forEach(b => {
+      if (b.cancelled || b.rentalType === "monthly") return; // legacy explicit-schedule bookings are handled above
+      if (!b.start || !b.end) return;
+      const start = new Date(b.start);
+      const end = new Date(b.end);
+      if (isNaN(start) || isNaN(end) || end <= start) return;
+
+      // Month 1's due date is the pickup date itself; month 2, 3, ... are
+      // pickup + k calendar months, for every boundary on/before the return.
+      const dueDates = [start];
+      for (let k = 1; ; k++) {
+        const d = addMonthsClamped(start, k);
+        if (d > end) break;
+        dueDates.push(d);
+      }
+      const totalMonths = dueDates.length;
+      if (totalMonths < 2) return; // doesn't span a real month boundary — an ordinary short rental
+
+      const inv = computeBookingInvoice(b);
+      const amountPerMonth = inv.rateCharge / totalMonths;
+      if (amountPerMonth <= 0) return;
+      const totalPaid = (b.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+      // Walk installments in due-date order, consuming totalPaid, to find the
+      // first one NOT fully covered by what's actually been paid so far.
+      let remaining = totalPaid;
+      let nextDue = null, monthIndex = 0;
+      for (let i = 0; i < dueDates.length; i++) {
+        if (remaining >= amountPerMonth - 0.01) { remaining -= amountPerMonth; continue; }
+        nextDue = dueDates[i];
+        monthIndex = i + 1;
+        break;
+      }
+      // Every installment through month 1 is covered (nothing left unpaid
+      // yet), or the only thing outstanding is month 1 itself (that's the
+      // upfront pickup collection, not a "reminder" case) — nothing to alert.
+      if (!nextDue || monthIndex <= 1) return;
+
+      const dueStr = toDateStr(nextDue);
+      const daysUntilDue = Math.ceil((nextDue - new Date(today)) / (1000 * 60 * 60 * 24));
+      const subtype = daysUntilDue < 0 ? "overdue" : daysUntilDue === 0 ? "due_today" : daysUntilDue <= 3 ? "due_soon" : "upcoming";
+      const subtypeLabel = { overdue: "is overdue", due_today: "is due today", due_soon: "is due soon", upcoming: "is upcoming" }[subtype];
+      const car = fleet.find(c => c.plate === b.plate);
+      alerts.push({
+        id: alertId++,
+        type: "monthly_rent",
+        subtype,
+        bookingId: b.id,
+        plate: b.plate,
+        car: car ? `${car.make} ${car.model}` : b.plate,
+        customer: b.customer,
+        msg: `Month ${monthIndex} rental for booking ${b.id} ${subtypeLabel}.`,
+        dueDate: dueStr,
+        amount: Math.round(amountPerMonth),
+        days: Math.abs(daysUntilDue),
+        urgent: subtype === "overdue" || subtype === "due_today",
       });
     });
 
