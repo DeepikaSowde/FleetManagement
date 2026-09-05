@@ -29,6 +29,7 @@ const BOOKING_STAT_META = {
 };
 import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
 import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
+import { computeMileageSplit } from "./mileage";
 import { generateRentalAgreementPdf } from "./rentalAgreement";
 
 
@@ -189,6 +190,7 @@ export const CHARGE_TYPES = [
   { value: "other_taxable", label: "Other (Taxable)", taxable: true },
   { value: "other_non_taxable", label: "Other (Non-Taxable)", taxable: false },
 ];
+
 
 // Single source of truth for a booking's full invoice picture — used by the
 // Bookings table, and the Overview / Pricing & Payment tabs, so both never
@@ -397,7 +399,7 @@ const buildBookingActivityLog = (booking, inv) => {
     events.push(...hist);
   } else {
     if (booking.createdAt) events.push({ type: "created", at: booking.createdAt, by: fallback });
-    if (booking.handoverAt) events.push({ type: "handover", at: booking.handoverAt, by: fallback, detail: `Odometer ${booking.startingMileage || "—"} km · Fuel ${booking.fuelLevel || "—"}` });
+    if (booking.handoverAt) events.push({ type: "handover", at: booking.handoverAt, by: fallback, detail: `Odometer ${booking.startingMileage || "—"} km${booking.staffToCustomerKm ? ` · Staff→customer ${booking.staffToCustomerKm} km (internal)` : ""} · Fuel ${booking.fuelLevel || "—"}` });
     if (booking.updatedAt && booking.updatedAt !== booking.createdAt) events.push({ type: "updated", at: booking.updatedAt, by: fallback });
     if (booking.depositCollectedAt) events.push({ type: "deposit_collected", at: booking.depositCollectedAt, by: fallback, detail: `Deposit ${fmt(inv.deposit)}${booking.depositCollectedMethod ? ` · ${booking.depositCollectedMethod}` : ""}` });
     if (booking.depositRefundedAt) events.push({ type: "deposit", at: booking.depositRefundedAt, by: fallback, detail: `Returned ${fmt(Number(booking.depositRefundedAmount) || 0)}` });
@@ -519,6 +521,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [paymentTime, setPaymentTime] = useState(() => new Date().toTimeString().slice(0, 5));
   // Vehicle Handover — now done right here (not hidden inside Edit).
   const [startingMileage, setStartingMileage] = useState(booking.startingMileage || "");
+  // Staff -> Customer delivery leg (S), captured at handover. Company/internal
+  // km: it moves the odometer but is never billed to the customer.
+  const [staffToCustomerKm, setStaffToCustomerKm] = useState(booking.staffToCustomerKm ?? "");
   const [fuelLevel, setFuelLevel] = useState(booking.fuelLevel || "Full");
   const [vehicleCondition, setVehicleCondition] = useState(booking.vehicleCondition || "");
   // Drop-off / return location. Optional at booking, but mandatory at Vehicle
@@ -616,6 +621,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
 
   const handleCompleteHandover = () => {
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
+    if (staffToCustomerKm === "" || Number(staffToCustomerKm) < 0) { alert("Enter the Staff -> Customer Mileage (km) — enter 0 if the customer collected the car themselves."); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
 
     // Rent at pickup — optional, not a gate. Clamp to Balance Due (no overpay);
@@ -642,9 +648,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         }]
       : [];
     const updates = {
-      startingMileage, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
+      startingMileage, staffToCustomerKm, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
       ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
-      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
+      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Staff→customer ${Number(staffToCustomerKm) || 0} km (internal) · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
     };
     onUpdateBooking(booking.id, updates);
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
@@ -790,10 +796,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       return;
     }
     {
+      // The customer's leg starts where the staff delivery leg ended, so the
+      // floor for B is A + S — not A.
       const b = Number(customerReturnMileage);
       const a = Number(booking.startingMileage) || 0;
-      if (b < a || b > Number(mileageIn)) {
-        alert(`Customer Return Odometer must be between the Starting Mileage (${a}) and the Final Odometer (${mileageIn}).`);
+      const sKm = Number(booking.staffToCustomerKm) || 0;
+      const floor = a + sKm;
+      if (b < floor || b > Number(mileageIn)) {
+        alert(`Customer Return Odometer must be between ${floor} (Starting Mileage ${a}${sKm ? ` + ${sKm} km staff delivery` : ""}) and the Final Odometer (${mileageIn}).`);
         return;
       }
     }
@@ -866,9 +876,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // sync with whatever automatic Upcoming/Active/Completed logic already
     // owns booking status. The car goes straight to Available once this
     // fires — useFleetData.js no longer has any automatic Maintenance path.
-    const custB = customerReturnMileage === "" ? Number(mileageIn) : Number(customerReturnMileage);
-    const custKm = Math.max(0, custB - (Number(booking.startingMileage) || 0));
-    const compKm = Math.max(0, Number(mileageIn) - custB);
+    const split = computeMileageSplit({
+      startingMileage: booking.startingMileage,
+      staffToCustomerKm: booking.staffToCustomerKm,
+      customerReturnMileage,
+      mileageIn,
+    });
+    const custKm = split.customerKm;
+    const compKm = split.staffKm;
     // Issue (or reuse) the permanent Receipt Number now, so the invoice
     // produced right below and any later re-download share the same number.
     const receiptNumber = booking.receiptNumber || nextReceiptNumber(bookings);
@@ -878,7 +893,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       receiptNumber,
       forceCompleted: true,
       returnedAt: new Date().toISOString(),
-      history: withHistory(histEntry("returned", `Final odo ${mileageIn} km · ${custKm.toLocaleString()} customer / ${compKm.toLocaleString()} company km · Fuel ${fuelIn}`)),
+      history: withHistory(histEntry("returned", `Final odo ${mileageIn} km · ${custKm.toLocaleString()} customer / ${compKm.toLocaleString()} staff km · ${split.totalKm.toLocaleString()} km total · Fuel ${fuelIn}`)),
     });
 
     // onUpdateBooking's state update isn't synchronous, so build the
@@ -1269,8 +1284,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 10 }}>🔑 Complete Vehicle Handover</div>
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
                       <div style={{ flex: "1 1 160px" }}>
-                        <div style={detailFieldLabelStyle}>Starting Mileage (km)</div>
+                        <div style={detailFieldLabelStyle}>Starting Mileage (km) <span style={{ color: C.red }}>*</span></div>
                         <input type="number" min="0" value={startingMileage} onChange={(e) => setStartingMileage(e.target.value)} placeholder="e.g., 9000" style={detailInputStyle} />
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Record the vehicle's odometer reading at the start.</div>
                       </div>
                       <div style={{ flex: "1 1 140px" }}>
                         <div style={detailFieldLabelStyle}>Fuel Level at Pickup</div>
@@ -1278,10 +1294,22 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           {FUEL_LEVELS.map((f) => <option key={f} value={f}>{f}</option>)}
                         </select>
                       </div>
+                      {/* Staff -> Customer delivery leg (S). Captured here, at
+                          handover, so the customer's own distance can be measured
+                          from where their leg actually starts (A + S). */}
+                      <div style={{ flex: "1 1 200px" }}>
+                        <div style={detailFieldLabelStyle}>🚗 Staff → Customer Mileage (km) <span style={{ color: C.red }}>*</span></div>
+                        <input type="number" min="0" value={staffToCustomerKm} onChange={(e) => setStaffToCustomerKm(e.target.value)} placeholder="e.g., 25" style={detailInputStyle} />
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Mileage driven by staff from company/shed to customer.</div>
+                      </div>
                     </div>
                     <div style={{ marginTop: 10 }}>
                       <div style={detailFieldLabelStyle}>Vehicle Condition (optional)</div>
                       <textarea value={vehicleCondition} onChange={(e) => setVehicleCondition(e.target.value)} placeholder="Any scratches, dents, notes…" style={{ ...detailInputStyle, minHeight: 52, resize: "vertical" }} />
+                    </div>
+                    <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "flex-start", background: C.blueFaint, border: `1px solid ${C.blueFaint}`, borderRadius: 8, padding: "9px 11px" }}>
+                      <span style={{ color: C.blue, fontSize: 12 }}>ⓘ</span>
+                      <span style={{ fontSize: 11.5, color: C.textSec }}>This mileage is treated as company/internal mileage and will not be charged to the customer.</span>
                     </div>
 
                     {/* Rent collected at pickup — the rental amount is taken here in
@@ -1624,6 +1652,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   { label: "Registration Number", value: booking.plate || "—" },
                   { label: "Daily Rate", value: fmt(Number(booking.rate) || 0) },
                   { label: "Starting Mileage", value: booking.startingMileage ? `${booking.startingMileage} km` : "—" },
+                  { label: "Staff → Customer (internal)", value: booking.staffToCustomerKm === "" || booking.staffToCustomerKm == null ? "—" : `${Number(booking.staffToCustomerKm).toLocaleString()} km` },
                   { label: "Fuel Level at Pickup", value: booking.fuelLevel || "—" },
                   { label: "Current Odometer", value: booking.mileageIn || booking.startingMileage || "—" },
                 ].map(row => (
@@ -1634,32 +1663,29 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 ))}
               </div>
 
-              {/* Distance Driven — splits total odometer movement into the km the
-                  customer drove (A->B) and the km a staff member added driving it
-                  back to the shed (B->C). Shown once a return has been recorded. */}
+              {/* Distance Driven — splits total odometer movement into the three
+                  legs of a rental: staff delivering the car out (A -> A+S), the
+                  customer's own driving (A+S -> B), and staff bringing it back to
+                  the company (B -> C). Both staff legs are internal km. Shown
+                  once a return has been recorded. */}
               {booking.mileageIn !== undefined && booking.mileageIn !== "" && booking.mileageIn !== null && (() => {
-                const a = Number(booking.startingMileage) || 0;
-                const c = Number(booking.mileageIn) || 0;
-                const b = (booking.customerReturnMileage === "" || booking.customerReturnMileage == null)
-                  ? c : Number(booking.customerReturnMileage);
-                const customerKm = Math.max(0, b - a);
-                const companyKm = Math.max(0, c - b);
-                const totalKm = Math.max(0, c - a);
+                const { a, s, b, c, staffBackKm, customerKm, staffKm: companyKm, totalKm } = computeMileageSplit(booking);
                 const pctInternal = totalKm > 0 ? Math.round((companyKm / totalKm) * 100) : 0;
                 return (
                   <div style={{ gridColumn: "1 / -1", border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
                     <SectionHeading size="sm">Distance Driven</SectionHeading>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, color: C.textMuted, marginBottom: 10, ...mono }}>
                       <span>A · Start {a.toLocaleString()}</span><span>→</span>
+                      <span>+{s.toLocaleString()} staff→cust.</span><span>→</span>
                       <span>B · Cust. return {b.toLocaleString()}</span><span>→</span>
-                      <span>C · Shed {c.toLocaleString()} km</span>
+                      <span>C · Company {c.toLocaleString()} km</span>
                     </div>
                     <div style={{ display: "flex", height: 26, borderRadius: 6, overflow: "hidden", background: C.bg, gap: 2 }}>
                       {customerKm > 0 && (
                         <div title={`Customer ${customerKm.toLocaleString()} km`} style={{ flexGrow: customerKm, background: C.teal, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{customerKm.toLocaleString()} km</div>
                       )}
                       {companyKm > 0 && (
-                        <div title={`Company / internal ${companyKm.toLocaleString()} km`} style={{ flexGrow: companyKm, background: C.amber, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{companyKm.toLocaleString()} km</div>
+                        <div title={`Staff / company ${companyKm.toLocaleString()} km (${s.toLocaleString()} out + ${staffBackKm.toLocaleString()} back)`} style={{ flexGrow: companyKm, background: C.amber, color: "#fff", display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", ...mono }}>{companyKm.toLocaleString()} km</div>
                       )}
                       {totalKm === 0 && (
                         <div style={{ flex: 1, display: "flex", alignItems: "center", padding: "0 8px", fontSize: 11, color: C.textMuted }}>No distance recorded</div>
@@ -1674,9 +1700,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       </div>
                       <div>
                         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.amber, display: "flex", alignItems: "center", gap: 5 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} /> Company / Internal
+                          <span style={{ width: 8, height: 8, borderRadius: 2, background: C.amber }} /> Staff / Company
                         </div>
                         <div style={{ fontSize: 16, fontWeight: 800, color: C.navy, ...mono }}>{companyKm.toLocaleString()} km</div>
+                        <div style={{ fontSize: 10.5, color: C.textMuted, ...mono }}>{s.toLocaleString()} out + {staffBackKm.toLocaleString()} back</div>
                       </div>
                       <div style={{ marginLeft: "auto", textAlign: "right" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.textMuted }}>Total · {pctInternal}% internal</div>
@@ -1724,9 +1751,44 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <input type="number" min="0" value={customerReturnMileage} onChange={(e) => setCustomerReturnMileage(e.target.value)} placeholder="e.g., 272321" style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "1 1 160px" }}>
-                      <div style={detailFieldLabelStyle}>Final Odometer / Shed (km)</div>
+                      <div style={detailFieldLabelStyle}>Final Odometer / Shed (km) <span style={{ color: C.red }}>*</span></div>
                       <input type="number" min="0" value={mileageIn} onChange={(e) => setMileageIn(e.target.value)} placeholder="e.g., 9450" style={detailInputStyle} />
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Reading after staff returns the vehicle to the company.</div>
                     </div>
+
+                    {/* Live split — recalculates as the two readings are typed, so
+                        staff see exactly what the customer is held to before
+                        confirming. Same helper the saved record and the Distance
+                        Driven panel use, so the numbers can never disagree. */}
+                    {(() => {
+                      const split = computeMileageSplit({
+                        startingMileage: booking.startingMileage,
+                        staffToCustomerKm: booking.staffToCustomerKm,
+                        customerReturnMileage,
+                        mileageIn,
+                      });
+                      const cells = [
+                        { label: "Customer KM", value: split.customerKm, color: C.teal, note: `${(split.a + split.s).toLocaleString()} → ${split.b.toLocaleString()} km` },
+                        { label: "Staff / Company KM", value: split.staffKm, color: C.amber, note: `${split.s.toLocaleString()} out + ${split.staffBackKm.toLocaleString()} back` },
+                        { label: "Total KM", value: split.totalKm, color: C.navy, note: `${split.a.toLocaleString()} → ${split.c.toLocaleString()} km` },
+                      ];
+                      return (
+                        <div style={{ flex: "1 1 100%", display: "flex", gap: 14, flexWrap: "wrap", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                          {cells.map((cell) => (
+                            <div key={cell.label} style={{ flex: "1 1 130px" }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: cell.color, display: "flex", alignItems: "center", gap: 5 }}>
+                                <span style={{ width: 8, height: 8, borderRadius: 2, background: cell.color }} />{cell.label}
+                              </div>
+                              <div style={{ fontSize: 17, fontWeight: 800, color: C.navy, ...mono }}>{cell.value.toLocaleString()} km</div>
+                              <div style={{ fontSize: 10.5, color: C.textMuted, ...mono }}>{cell.note}</div>
+                            </div>
+                          ))}
+                          <div style={{ flex: "1 1 100%", fontSize: 11, color: C.textMuted }}>
+                            Staff KM (delivery out + drive-back) is company/internal — not charged to the customer.
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div style={{ flex: "1 1 140px" }}>
                       <div style={detailFieldLabelStyle}>Fuel In</div>
                       <select value={fuelIn} onChange={(e) => setFuelIn(e.target.value)} style={detailInputStyle}>

@@ -20,6 +20,7 @@ import Fleet from "./Fleet";
 import CarAvailability from "./CarAvailability";
 import Investors from "./Investors";
 import Booking, { CHARGE_TYPES } from "./Booking";
+import { computeMileageSplit } from "./mileage";
 import DepositRefunds from "./DepositRefunds";
 import Customers from "./Customers";
 import TodayOperations from "./TodayOperations";
@@ -578,6 +579,9 @@ export default function FleetOpzApp() {
     // are auto-filled (see openEditBookingModal) from the same car's most
     // recent completed booking's Mileage In/Fuel In, but stay editable.
     startingMileage: "",
+    // Km staff drives delivering the car to the customer — company/internal
+    // mileage, captured at handover next to the starting reading.
+    staffToCustomerKm: "",
     fuelLevel: "",
     vehicleCondition: "",
     // Vehicle Return fields — only used when creating a backdated booking whose
@@ -875,6 +879,9 @@ export default function FleetOpzApp() {
     if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
       errors.startingMileage = "Enter a valid Kilometer Out (Starting Mileage) to complete the handover";
     }
+    if (newBookingData.staffToCustomerKm === "" || Number(newBookingData.staffToCustomerKm) < 0) {
+      errors.staffToCustomerKm = "Enter the Staff → Customer Mileage (0 if the customer collected the car themselves)";
+    }
     if (!newBookingData.fuelLevel) errors.fuelLevel = "Select the Fuel Level to complete the handover";
     return errors;
   };
@@ -897,8 +904,9 @@ export default function FleetOpzApp() {
       }
       if (newBookingData.customerReturnMileage !== "") {
         const b = Number(newBookingData.customerReturnMileage);
-        if (b < startKm || b > finalKm) {
-          errors.customerReturnMileage = `Customer Return Odometer must be between the Starting Mileage (${startKm}) and the Final Odometer (${finalKm}).`;
+        const floor = startKm + (Number(newBookingData.staffToCustomerKm) || 0);
+        if (b < floor || b > finalKm) {
+          errors.customerReturnMileage = `Customer Return Odometer must be between ${floor} (Starting Mileage + staff delivery km) and the Final Odometer (${finalKm}).`;
         }
       }
     }
@@ -1061,6 +1069,7 @@ export default function FleetOpzApp() {
       depositCollectedDate: new Date().toISOString().slice(0, 10),
       depositCollectedTime: new Date().toTimeString().slice(0, 5),
       startingMileage: booking.startingMileage || previous?.mileage || "",
+      staffToCustomerKm: booking.staffToCustomerKm ?? "",
       fuelLevel: booking.fuelLevel || previous?.fuel || "",
       vehicleCondition: booking.vehicleCondition || "",
     });
@@ -1096,7 +1105,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", staffToCustomerKm: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setContactError("");
     setMatchedCustomer(null);
@@ -1592,15 +1601,11 @@ export default function FleetOpzApp() {
       });
     }
     if (wantsImmediateHandover) {
-      createHistory.push(auditEntry("handover", `Odometer ${newBookingData.startingMileage} km · Fuel ${newBookingData.fuelLevel}`));
+      createHistory.push(auditEntry("handover", `Odometer ${newBookingData.startingMileage} km${newBookingData.staffToCustomerKm !== "" ? ` · Staff→customer ${Number(newBookingData.staffToCustomerKm) || 0} km (internal)` : ""} · Fuel ${newBookingData.fuelLevel}`));
     }
     if (wantsCompleted) {
-      const startKm = Number(newBookingData.startingMileage) || 0;
-      const finalKm = Number(newBookingData.mileageIn);
-      const custB = newBookingData.customerReturnMileage === "" ? finalKm : Number(newBookingData.customerReturnMileage);
-      const custKm = Math.max(0, custB - startKm);
-      const compKm = Math.max(0, finalKm - custB);
-      createHistory.push(auditEntry("returned", `Final odo ${finalKm} km · ${custKm} customer / ${compKm} company km · Fuel ${newBookingData.fuelIn}`));
+      const split = computeMileageSplit(newBookingData);
+      createHistory.push(auditEntry("returned", `Final odo ${split.c} km · ${split.customerKm} customer / ${split.staffKm} staff km · ${split.totalKm} km total · Fuel ${newBookingData.fuelIn}`));
     }
     // Long-term monthly contract: normalise the numbers and build the
     // month-by-month rent schedule. Month 1 is marked paid when rent was
@@ -1666,13 +1671,14 @@ export default function FleetOpzApp() {
   const handleCompleteHandover = () => {
     if (!editingBookingId) return;
     const errors = validateHandoverFields();
-    setFieldErrors(prev => ({ ...prev, startingMileage: undefined, fuelLevel: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, startingMileage: undefined, staffToCustomerKm: undefined, fuelLevel: undefined, ...errors }));
     if (Object.keys(errors).length) return;
     const original = fleetData.bookings.find(b => b.id === editingBookingId);
     const car = fleetData.fleet.find(c => c.plate === newBookingData.plate);
     const updates = {
       status: "Active",
       startingMileage: newBookingData.startingMileage,
+      staffToCustomerKm: newBookingData.staffToCustomerKm,
       fuelLevel: newBookingData.fuelLevel,
       vehicleCondition: newBookingData.vehicleCondition,
       handoverAt: new Date().toISOString(),
@@ -3107,7 +3113,7 @@ export default function FleetOpzApp() {
                             <div style={{ marginTop: 18, border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px" }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginBottom: 4 }}>🔑 Vehicle Handover</div>
                               <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 16 }}>
-                                When the customer arrives for pickup, record the starting mileage, fuel, and condition below.
+                                When the customer arrives for pickup, record the starting mileage, the staff → customer delivery km, fuel, and condition below.
                                 Completing this moves the booking to Active and generates the Rental Agreement.
                               </div>
                               <div style={{ marginBottom: 14 }}>
@@ -3126,6 +3132,30 @@ export default function FleetOpzApp() {
                                   style={bookingFieldInputStyle(false, !!fieldErrors.startingMileage)}
                                 />
                                 <FieldErr msg={fieldErrors.startingMileage} />
+                              </div>
+                              {/* Staff to Customer delivery leg. Internal km: it
+                                  moves the odometer but is never billed, so the
+                                  customer's own distance is measured from
+                                  Starting Mileage + this. */}
+                              <div style={{ marginBottom: 14 }}>
+                                <label style={bookingFieldLabelStyle}>Staff → Customer Mileage (km) <span style={{ color: C.red }}>*</span></label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={newBookingData.staffToCustomerKm}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    if (v !== "" && Number(v) < 0) return;
+                                    clearFieldError("staffToCustomerKm");
+                                    setNewBookingData({ ...newBookingData, staffToCustomerKm: v });
+                                  }}
+                                  placeholder="25"
+                                  style={bookingFieldInputStyle(false, !!fieldErrors.staffToCustomerKm)}
+                                />
+                                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                                  Mileage driven by staff from company/shed to customer — company/internal mileage, not charged to the customer.
+                                </div>
+                                <FieldErr msg={fieldErrors.staffToCustomerKm} />
                               </div>
                               <div style={{ marginBottom: 14 }}>
                                 <label style={bookingFieldLabelStyle}>Fuel Level <span style={{ color: C.red }}>*</span></label>
@@ -3189,6 +3219,12 @@ export default function FleetOpzApp() {
                                   placeholder="9210" style={bookingFieldInputStyle(false)} />
                               </div>
                               <div>
+                                <label style={bookingFieldLabelStyle}>Staff → Customer Mileage (km) · internal</label>
+                                <input type="number" min="0" value={newBookingData.staffToCustomerKm}
+                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, staffToCustomerKm: v }); }}
+                                  placeholder="25" style={bookingFieldInputStyle(false)} />
+                              </div>
+                              <div>
                                 <label style={bookingFieldLabelStyle}>Fuel Level (at handover)</label>
                                 <select value={newBookingData.fuelLevel} onChange={(e) => setNewBookingData({ ...newBookingData, fuelLevel: e.target.value })} style={bookingFieldInputStyle(false)}>
                                   <option value="">Select fuel level</option>
@@ -3209,7 +3245,7 @@ export default function FleetOpzApp() {
                                     placeholder="only if staff drove it back" style={bookingFieldInputStyle(false)} />
                                 </div>
                                 <div>
-                                  <label style={bookingFieldLabelStyle}>Final Odometer / Shed (km)</label>
+                                  <label style={bookingFieldLabelStyle}>Final Odometer (km) · after staff returns it</label>
                                   <input type="number" min="0" value={newBookingData.mileageIn}
                                     onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, mileageIn: v }); }}
                                     placeholder="9450" style={bookingFieldInputStyle(false)} />
@@ -3224,6 +3260,23 @@ export default function FleetOpzApp() {
                                     <option value="Full">Full</option>
                                   </select>
                                 </div>
+                                {newBookingData.mileageIn !== "" && (() => {
+                                  const split = computeMileageSplit(newBookingData);
+                                  return (
+                                    <div style={{ gridColumn: "1 / -1", display: "flex", gap: 16, flexWrap: "wrap", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px" }}>
+                                      {[
+                                        { label: "Customer KM", value: split.customerKm, color: C.teal },
+                                        { label: "Staff / Company KM", value: split.staffKm, color: C.amber },
+                                        { label: "Total KM", value: split.totalKm, color: C.navy },
+                                      ].map((cell) => (
+                                        <div key={cell.label} style={{ flex: "1 1 120px" }}>
+                                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: cell.color }}>{cell.label}</div>
+                                          <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{cell.value.toLocaleString()} km</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
                             <div>

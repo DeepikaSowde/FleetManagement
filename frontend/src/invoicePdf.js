@@ -8,6 +8,7 @@
 
 import { jsPDF } from "jspdf";
 import { INVOICE_LOGO_DATA_URI, INVOICE_LOGO_ASPECT } from "./invoiceLogo";
+import { computeMileageSplit } from "./mileage";
 
 // Letterhead shown on every generated Invoice — this is YOUR company's
 // details, not read from booking data. Update to match your business before
@@ -182,21 +183,31 @@ export const generateInvoicePdf = (booking, car, inv) => {
   ]);
   const startMileage = booking.startingMileage;
   const returnMileage = booking.mileageIn;
-  const kmDriven = (startMileage !== undefined && startMileage !== null && startMileage !== "" &&
-    returnMileage !== undefined && returnMileage !== null && returnMileage !== "")
-    ? Math.max(0, Number(returnMileage) - Number(startMileage))
-    : null;
+  const has = (v) => v !== undefined && v !== null && v !== "";
+  // The odometer moved further than the customer drove: staff put km on it
+  // delivering the car out and driving it back. Break the three figures out
+  // rather than printing one total, so the customer can see that the internal
+  // km are accounted for and not being charged to them.
+  const split = has(startMileage) && has(returnMileage) ? computeMileageSplit(booking) : null;
   y = cellRow(y, [
     { w: contentWidth * 0.4, text: "Starting Mileage", bold: true },
-    { w: contentWidth * 0.6, text: startMileage !== undefined && startMileage !== null && startMileage !== "" ? `${startMileage} km` : "—" },
+    { w: contentWidth * 0.6, text: has(startMileage) ? `${startMileage} km` : "—" },
   ]);
   y = cellRow(y, [
     { w: contentWidth * 0.4, text: "Return Mileage", bold: true },
-    { w: contentWidth * 0.6, text: returnMileage !== undefined && returnMileage !== null && returnMileage !== "" ? `${returnMileage} km` : "—" },
+    { w: contentWidth * 0.6, text: has(returnMileage) ? `${returnMileage} km` : "—" },
   ]);
   y = cellRow(y, [
-    { w: contentWidth * 0.4, text: "No. of KMs", bold: true },
-    { w: contentWidth * 0.6, text: kmDriven !== null ? `${kmDriven} km` : "—" },
+    { w: contentWidth * 0.4, text: "No. of KMs (customer)", bold: true },
+    { w: contentWidth * 0.6, text: split ? `${split.customerKm} km` : "—" },
+  ]);
+  y = cellRow(y, [
+    { w: contentWidth * 0.4, text: "Staff / Company KMs", bold: true },
+    { w: contentWidth * 0.6, text: split ? `${split.staffKm} km (not charged)` : "—" },
+  ]);
+  y = cellRow(y, [
+    { w: contentWidth * 0.4, text: "Total KMs", bold: true },
+    { w: contentWidth * 0.6, text: split ? `${split.totalKm} km` : "—" },
   ]);
   y += 4;
 
