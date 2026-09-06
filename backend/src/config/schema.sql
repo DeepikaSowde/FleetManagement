@@ -282,3 +282,72 @@ ON CONFLICT (role, module) DO NOTHING;
 -- No seed fleet — a fresh install starts with zero cars. Add vehicles through
 -- the app (Fleet → Add Car). The role_permissions grid above is intentionally
 -- kept seeded, since the app's access control relies on it.
+
+-- ── APP SETTINGS — small key/value store for tenant-level toggles ───────────
+-- Currently holds ownership_approval_mode, which decides how much ceremony a
+-- cap-table change needs before it can go Effective:
+--   off            — admin publishes directly (Draft → Effective)
+--   admin_attest   — admin records that the investors agreed offline (default)
+--   investor_signoff — every holder before the event must Accept it first
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        VARCHAR(60) PRIMARY KEY,
+  value      TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO app_settings (key, value) VALUES
+  ('ownership_approval_mode', 'admin_attest')
+ON CONFLICT (key) DO NOTHING;
+
+-- ── OWNERSHIP EVENTS — the cap table, kept apart from the money ledger ──────
+-- Ownership only ever changes through a row here. Dividends are cash and live
+-- in investor_transactions, so being paid can never move anyone's percentage.
+-- Each event carries the FULL holdings table (see ownership_event_holdings),
+-- not a delta, which is how the group actually negotiates: "after this, it's
+-- 40/24/16/20". Rows are append-only once Effective — a mistake is corrected
+-- by a new event that points back via reverses_event_id, never by an UPDATE.
+-- Holdings on any past date = the latest Effective event on or before it, so
+-- a dividend declared in 2025 still splits by the 2025 table after a 2026
+-- investor joins.
+CREATE TABLE IF NOT EXISTS ownership_events (
+  id                    VARCHAR(20) PRIMARY KEY,
+  effective_date        TEXT NOT NULL,            -- ISO date the new table takes effect
+  type                  VARCHAR(30) NOT NULL,     -- Opening | New Investor | Reinvestment | Exit | Transfer | Buyback | Adjustment
+  state                 VARCHAR(20) NOT NULL DEFAULT 'Draft',  -- Draft | Pending | Effective | Rejected
+  reason                TEXT,                     -- why the split changed, in the group's own words
+  new_money_amount      NUMERIC(14,2),            -- cash coming in with this event, if any
+  new_money_investor_id VARCHAR(20) REFERENCES investors(id) ON DELETE SET NULL,
+  linked_tx_id          VARCHAR(20) REFERENCES investor_transactions(id) ON DELETE SET NULL,
+  attestation           TEXT,                     -- admin_attest mode: who agreed, and how
+  attachment_path       TEXT,                     -- signed note / board resolution
+  reverses_event_id     VARCHAR(20) REFERENCES ownership_events(id) ON DELETE SET NULL,
+  created_by            VARCHAR(160),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  effective_at          TIMESTAMPTZ               -- when it was actually published
+);
+CREATE INDEX IF NOT EXISTS idx_ownership_events_date ON ownership_events (effective_date);
+CREATE INDEX IF NOT EXISTS idx_ownership_events_state ON ownership_events (state);
+
+-- One row per holder per event; pct across an event must total 100 (enforced
+-- in the model, which reports which event and what it summed to).
+CREATE TABLE IF NOT EXISTS ownership_event_holdings (
+  id          BIGSERIAL PRIMARY KEY,
+  event_id    VARCHAR(20) NOT NULL REFERENCES ownership_events(id) ON DELETE CASCADE,
+  investor_id VARCHAR(20) NOT NULL REFERENCES investors(id) ON DELETE RESTRICT,
+  pct         NUMERIC(9,4) NOT NULL DEFAULT 0,
+  UNIQUE (event_id, investor_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ownership_holdings_event ON ownership_event_holdings (event_id);
+
+-- Sign-off inbox for investor_signoff mode. Approvers are the holders as they
+-- stood BEFORE the event (they are the ones giving something up); for the
+-- Opening event, everyone named in it.
+CREATE TABLE IF NOT EXISTS ownership_event_approvals (
+  id          BIGSERIAL PRIMARY KEY,
+  event_id    VARCHAR(20) NOT NULL REFERENCES ownership_events(id) ON DELETE CASCADE,
+  investor_id VARCHAR(20) NOT NULL REFERENCES investors(id) ON DELETE CASCADE,
+  decision    VARCHAR(20) NOT NULL DEFAULT 'Pending',  -- Pending | Accepted | Rejected
+  note        TEXT,
+  decided_at  TIMESTAMPTZ,
+  UNIQUE (event_id, investor_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ownership_approvals_event ON ownership_event_approvals (event_id);
