@@ -866,6 +866,11 @@ export default function Ownership({
   // recording a reinvestment, so the change is part-filled rather than retyped.
   prefill = null,
   onPrefillConsumed,
+  // One agreed figure for the whole business; every stake is a share of it.
+  companyValuation = null,
+  valuationHistory = [],
+  onCreateValuation,
+  onDeleteValuation,
 }) {
   const [showForm, setShowForm] = useState(false);
 
