@@ -944,18 +944,12 @@ export default function Ownership({
           title="Add your investors first"
           message="The cap table is built from the investors on this module. Add them under All Investors, then record the opening split here."
         />
-      ) : events.length === 0 ? (
-        <Empty
-          title="No ownership recorded yet"
-          message="Start with the opening cap table — who put in what at the beginning, as a percentage. Every later change (a new investor, a reinvestment at a different price, a sale between investors) is recorded against it, and nothing is ever overwritten."
-          actionLabel="+ Record opening cap table"
-          onAction={() => setShowForm(true)}
-        />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* What the business is worth. One agreed figure, and every stake
-              below is priced off it. */}
+          {/* What the business is worth. Independent of the register — a group
+              can agree a value before recording a single ownership entry — so
+              this sits OUTSIDE the empty-state branch below. */}
           <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>
@@ -972,9 +966,8 @@ export default function Ownership({
                 </>
               ) : (
                 <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 8, maxWidth: 460 }}>
-                  Nothing agreed yet, so the stakes below show a percentage but no rupee value.
-                  Record what the investors agree the whole business is worth and every stake is
-                  priced from it.
+                  Nothing agreed yet, so stakes show a percentage but no rupee value. Record what
+                  the investors agree the whole business is worth and every stake is priced from it.
                 </div>
               )}
             </div>
@@ -983,46 +976,6 @@ export default function Ownership({
             </Btn>
           </div>
 
-          {/* Current table, read from the latest published entry. */}
-          <div style={{ ...card }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 800, color: C.navy }}>Cap table today</div>
-              <div style={{ fontSize: 11.5, color: C.textMuted }}>as at {fmtDate(today)}</div>
-            </div>
-            {current.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: C.textMuted }}>
-                Nothing published yet — the drafts below have not taken effect.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                {current.map((h) => (
-                  <div key={h.investorId} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.textPri }}>
-                      <Swatch color={colorOf(h.investorId)} />
-                      {h.investorName}
-                    </span>
-                    <span style={{ background: C.linen, borderRadius: 3, height: 16, overflow: "hidden" }}>
-                      <span style={{ display: "block", height: "100%", width: `${h.pct}%`, background: colorOf(h.investorId), borderRadius: "0 3px 3px 0" }} />
-                    </span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmtPct(h.pct)}</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: companyValuation ? IC_VALUE : C.textMuted, textAlign: "right" }}>
-                      {companyValuation ? fmtINR((h.pct / 100) * companyValuation.amount) : "—"}
-                    </span>
-                  </div>
-                ))}
-                {companyValuation && (
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12, borderTop: `1px solid ${C.border}`, paddingTop: 9, marginTop: 2 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: C.textMuted }}>Whole business</span>
-                    <span />
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>100.00%</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 800, color: C.navy, textAlign: "right" }}>
-                      {fmtINR(companyValuation.amount)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
 
           {valuationHistory.length > 0 && (
             <div style={{ ...card }}>
@@ -1065,6 +1018,57 @@ export default function Ownership({
             </div>
           )}
 
+          {events.length === 0 ? (
+            <Empty
+              title="No ownership recorded yet"
+              message="Start with the opening cap table — who put in what at the beginning. Every later change (a new investor, a reinvestment at a different price, a sale between investors) is recorded against it, and nothing is ever overwritten."
+              actionLabel="+ Record opening cap table"
+              onAction={() => setShowForm(true)}
+            />
+          ) : (
+            <>
+
+          {/* Current table, read from the latest published entry. */}
+          <div style={{ ...card }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: C.navy }}>Cap table today</div>
+              <div style={{ fontSize: 11.5, color: C.textMuted }}>as at {fmtDate(today)}</div>
+            </div>
+            {current.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: C.textMuted }}>
+                Nothing published yet — the drafts below have not taken effect.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {current.map((h) => (
+                  <div key={h.investorId} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.textPri }}>
+                      <Swatch color={colorOf(h.investorId)} />
+                      {h.investorName}
+                    </span>
+                    <span style={{ background: C.linen, borderRadius: 3, height: 16, overflow: "hidden" }}>
+                      <span style={{ display: "block", height: "100%", width: `${h.pct}%`, background: colorOf(h.investorId), borderRadius: "0 3px 3px 0" }} />
+                    </span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmtPct(h.pct)}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: companyValuation ? IC_VALUE : C.textMuted, textAlign: "right" }}>
+                      {companyValuation ? fmtINR((h.pct / 100) * companyValuation.amount) : "—"}
+                    </span>
+                  </div>
+                ))}
+                {companyValuation && (
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12, borderTop: `1px solid ${C.border}`, paddingTop: 9, marginTop: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.textMuted }}>Whole business</span>
+                    <span />
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>100.00%</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: C.navy, textAlign: "right" }}>
+                      {fmtINR(companyValuation.amount)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <OwnershipTimeline events={events} investors={investors} colorOf={colorOf} />
 
           <div>
@@ -1091,6 +1095,9 @@ export default function Ownership({
               ))}
             </div>
           </div>
+
+            </>
+          )}
         </div>
       )}
 

@@ -576,17 +576,26 @@ export const useFleetData = () => {
     // Cap table — separately guarded again, so an older backend without the
     // /api/ownership routes still loads the rest of the Investors module.
     try {
-      const [events, settings, valuations] = await Promise.all([
+      const [events, settings] = await Promise.all([
         api.get("/ownership"),
         api.get("/ownership/settings"),
-        api.get("/ownership/valuations"),
       ]);
       setOwnershipEvents(events);
       setOwnershipMode(settings.approvalMode);
+    } catch (err) {
+      console.warn("FleetOpz: Ownership data unavailable:", err.message);
+    }
+
+    // Valuations are fetched on their own, NOT alongside the cap table above.
+    // Grouped, a backend that predates /ownership/valuations would fail the
+    // whole call and blank out the register too — which is a far worse failure
+    // than simply not knowing what the business is worth.
+    try {
+      const valuations = await api.get("/ownership/valuations");
       setCompanyValuation(valuations.current);
       setValuationHistory(valuations.history);
     } catch (err) {
-      console.warn("FleetOpz: Ownership data unavailable:", err.message);
+      console.warn("FleetOpz: Company valuation unavailable:", err.message);
     }
   };
 
@@ -600,13 +609,18 @@ export const useFleetData = () => {
     // A published round can itself set the company valuation (pre-money plus
     // the money that went in), so the two are always refetched together and
     // can never fall out of step.
-    const [events, valuations] = await Promise.all([
-      api.get("/ownership"),
-      api.get("/ownership/valuations"),
-    ]);
+    const events = await api.get("/ownership");
     setOwnershipEvents(events);
-    setCompanyValuation(valuations.current);
-    setValuationHistory(valuations.history);
+
+    // Same reasoning as the initial load: a valuation that cannot be read must
+    // not take the register down with it.
+    try {
+      const valuations = await api.get("/ownership/valuations");
+      setCompanyValuation(valuations.current);
+      setValuationHistory(valuations.history);
+    } catch (err) {
+      console.warn("FleetOpz: Company valuation unavailable:", err.message);
+    }
     return events;
   };
 
