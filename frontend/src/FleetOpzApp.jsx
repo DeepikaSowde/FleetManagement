@@ -1294,6 +1294,14 @@ export default function FleetOpzApp() {
         onCreateInvestor={fleetData.createInvestor}
         onUpdateInvestor={fleetData.updateInvestor}
         onCreateTransaction={fleetData.createInvestorTransaction}
+        ownershipEvents={fleetData.ownershipEvents}
+        ownershipMode={fleetData.ownershipMode}
+        onCreateOwnershipEvent={fleetData.createOwnershipEvent}
+        onSubmitOwnershipEvent={fleetData.submitOwnershipEvent}
+        onDecideOwnershipEvent={fleetData.decideOwnershipEvent}
+        onPublishOwnershipEvent={fleetData.publishOwnershipEvent}
+        onDeleteOwnershipEvent={fleetData.deleteOwnershipEvent}
+        onChangeOwnershipMode={fleetData.setOwnershipApprovalMode}
       />
     ),
     "cash-flow": (

@@ -506,6 +506,11 @@ export const useFleetData = () => {
   // Investors module data (investor profiles + their unified money ledger).
   const [investors, setInvestors] = useState([]);
   const [investorTx, setInvestorTx] = useState([]);
+  // The cap table — kept apart from the money ledger above, because ownership
+  // changes only through an agreed, dated event (see ownership_events on the
+  // server). `ownershipMode` is the tenant's sign-off setting.
+  const [ownershipEvents, setOwnershipEvents] = useState([]);
+  const [ownershipMode, setOwnershipMode] = useState("admin_attest");
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -563,6 +568,31 @@ export const useFleetData = () => {
     } catch (err) {
       console.warn("FleetOpz: Investors data unavailable:", err.message);
     }
+
+    // Cap table — separately guarded again, so an older backend without the
+    // /api/ownership routes still loads the rest of the Investors module.
+    try {
+      const [events, settings] = await Promise.all([
+        api.get("/ownership"),
+        api.get("/ownership/settings"),
+      ]);
+      setOwnershipEvents(events);
+      setOwnershipMode(settings.approvalMode);
+    } catch (err) {
+      console.warn("FleetOpz: Ownership data unavailable:", err.message);
+    }
+  };
+
+  // Ownership writes do NOT use the optimistic pattern the rest of this hook
+  // uses. The server enforces the rules that make the cap table trustworthy —
+  // holdings totalling 100%, sign-off before publishing, no back-dating behind
+  // the current table — and the admin has to SEE those refusals. So each of
+  // these awaits the server, refetches the events, and lets the error through
+  // to the page, which shows the server's message on the form.
+  const refetchOwnership = async () => {
+    const events = await api.get("/ownership");
+    setOwnershipEvents(events);
+    return events;
   };
 
   useEffect(() => { reload(); }, []);
@@ -995,6 +1025,54 @@ export const useFleetData = () => {
     const tx = persistInvestorTx(investorId, investorTx, data);
     setInvestorTx(prev => [...prev, tx]);
     return tx;
+  };
+
+  // ── CAP TABLE OPERATIONS ──────────────────────────────────────────────────
+  // Each returns the server's answer and throws on refusal; the Ownership page
+  // awaits them and renders err.message beside the offending field.
+  const createOwnershipEvent = async (payload) => {
+    const event = await api.post("/ownership", { id: nextSeqId("OWN", ownershipEvents), ...payload });
+    await refetchOwnership();
+    return event;
+  };
+
+  const updateOwnershipEvent = async (id, payload) => {
+    const event = await api.put(`/ownership/${id}`, payload);
+    await refetchOwnership();
+    return event;
+  };
+
+  // Draft → Pending; the server seeds the approval list with the holders as
+  // they stood before this event.
+  const submitOwnershipEvent = async (id) => {
+    const event = await api.post(`/ownership/${id}/submit`);
+    await refetchOwnership();
+    return event;
+  };
+
+  // One investor's Accepted/Rejected answer on a pending change.
+  const decideOwnershipEvent = async (id, investorId, decision, note) => {
+    const event = await api.post(`/ownership/${id}/decide`, { investorId, decision, note });
+    await refetchOwnership();
+    return event;
+  };
+
+  // → Effective. From here the table is history and can only be superseded.
+  const publishOwnershipEvent = async (id, attestation) => {
+    const event = await api.post(`/ownership/${id}/publish`, { attestation });
+    await refetchOwnership();
+    return event;
+  };
+
+  const deleteOwnershipEvent = async (id) => {
+    await api.del(`/ownership/${id}`);
+    await refetchOwnership();
+  };
+
+  const setOwnershipApprovalMode = async (approvalMode) => {
+    const saved = await api.put("/ownership/settings", { approvalMode });
+    setOwnershipMode(saved.approvalMode);
+    return saved.approvalMode;
   };
 
   // Investors reshaped for the Investors page: display id + since + embedded txns.
@@ -1503,6 +1581,17 @@ export const useFleetData = () => {
     updateInvestor,
     deleteInvestor,
     createInvestorTransaction,
+
+    // Cap table (ownership events + sign-off)
+    ownershipEvents,
+    ownershipMode,
+    createOwnershipEvent,
+    updateOwnershipEvent,
+    submitOwnershipEvent,
+    decideOwnershipEvent,
+    publishOwnershipEvent,
+    deleteOwnershipEvent,
+    setOwnershipApprovalMode,
 
     // Restricted-license (blocklist) operations
     restrictedLicenses,

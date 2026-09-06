@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import InvestorNavLedger from "./InvestorNavLedger";
+import Ownership from "./Ownership";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
@@ -1228,6 +1229,16 @@ export default function Investors({
   onCreateInvestor,
   onUpdateInvestor,
   onCreateTransaction,
+  // Cap table — ownership lives in its own record, not in the money ledger
+  // above, so a dividend can never move a percentage. See Ownership.jsx.
+  ownershipEvents = [],
+  ownershipMode = "admin_attest",
+  onCreateOwnershipEvent,
+  onSubmitOwnershipEvent,
+  onDecideOwnershipEvent,
+  onPublishOwnershipEvent,
+  onDeleteOwnershipEvent,
+  onChangeOwnershipMode,
 }) {
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'list' | 'detail'
   const [selectedId, setSelectedId] = useState(null);
@@ -1299,6 +1310,7 @@ export default function Investors({
           {[
             { key: "dashboard", label: "Overview Dashboard" },
             { key: "list", label: "All Investors" },
+            { key: "ownership", label: "Ownership" },
           ].map((t) => (
             <button
               key={t.key}
@@ -1382,6 +1394,20 @@ export default function Investors({
           onAddInvestor={openAddInvestor}
           onReinvest={openReinvest}
           onExport={exportCSV}
+        />
+      )}
+
+      {view === "ownership" && (
+        <Ownership
+          investors={investors}
+          events={ownershipEvents}
+          mode={ownershipMode}
+          onCreateEvent={onCreateOwnershipEvent}
+          onSubmitEvent={onSubmitOwnershipEvent}
+          onDecideEvent={onDecideOwnershipEvent}
+          onPublishEvent={onPublishOwnershipEvent}
+          onDeleteEvent={onDeleteOwnershipEvent}
+          onChangeMode={onChangeOwnershipMode}
         />
       )}
 
