@@ -1254,16 +1254,39 @@ export default function Investors({
   const portfolioXIRR = useMemo(() => computePortfolioXIRR(investors), [investors]);
   const selectedInvestor = investors.find((i) => i.id === selectedId) || null;
 
+  // Adding an investor puts their profile and their money in — it does NOT move
+  // anyone's percentage, because that is an agreement, not a consequence of a
+  // payment. So the two flows hand off: once the investor exists, we go
+  // straight to Ownership with the change part-filled, rather than leaving the
+  // register quietly out of date until someone remembers to update it.
+  const [ownershipPrefill, setOwnershipPrefill] = useState(null);
+
   const openAddInvestor = () => { setEditingInvestor(null); setShowInvestorModal(true); };
   const openEditInvestor = (inv) => { setEditingInvestor(inv); setShowInvestorModal(true); };
   const saveInvestor = (data) => {
     if (editingInvestor) {
       onUpdateInvestor?.(editingInvestor.id, { name: data.name, investorId: data.investorId, status: data.status });
-    } else {
-      onCreateInvestor?.(data);
+      setShowInvestorModal(false);
+      setEditingInvestor(null);
+      return;
     }
+
+    const created = onCreateInvestor?.(data);
     setShowInvestorModal(false);
     setEditingInvestor(null);
+
+    if (created?.id) {
+      setOwnershipPrefill({
+        // The very first entry is the opening table; after that, a new investor
+        // joining an existing one.
+        type: ownershipEvents.length === 0 ? "Opening" : "New Investor",
+        effectiveDate: data.since,
+        newMoneyAmount: data.transactions?.[0]?.amount || null,
+        newMoneyInvestorId: created.id,
+        note: `${data.name} was added with ${data.transactions?.[0]?.amount ? "₹" + Math.round(data.transactions[0].amount).toLocaleString("en-IN") : "no opening amount"}. Set what everyone holds now, and have it agreed.`,
+      });
+      setView("ownership");
+    }
   };
 
   const openAddTransaction = (investorId, presetType) => {
@@ -1279,6 +1302,20 @@ export default function Investors({
   const saveTransaction = (data) => {
     onCreateTransaction?.(txnTargetId, data);
     setShowTxnModal(false);
+
+    // A reinvestment is the other case where money arriving may have been
+    // agreed to buy a different share. Offer the change; don't assume it.
+    if (data.type === TXN_TYPES.REINVESTMENT) {
+      const who = investors.find((i) => i.id === txnTargetId);
+      setOwnershipPrefill({
+        type: "Reinvestment",
+        effectiveDate: data.date,
+        newMoneyAmount: Number(data.amount) || null,
+        newMoneyInvestorId: txnTargetId,
+        note: `${who?.name || "This investor"} reinvested ₹${Math.round(Number(data.amount) || 0).toLocaleString("en-IN")}. If the group agreed this changes the split, set the new percentages here — if it was at their existing share, close this and nothing changes.`,
+      });
+      setView("ownership");
+    }
   };
 
   const viewInvestor = (id) => { setSelectedId(id); setView("detail"); };
@@ -1408,6 +1445,8 @@ export default function Investors({
           onPublishEvent={onPublishOwnershipEvent}
           onDeleteEvent={onDeleteOwnershipEvent}
           onChangeMode={onChangeOwnershipMode}
+          prefill={ownershipPrefill}
+          onPrefillConsumed={() => setOwnershipPrefill(null)}
         />
       )}
 

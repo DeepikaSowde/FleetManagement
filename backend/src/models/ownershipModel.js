@@ -423,6 +423,52 @@ async function remove(id) {
   return rowCount > 0;
 }
 
+// Everything one investor is entitled to see: their own stake and money, plus
+// the ownership history they are a party to. Co-owners' percentages ARE part
+// of that — you cannot check your own 16% without seeing whose 84% it sits
+// against — but nobody else's contact details or cash ledger are included.
+async function forInvestor(investorId) {
+  const investor = await db.query("SELECT id, name, investor_since FROM investors WHERE id = $1", [investorId]);
+  if (!investor.rows[0]) return null;
+
+  // A draft is not yet anybody's business — it is a proposal the admin is
+  // still writing. Pending, Effective and Rejected all are: the investor is
+  // being asked about it, agreed it, or turned it down.
+  const visible = (await getAll()).filter((e) => e.state !== "Draft");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const current = await holdingsAsOf(today);
+  const mine = current.holdings.find((h) => h.investorId === investorId);
+
+  const { rows: txRows } = await db.query(
+    `SELECT id, date, type, flow, amount, description, status
+     FROM investor_transactions WHERE investor_id = $1
+     ORDER BY date ASC, created_at ASC`,
+    [investorId]
+  );
+
+  return {
+    investor: {
+      id: investor.rows[0].id,
+      name: investor.rows[0].name,
+      investorSince: investor.rows[0].investor_since,
+    },
+    currentPct: mine ? mine.pct : 0,
+    currentTable: current.holdings,
+    asOf: today,
+    events: visible,
+    // What is waiting on them right now.
+    pending: visible.filter(
+      (e) => e.state === "Pending" &&
+        (e.approvals || []).some((a) => a.investorId === investorId && a.decision === "Pending")
+    ),
+    transactions: txRows.map((t) => ({
+      id: t.id, date: t.date, type: t.type, flow: t.flow,
+      amount: Number(t.amount), description: t.description, status: t.status,
+    })),
+  };
+}
+
 // True when the investor appears in any Effective cap table — the investor
 // controller uses this to explain why such a profile cannot be deleted.
 async function investorIsInCapTable(investorId) {
@@ -437,7 +483,7 @@ async function investorIsInCapTable(investorId) {
 }
 
 module.exports = {
-  getAll, getById, holdingsAsOf, create, update, submit, decide, publish, remove,
+  getAll, getById, holdingsAsOf, create, update, submit, decide, publish, remove, forInvestor,
   investorIsInCapTable, validateHoldings,
   EVENT_TYPES, STATES, APPROVAL_MODES, SUM_TOLERANCE,
 };

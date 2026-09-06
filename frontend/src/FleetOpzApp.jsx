@@ -465,9 +465,12 @@ export default function FleetOpzApp() {
   // Real auth: the logged-in user comes from AuthContext (JWT-backed). Role
   // gates (like who can see Restricted Driving Licenses) read currentUserRole,
   // which we map from the backend role ("admin"/"staff") to the label the UI
-  // already uses ("Admin"/"Staff").
+  // already uses ("Admin"/"Staff"/"Investor"). An investor never reaches this
+  // component — main.jsx routes them to InvestorPortal — but the map stays
+  // exhaustive so a new role can never silently land on Staff.
   const { user, logout } = useAuth();
-  const currentUserRole = user?.role === "admin" ? "Admin" : "Staff";
+  const ROLE_LABELS = { admin: "Admin", investor: "Investor", staff: "Staff" };
+  const currentUserRole = ROLE_LABELS[String(user?.role).toLowerCase()] || "Staff";
   // Attribution for the per-booking audit log — the real logged-in user.
   const actorName = `${user?.name || user?.username || "System"} (${currentUserRole})`;
   const auditEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actorName, detail });
@@ -1133,7 +1136,8 @@ export default function FleetOpzApp() {
     name: "",
     username: "",
     password: "",
-    role: "Staff"
+    role: "Staff",
+    investorId: ""
   });
 
   // Order matters: the sidebar groups by index — Operations = slice(0,6),
@@ -1711,15 +1715,22 @@ export default function FleetOpzApp() {
       alert("Name, username and password are required.");
       return;
     }
+    // An Investor login is a view onto one investor's record, so it is
+    // meaningless — and the server refuses it — without that link.
+    if (newUserData.role === "Investor" && !newUserData.investorId) {
+      alert("Choose which investor this login belongs to.");
+      return;
+    }
     try {
       await api.post("/auth/register", {
         name: newUserData.name,
         username: newUserData.username,
         password: newUserData.password,
-        role: newUserData.role.toLowerCase(), // backend stores "admin" | "staff"
+        role: newUserData.role.toLowerCase(), // backend stores "admin" | "staff" | "investor"
+        investorId: newUserData.role === "Investor" ? newUserData.investorId : null,
       });
       alert(`User created: ${newUserData.name} (${newUserData.role})`);
-      setNewUserData({ name: "", username: "", password: "", role: "Staff" });
+      setNewUserData({ name: "", username: "", password: "", role: "Staff", investorId: "" });
       setShowNewUser(false);
     } catch (err) {
       alert(err.message || "Failed to create user");
@@ -3359,9 +3370,24 @@ export default function FleetOpzApp() {
           onChange={(e) => setNewUserData({ ...newUserData, role: e.target.value })}
           options={[
             { value: "Admin", label: "Admin" },
-            { value: "Staff", label: "Staff" }
+            { value: "Staff", label: "Staff" },
+            { value: "Investor", label: "Investor — own investment record only" }
           ]}
         />
+        {newUserData.role === "Investor" && (
+          <>
+            <Select
+              label="Which investor is this?"
+              value={newUserData.investorId || ""}
+              onChange={(e) => setNewUserData({ ...newUserData, investorId: e.target.value })}
+              options={(fleetData.investorsWithTx || []).map((i) => ({ value: i.id, label: i.name }))}
+            />
+            <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: -8, marginBottom: 4 }}>
+              They will sign in to their own screen showing their holding, the changes waiting on
+              their agreement, and the full ownership history — and nothing else in FleetOpz.
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );

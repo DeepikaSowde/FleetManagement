@@ -96,11 +96,39 @@ async function submit(req, res, next) {
   }
 }
 
+// GET /api/ownership/me — everything the signed-in investor is entitled to
+// see. This is the only ownership route an investor account can reach.
+async function mine(req, res, next) {
+  try {
+    const investorId = req.user?.investorId;
+    if (!investorId) {
+      return res.status(403).json({ message: "This account is not linked to an investor" });
+    }
+    const data = await Ownership.forInvestor(investorId);
+    if (!data) return res.status(404).json({ message: "Investor not found" });
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // One investor accepting or rejecting a pending change.
+//
+// An investor signing in for themselves can only ever answer as themselves —
+// the id in the body is ignored for them, so a crafted request cannot vote on
+// someone else's behalf. An admin may still record an answer for an investor
+// who gave it offline, which is what the other two approval modes rely on.
 async function decide(req, res, next) {
   try {
-    const { investorId, decision, note } = req.body;
-    if (!investorId) return res.status(400).json({ message: "investorId is required" });
+    const isInvestor = String(req.user?.role || "").toLowerCase() === "investor";
+    const { decision, note } = req.body;
+    const investorId = isInvestor ? req.user.investorId : req.body.investorId;
+
+    if (!investorId) {
+      return res.status(400).json({
+        message: isInvestor ? "This account is not linked to an investor" : "investorId is required",
+      });
+    }
 
     const evt = await Ownership.decide(req.params.id, investorId, decision, note);
     if (!evt) return res.status(404).json({ message: "Ownership event not found" });
@@ -185,6 +213,6 @@ async function updateSettings(req, res, next) {
 }
 
 module.exports = {
-  list, getOne, holdings, create, update, submit, decide, publish, remove,
+  list, getOne, holdings, mine, create, update, submit, decide, publish, remove,
   getSettings, updateSettings,
 };

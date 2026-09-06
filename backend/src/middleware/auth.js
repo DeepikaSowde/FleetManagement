@@ -21,6 +21,22 @@ function requireAuth(req, res, next) {
   }
 }
 
+// Best-effort decode, used by the app-level investor scope gate so it has a
+// role to look at before any router runs. Never rejects — requireAuth on each
+// route is still what enforces authentication.
+function attachUser(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (token) {
+    try {
+      req.user = jwt.verify(token, process.env.JWT_SECRET);
+    } catch {
+      // Leave req.user unset; the route's own requireAuth will return 401.
+    }
+  }
+  next();
+}
+
 // Optional role gate, e.g. requireRole("admin"). Use after requireAuth.
 function requireRole(...roles) {
   return (req, res, next) => {
@@ -31,4 +47,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireAuth, requireRole };
+module.exports = { requireAuth, requireRole, attachUser };

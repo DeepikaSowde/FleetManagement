@@ -7,6 +7,7 @@ router.use(requireAuth);
 
 // Fixed paths first, so they are not swallowed by /:id below.
 router.get("/holdings", ctrl.holdings);          // GET    /api/ownership/holdings?asOf=YYYY-MM-DD
+router.get("/me", ctrl.mine);                    // GET    /api/ownership/me   (investor's own record)
 router.get("/settings", ctrl.getSettings);       // GET    /api/ownership/settings
 router.put("/settings", ctrl.updateSettings);    // PUT    /api/ownership/settings
 

@@ -5,10 +5,13 @@ import { Card, CardHeader, Btn, Badge, Modal, Input, Select } from "./components
 // ── STATIC REFERENCE DATA ───────────────────────────────────────────────────
 // Role metadata (icon/description) for the Role & Permission tab's role
 // selector. Keys match user.role values exactly ("Admin" / "Staff") so no
-// case-mapping is needed anywhere permissions are looked up.
+// case-mapping is needed anywhere permissions are looked up. An Investor sees
+// nothing but their own stake, and the API enforces that independently of this
+// grid (backend/src/middleware/investorScope.js) — the grid only describes it.
 const ROLE_META = [
   { id: "Admin", name: "Admin", desc: "Full system access", icon: "👑" },
   { id: "Staff", name: "Staff", desc: "Daily rental operations", icon: "🧑" },
+  { id: "Investor", name: "Investor", desc: "Own investment record only", icon: "📈" },
 ];
 
 // Canonical module list for the Role & Permission matrix — every OPERATIONS
@@ -68,7 +71,10 @@ const StatusDot = ({ active }) => (
 );
 
 const RolePill = ({ role }) => (
-  <Badge color={role === "Admin" ? "#6d5bd0" : "#2563eb"} bg={role === "Admin" ? "#efeafb" : "#eaf1ff"}>{role}</Badge>
+  <Badge
+    color={role === "Admin" ? "#6d5bd0" : role === "Investor" ? "#15803D" : "#2563eb"}
+    bg={role === "Admin" ? "#efeafb" : role === "Investor" ? "#E7F7EE" : "#eaf1ff"}
+  >{role}</Badge>
 );
 
 const ActionBadge = ({ action }) => {

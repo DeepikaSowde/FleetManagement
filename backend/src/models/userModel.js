@@ -3,14 +3,14 @@
 const db = require("../config/db");
 
 // Columns safe to return to the client (never the password hash).
-const SAFE_COLS = "id, name, username, email, role, status, last_login, created_at";
+const SAFE_COLS = "id, name, username, email, role, status, investor_id, last_login, created_at";
 
-async function createUser({ name, username, email = null, passwordHash, role, status = "Active" }) {
+async function createUser({ name, username, email = null, passwordHash, role, status = "Active", investorId = null }) {
   const { rows } = await db.query(
-    `INSERT INTO users (name, username, email, password, role, status)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (name, username, email, password, role, status, investor_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING ${SAFE_COLS}`,
-    [name, username, email, passwordHash, role || "admin", status]
+    [name, username, email, passwordHash, role || "admin", status, investorId]
   );
   return rows[0];
 }
@@ -37,7 +37,7 @@ async function listUsers() {
 // changed. `password` (already hashed by the controller) maps to the password
 // column. Returns the updated safe row, or null if the id doesn't exist.
 async function updateUser(id, updates) {
-  const map = { name: "name", username: "username", email: "email", role: "role", status: "status", passwordHash: "password" };
+  const map = { name: "name", username: "username", email: "email", role: "role", status: "status", investorId: "investor_id", passwordHash: "password" };
   const sets = [];
   const vals = [];
   let i = 1;

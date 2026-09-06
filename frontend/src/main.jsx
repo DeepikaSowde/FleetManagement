@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import FleetOpzApp from "./FleetOpzApp";
+import InvestorPortal from "./InvestorPortal";
 import Login from "./Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { C } from "./theme";
@@ -21,7 +22,14 @@ function Root() {
     );
   }
 
-  return user ? <FleetOpzApp /> : <Login />;
+  if (!user) return <Login />;
+
+  // An investor gets their own screen, not the fleet app with parts hidden.
+  // The API refuses an investor account every business endpoint, so mounting
+  // FleetOpzApp for them would only produce a wall of 403s.
+  if (String(user.role).toLowerCase() === "investor") return <InvestorPortal />;
+
+  return <FleetOpzApp />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(

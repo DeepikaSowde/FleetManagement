@@ -7,7 +7,7 @@ const audit = require("../models/auditLogModel");
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role },
+    { id: user.id, username: user.username, role: user.role, investorId: user.investor_id ?? user.investorId ?? null },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
@@ -15,7 +15,7 @@ function signToken(user) {
 
 async function register(req, res, next) {
   try {
-    const { name, username, password, role } = req.body;
+    const { name, username, password, role, investorId } = req.body;
     if (!name || !username || !password) {
       return res.status(400).json({ message: "name, username and password are required" });
     }
@@ -24,7 +24,11 @@ async function register(req, res, next) {
       return res.status(409).json({ message: "Username already taken" });
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.createUser({ name, username, passwordHash, role });
+    // An investor login is meaningless without the investor it belongs to.
+    if (String(role).toLowerCase() === "investor" && !investorId) {
+      return res.status(400).json({ message: "An Investor login must be linked to an investor" });
+    }
+    const user = await User.createUser({ name, username, passwordHash, role, investorId: investorId ?? null });
     const token = signToken(user);
     res.status(201).json({ token, user });
   } catch (err) {
@@ -49,7 +53,7 @@ async function login(req, res, next) {
     const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || null;
     audit.add({ userName: user.name, module: "Login", action: "Login", description: "User logged in", ip }).catch(() => {});
 
-    const safeUser = { id: user.id, name: user.name, username: user.username, role: user.role };
+    const safeUser = { id: user.id, name: user.name, username: user.username, role: user.role, investorId: user.investor_id ?? null };
     const token = signToken(safeUser);
     res.json({ token, user: safeUser });
   } catch (err) {

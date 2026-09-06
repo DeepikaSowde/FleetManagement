@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
 import { Btn, Input, Select } from "./components";
 
@@ -234,12 +234,14 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 // Mounted only while open (the caller renders it conditionally), so every open
 // starts from the table as it actually stands rather than from whatever was
 // half-typed last time.
-function EventFormModal({ investors, currentHoldings, onClose, onSave }) {
-  const [type, setType] = useState("New Investor");
-  const [effectiveDate, setEffectiveDate] = useState(todayIso());
+function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }) {
+  const [type, setType] = useState(prefill?.type || "New Investor");
+  const [effectiveDate, setEffectiveDate] = useState(prefill?.effectiveDate || todayIso());
   const [reason, setReason] = useState("");
-  const [newMoneyAmount, setNewMoneyAmount] = useState("");
-  const [newMoneyInvestorId, setNewMoneyInvestorId] = useState("");
+  const [newMoneyAmount, setNewMoneyAmount] = useState(
+    prefill?.newMoneyAmount ? String(prefill.newMoneyAmount) : ""
+  );
+  const [newMoneyInvestorId, setNewMoneyInvestorId] = useState(prefill?.newMoneyInvestorId || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -318,6 +320,11 @@ function EventFormModal({ investors, currentHoldings, onClose, onSave }) {
         </div>
 
         <div style={{ padding: 24 }}>
+          {prefill?.note && (
+            <div style={{ background: C.amberFaint, borderLeft: `3px solid ${C.amber}`, borderRadius: "0 8px 8px 0", padding: "11px 14px", marginBottom: 18, fontSize: 12.5, color: C.textSec }}>
+              {prefill.note}
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
             <Select label="Type" value={type} onChange={(e) => setType(e.target.value)}
               options={EVENT_TYPES.map((t) => ({ value: t, label: t }))} />
@@ -579,8 +586,16 @@ export default function Ownership({
   onPublishEvent,
   onDeleteEvent,
   onChangeMode,
+  // Set when the admin arrives here straight from adding an investor or
+  // recording a reinvestment, so the change is part-filled rather than retyped.
+  prefill = null,
+  onPrefillConsumed,
 }) {
   const [showForm, setShowForm] = useState(false);
+
+  // Arriving with a prefill opens the form on its own — that hand-off is the
+  // whole point of it.
+  useEffect(() => { if (prefill) setShowForm(true); }, [prefill]);
   const [attestFor, setAttestFor] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
@@ -723,7 +738,8 @@ export default function Ownership({
         <EventFormModal
           investors={investors}
           currentHoldings={current}
-          onClose={() => setShowForm(false)}
+          prefill={prefill}
+          onClose={() => { setShowForm(false); onPrefillConsumed?.(); }}
           onSave={onCreateEvent}
         />
       )}

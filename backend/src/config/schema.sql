@@ -351,3 +351,28 @@ CREATE TABLE IF NOT EXISTS ownership_event_approvals (
   UNIQUE (event_id, investor_id)
 );
 CREATE INDEX IF NOT EXISTS idx_ownership_approvals_event ON ownership_event_approvals (event_id);
+
+-- ── INVESTOR LOGINS ─────────────────────────────────────────────────────────
+-- A user row with role 'investor' is tied to exactly one investor, so their
+-- session can be scoped to their own stake. Added here (not next to the users
+-- table) because the FK needs investors to exist first.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS investor_id VARCHAR(20)
+  REFERENCES investors(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_users_investor ON users (investor_id);
+
+-- Investor permission grid. An investor sees the Investors module and nothing
+-- else; the API enforces this independently (see middleware/investorScope.js),
+-- so this grid is what the User Management screen displays, not the gate.
+INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_delete) VALUES
+  ('Investor','Dashboard',       false,false,false,false),
+  ('Investor','Fleet',           false,false,false,false),
+  ('Investor','Bookings',        false,false,false,false),
+  ('Investor','Earnings',        false,false,false,false),
+  ('Investor','Expenses',        false,false,false,false),
+  ('Investor','P&L',             false,false,false,false),
+  ('Investor','Alerts',          false,false,false,false),
+  ('Investor','Ledger',          false,false,false,false),
+  ('Investor','Cash Flow',       false,false,false,false),
+  ('Investor','Deposit Refunds', false,false,false,false),
+  ('Investor','Investors',       true, false,false,false)
+ON CONFLICT (role, module) DO NOTHING;

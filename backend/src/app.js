@@ -19,12 +19,20 @@ const investorRoutes = require("./routes/investorRoutes");
 const investorTxRoutes = require("./routes/investorTxRoutes");
 const ownershipRoutes = require("./routes/ownershipRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
+const { attachUser } = require("./middleware/auth");
+const { investorScope } = require("./middleware/investorScope");
 
 const app = express();
 
 // ── Global middleware ───────────────────────────────────────────────────────
 app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
 app.use(express.json({ limit: "2mb" })); // parse JSON request bodies
+
+// Identify the caller once, then confine investor logins to their own record
+// before any router runs — deny-by-default, so a route added later is covered
+// without anyone having to remember to guard it.
+app.use(attachUser);
+app.use(investorScope);
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
