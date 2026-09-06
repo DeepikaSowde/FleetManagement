@@ -30,6 +30,10 @@ const MODE_LABELS = {
   investor_signoff: "Every holder must accept",
 };
 
+// One accent for money, so a rupee figure always reads the same way wherever
+// it appears on this screen.
+const IC_VALUE = C.teal;
+
 // Colour follows the investor, never their rank, so adding someone new never
 // repaints anyone else. Assigned by position in the investor list, which is
 // stable (the backend orders investors by created_at).
@@ -608,6 +612,76 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
   );
 }
 
+/* ============================================================ VALUATION MODAL === */
+// One figure for the whole business. Everyone's stake is a percentage of it, so
+// asking for it once is what keeps the parts adding up to the whole — and stops
+// two investors being priced on two different bases.
+function ValuationModal({ suggested, onClose, onSave }) {
+  const [amount, setAmount] = useState(suggested ? String(suggested) : "");
+  const [asOf, setAsOf] = useState(todayIso());
+  const [basis, setBasis] = useState("");
+  const [agreedBy, setAgreedBy] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const value = parseFloat(amount) || 0;
+
+  const go = async () => {
+    setError("");
+    if (value <= 0) return setError("Enter what the investors agreed the business is worth.");
+    if (!asOf) return setError("Pick the date this valuation applies from.");
+    setBusy(true);
+    try {
+      await onSave({ asOf, amount: value, basis: basis || null, agreedBy: agreedBy || null });
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 210 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: C.surface, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.15)", zIndex: 211, width: "min(520px, calc(100vw - 24px))", maxHeight: "90vh", overflowY: "auto" }}>
+        <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>What is the business worth?</div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 3 }}>
+            One agreed figure for the whole company. Each investor's stake is worth their
+            percentage of it.
+          </div>
+        </div>
+        <div style={{ padding: 24 }}>
+          <Input label="Agreed value of the whole business (₹)" type="number" value={amount}
+            onChange={(e) => setAmount(e.target.value)} placeholder="e.g., 18000000" />
+          {value > 0 && (
+            <div style={{ fontSize: 12, color: C.textSec, marginTop: -8, marginBottom: 16 }}>
+              That is <b style={{ color: C.navy }}>{fmtCrLakh(value)}</b>.
+            </div>
+          )}
+          <Input label="Applies from" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          <Input label="How you arrived at it" value={basis} onChange={(e) => setBasis(e.target.value)}
+            placeholder="e.g., 9 vehicles at market less the loan, plus a year's earnings" />
+          <Input label="Agreed by" value={agreedBy} onChange={(e) => setAgreedBy(e.target.value)}
+            placeholder="e.g., All four investors, meeting of 12 Apr" />
+          <div style={{ fontSize: 11.5, color: C.textMuted }}>
+            FleetOpz does not work this number out — it is yours, and it is recorded with the basis
+            you give so an investor can see later where it came from.
+          </div>
+          {error && (
+            <div style={{ background: C.redFaint, color: C.red, fontSize: 12, padding: "9px 12px", borderRadius: 8, marginTop: 12 }}>{error}</div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "20px 24px", borderTop: `1px solid ${C.border}` }}>
+          <Btn secondary onClick={onClose}>Cancel</Btn>
+          <Btn primary onClick={go} disabled={busy}>{busy ? "Saving…" : "Record valuation"}</Btn>
+        </div>
+      </div>
+    </>
+  );
+}
+
 /* ============================================================= ATTESTATION MODAL === */
 // admin_attest mode: publishing is gated on recording who agreed and how.
 function AttestModal({ onClose, onConfirm }) {
@@ -799,6 +873,7 @@ export default function Ownership({
   // whole point of it.
   useEffect(() => { if (prefill) setShowForm(true); }, [prefill]);
   const [attestFor, setAttestFor] = useState(null);
+  const [showValuation, setShowValuation] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
 
@@ -879,6 +954,35 @@ export default function Ownership({
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
+          {/* What the business is worth. One agreed figure, and every stake
+              below is priced off it. */}
+          <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                Agreed value of the business
+              </div>
+              {companyValuation ? (
+                <>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: C.navy, marginTop: 6, lineHeight: 1.15 }}>
+                    {fmtINR(companyValuation.amount)}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>
+                    {fmtCrLakh(companyValuation.amount)} · as at {fmtDate(companyValuation.asOf)} · {companyValuation.source}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 8, maxWidth: 460 }}>
+                  Nothing agreed yet, so the stakes below show a percentage but no rupee value.
+                  Record what the investors agree the whole business is worth and every stake is
+                  priced from it.
+                </div>
+              )}
+            </div>
+            <Btn onClick={() => setShowValuation(true)}>
+              {companyValuation ? "Update valuation" : "+ Record company valuation"}
+            </Btn>
+          </div>
+
           {/* Current table, read from the latest published entry. */}
           <div style={{ ...card }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
@@ -892,7 +996,7 @@ export default function Ownership({
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {current.map((h) => (
-                  <div key={h.investorId} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 190px) 1fr 68px", alignItems: "center", gap: 12 }}>
+                  <div key={h.investorId} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.textPri }}>
                       <Swatch color={colorOf(h.investorId)} />
                       {h.investorName}
@@ -901,11 +1005,65 @@ export default function Ownership({
                       <span style={{ display: "block", height: "100%", width: `${h.pct}%`, background: colorOf(h.investorId), borderRadius: "0 3px 3px 0" }} />
                     </span>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmtPct(h.pct)}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: companyValuation ? IC_VALUE : C.textMuted, textAlign: "right" }}>
+                      {companyValuation ? fmtINR((h.pct / 100) * companyValuation.amount) : "—"}
+                    </span>
                   </div>
                 ))}
+                {companyValuation && (
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12, borderTop: `1px solid ${C.border}`, paddingTop: 9, marginTop: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.textMuted }}>Whole business</span>
+                    <span />
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>100.00%</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: C.navy, textAlign: "right" }}>
+                      {fmtINR(companyValuation.amount)}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
+
+          {valuationHistory.length > 0 && (
+            <div style={{ ...card }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: C.navy, marginBottom: 4 }}>Valuations recorded</div>
+              <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
+                Newest first. A published round that carried an agreed valuation also sets one, at its
+                own date.
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>As at</th>
+                      <th style={{ ...th, textAlign: "right" }}>Whole business</th>
+                      <th style={th}>Basis</th>
+                      <th style={th}>Agreed by</th>
+                      <th style={th} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {valuationHistory.map((v) => (
+                      <tr key={v.id}>
+                        <td style={td}>{fmtDate(v.asOf)}</td>
+                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtINR(v.amount)}</td>
+                        <td style={{ ...td, color: C.textMuted }}>{v.basis || "—"}</td>
+                        <td style={{ ...td, color: C.textMuted }}>{v.agreedBy || "—"}</td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          <button
+                            onClick={() => run(v.id, () => onDeleteValuation(v.id))}
+                            style={{ background: "none", border: "none", color: C.textMuted, fontSize: 11.5, cursor: "pointer", textDecoration: "underline" }}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <OwnershipTimeline events={events} investors={investors} colorOf={colorOf} />
 
@@ -943,6 +1101,14 @@ export default function Ownership({
           prefill={prefill}
           onClose={() => { setShowForm(false); onPrefillConsumed?.(); }}
           onSave={onCreateEvent}
+        />
+      )}
+
+      {showValuation && (
+        <ValuationModal
+          suggested={companyValuation ? companyValuation.amount : null}
+          onClose={() => setShowValuation(false)}
+          onSave={onCreateValuation}
         />
       )}
 

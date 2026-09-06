@@ -511,6 +511,10 @@ export const useFleetData = () => {
   // server). `ownershipMode` is the tenant's sign-off setting.
   const [ownershipEvents, setOwnershipEvents] = useState([]);
   const [ownershipMode, setOwnershipMode] = useState("admin_attest");
+  // What the investors agreed the WHOLE business is worth. Each stake is that
+  // percentage of it, so there is one figure, not one per investor.
+  const [companyValuation, setCompanyValuation] = useState(null);
+  const [valuationHistory, setValuationHistory] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -572,12 +576,15 @@ export const useFleetData = () => {
     // Cap table — separately guarded again, so an older backend without the
     // /api/ownership routes still loads the rest of the Investors module.
     try {
-      const [events, settings] = await Promise.all([
+      const [events, settings, valuations] = await Promise.all([
         api.get("/ownership"),
         api.get("/ownership/settings"),
+        api.get("/ownership/valuations"),
       ]);
       setOwnershipEvents(events);
       setOwnershipMode(settings.approvalMode);
+      setCompanyValuation(valuations.current);
+      setValuationHistory(valuations.history);
     } catch (err) {
       console.warn("FleetOpz: Ownership data unavailable:", err.message);
     }
@@ -590,8 +597,16 @@ export const useFleetData = () => {
   // these awaits the server, refetches the events, and lets the error through
   // to the page, which shows the server's message on the form.
   const refetchOwnership = async () => {
-    const events = await api.get("/ownership");
+    // A published round can itself set the company valuation (pre-money plus
+    // the money that went in), so the two are always refetched together and
+    // can never fall out of step.
+    const [events, valuations] = await Promise.all([
+      api.get("/ownership"),
+      api.get("/ownership/valuations"),
+    ]);
     setOwnershipEvents(events);
+    setCompanyValuation(valuations.current);
+    setValuationHistory(valuations.history);
     return events;
   };
 
@@ -1066,6 +1081,17 @@ export const useFleetData = () => {
 
   const deleteOwnershipEvent = async (id) => {
     await api.del(`/ownership/${id}`);
+    await refetchOwnership();
+  };
+
+  const createValuation = async (payload) => {
+    const saved = await api.post("/ownership/valuations", { id: nextSeqId("VAL", valuationHistory), ...payload });
+    await refetchOwnership();
+    return saved;
+  };
+
+  const deleteValuation = async (id) => {
+    await api.del(`/ownership/valuations/${id}`);
     await refetchOwnership();
   };
 
@@ -1582,9 +1608,13 @@ export const useFleetData = () => {
     deleteInvestor,
     createInvestorTransaction,
 
-    // Cap table (ownership events + sign-off)
+    // Cap table (ownership events + sign-off) and the agreed company valuation
     ownershipEvents,
     ownershipMode,
+    companyValuation,
+    valuationHistory,
+    createValuation,
+    deleteValuation,
     createOwnershipEvent,
     updateOwnershipEvent,
     submitOwnershipEvent,

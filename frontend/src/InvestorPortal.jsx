@@ -326,6 +326,23 @@ export default function InvestorPortal() {
           <div style={{ fontSize: 30, fontWeight: 800, color: C.navy, marginTop: 6, lineHeight: 1.1 }}>{fmtPct(data.currentPct)}</div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>as at {fmtDate(data.asOf)}</div>
         </div>
+        {/* Their share of the ONE valuation the group agreed — shown with the
+            company figure it came from, so the sum is checkable by eye. */}
+        <div style={{ ...card }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>Your stake is worth</div>
+          {data.currentValue !== null && data.currentValue !== undefined ? (
+            <>
+              <div style={{ fontSize: 22, fontWeight: 800, color: C.navy, marginTop: 8 }}>{fmtINR(data.currentValue)}</div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                {fmtPct(data.currentPct)} of {fmtINR(data.valuation.amount)}, agreed as at {fmtDate(data.valuation.asOf)}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>
+              No company valuation has been agreed yet, so your stake is not priced.
+            </div>
+          )}
+        </div>
         <div style={{ ...card }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>You have invested</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: C.navy, marginTop: 8 }}>{fmtINR(totalIn)}</div>

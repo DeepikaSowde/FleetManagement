@@ -388,3 +388,25 @@ ALTER TABLE ownership_events ADD COLUMN IF NOT EXISTS pre_money_valuation NUMERI
 -- What this investor put in AT this event, which is what lets an existing
 -- investor reinvest at a share different from the one they already hold.
 ALTER TABLE ownership_event_holdings ADD COLUMN IF NOT EXISTS contribution NUMERIC(14,2);
+
+-- ── COMPANY VALUATIONS ──────────────────────────────────────────────────────
+-- What the investors agreed the WHOLE business is worth, as at a date. One
+-- number for the company, never a number per investor — each investor's stake
+-- is worth their holding percentage of it, which is the only way the parts can
+-- be guaranteed to add up to the whole.
+--
+-- FleetOpz does not calculate this. It is the group's figure, recorded with the
+-- basis they used, so an investor reading it later sees where it came from.
+-- A published round that carried an agreed valuation also implies one at its
+-- own date (pre-money + the money that went in), so the two are read together
+-- and the latest of them wins — see valuationAsOf in ownershipModel.js.
+CREATE TABLE IF NOT EXISTS company_valuations (
+  id         VARCHAR(20) PRIMARY KEY,
+  as_of      TEXT NOT NULL,             -- ISO date this valuation applies from
+  amount     NUMERIC(16,2) NOT NULL,    -- the whole business, agreed
+  basis      TEXT,                      -- how they arrived at it, in their words
+  agreed_by  TEXT,                      -- who agreed, and how
+  created_by VARCHAR(160),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_company_valuations_asof ON company_valuations (as_of);

@@ -3,6 +3,7 @@
 // through to the shared error handler with a usable message.
 const Ownership = require("../models/ownershipModel");
 const Settings = require("../models/settingsModel");
+const Valuation = require("../models/valuationModel");
 const AuditLog = require("../models/auditLogModel");
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -42,7 +43,58 @@ async function holdings(req, res, next) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
       return res.status(400).json({ message: "asOf must be an ISO date (YYYY-MM-DD)" });
     }
-    res.json(await Ownership.holdingsAsOf(asOf));
+    // Priced against the company valuation in force on that date, so a caller
+    // never has to combine the two itself and risk pairing a percentage with
+    // the wrong valuation.
+    res.json(await Ownership.valuedHoldingsAsOf(asOf));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Company valuations ──────────────────────────────────────────────────────
+// One agreed figure for the whole business; each investor's stake is worth
+// their percentage of it.
+
+async function listValuations(req, res, next) {
+  try {
+    const asOf = req.query.asOf || todayIso();
+    res.json({
+      current: await Ownership.valuationAsOf(asOf),
+      history: await Valuation.getAll(),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function createValuation(req, res, next) {
+  try {
+    const actor = req.user?.name || req.user?.username || null;
+    const saved = await Valuation.create(req.body, actor);
+    AuditLog.record(req, {
+      module: "Investors",
+      action: "Create",
+      description:
+        "Recorded a company valuation of " + saved.amount + " as at " + saved.asOf +
+        (saved.agreedBy ? " — agreed by " + saved.agreedBy : ""),
+    });
+    res.status(201).json(saved);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeValuation(req, res, next) {
+  try {
+    const ok = await Valuation.remove(req.params.id);
+    if (!ok) return res.status(404).json({ message: "Valuation not found" });
+    AuditLog.record(req, {
+      module: "Investors",
+      action: "Delete",
+      description: "Removed company valuation " + req.params.id,
+    });
+    res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -214,5 +266,6 @@ async function updateSettings(req, res, next) {
 
 module.exports = {
   list, getOne, holdings, mine, create, update, submit, decide, publish, remove,
+  listValuations, createValuation, removeValuation,
   getSettings, updateSettings,
 };

@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import InvestorNavLedger from "./InvestorNavLedger";
-import Ownership from "./Ownership";
+import Ownership, { holdingsAsOf } from "./Ownership";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
@@ -61,7 +61,10 @@ export function computeInvestorMetrics(investor) {
   const totalExit = sumByType(txns, [TXN_TYPES.EXIT]);
 
   const totalInvested = firstInvestment + reinvestment;
-  const currentValue = totalInvested - totalDividends - totalExit;
+  // No currentValue here on purpose. What a stake is worth is not a cash
+  // subtraction — it is the investor's share of the whole business, and
+  // computeHoldingPercents works it out from the cap table and the agreed
+  // company valuation.
 
   const totalCashIn = firstInvestment + reinvestment;
   const totalCashOut = totalDividends + totalExit;
@@ -73,27 +76,69 @@ export function computeInvestorMetrics(investor) {
     totalInvested,
     totalDividends,
     totalExit,
-    currentValue,
     totalCashIn,
     totalCashOut,
     netCashFlow,
   };
 }
 
-// ---- Holding % needs the whole pool, so it's computed across all investors at once ----
-export function computeHoldingPercents(investors) {
+// ---- Holding % and what a stake is worth ----
+//
+// Both come from things the investors agreed, not from adding up cash:
+//
+//   holding %     the published cap table (Ownership tab)
+//   what it is
+//   worth         that percentage of the ONE company valuation the group agreed
+//
+// Ownership used to be inferred from money in less money out, which meant a
+// dividend paid a few days late moved everyone's stake. It no longer does —
+// the cap table is the authority, and this function just reads it.
+//
+// `capTable` is [{investorId, pct}] as at today; `companyValue` is the whole
+// business. Either being absent is a normal early state, not an error: before
+// an opening cap table exists we fall back to the capital ratio so the screens
+// still say something sensible, and with no valuation agreed a stake is shown
+// as unpriced rather than as zero.
+export function computeHoldingPercents(investors, capTable = null, companyValue = null) {
   const metricsById = {};
-  let totalCurrentValue = 0;
+  const hasCapTable = Array.isArray(capTable) && capTable.length > 0;
+  const hasValue = companyValue !== null && companyValue !== undefined && Number(companyValue) > 0;
+
   (investors || []).forEach((inv) => {
-    const m = computeInvestorMetrics(inv);
-    metricsById[inv.id] = m;
-    totalCurrentValue += m.currentValue;
+    metricsById[inv.id] = computeInvestorMetrics(inv);
   });
+
+  if (hasCapTable) {
+    (investors || []).forEach((inv) => {
+      const m = metricsById[inv.id];
+      const row = capTable.find((h) => h.investorId === inv.id);
+      m.holdingPct = row ? Number(row.pct) : 0;
+      m.currentValue = hasValue ? (m.holdingPct / 100) * Number(companyValue) : null;
+    });
+    return {
+      metricsById,
+      totalCurrentValue: hasValue ? Number(companyValue) : null,
+      pricedFromCapTable: true,
+      companyValue: hasValue ? Number(companyValue) : null,
+    };
+  }
+
+  // No cap table published yet — split by capital contributed, which is what
+  // the opening table will almost certainly say anyway.
+  let totalInvested = 0;
+  (investors || []).forEach((inv) => { totalInvested += metricsById[inv.id].totalInvested; });
   (investors || []).forEach((inv) => {
     const m = metricsById[inv.id];
-    m.holdingPct = totalCurrentValue > 0 ? (m.currentValue / totalCurrentValue) * 100 : 0;
+    m.holdingPct = totalInvested > 0 ? (m.totalInvested / totalInvested) * 100 : 0;
+    m.currentValue = hasValue ? (m.holdingPct / 100) * Number(companyValue) : null;
   });
-  return { metricsById, totalCurrentValue };
+
+  return {
+    metricsById,
+    totalCurrentValue: hasValue ? Number(companyValue) : null,
+    pricedFromCapTable: false,
+    companyValue: hasValue ? Number(companyValue) : null,
+  };
 }
 
 // ---- XIRR solver: Excel-XIRR-equivalent, solves for r such that
@@ -238,7 +283,10 @@ export function buildValueProgressSeries(investors, granularity = "monthly") {
 }
 
 /* =========================================================== formatting helpers === */
+// null/undefined reads as "not known yet" — a stake nobody has valued shows as
+// unpriced, never as ₹0.
 const fmtINR = (n) => {
+  if (n === null || n === undefined || (typeof n === "number" && isNaN(n))) return "—";
   const num = Number(n || 0);
   const sign = num < 0 ? "-" : "";
   return `${sign}₹${Math.abs(num).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -742,16 +790,20 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
                   size={130}
                   thickness={20}
                   segments={[
-                    { value: Math.max(m.currentValue, 0), color: IC.purple },
-                    { value: Math.max(totalCurrentValue - m.currentValue, 0), color: "#E5E7EB" },
+                    { value: Math.max(m.holdingPct, 0), color: IC.purple },
+                    { value: Math.max(100 - m.holdingPct, 0), color: "#E5E7EB" },
                   ]}
                   centerTitle="Holding"
                   centerValue={fmtPct(m.holdingPct, 0)}
                 />
+                {/* The direction matters: the percentage is the agreed fact and
+                    the value follows from it — not the other way round. */}
                 <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.6 }}>
-                  Holding % = (Current Value ÷ Total Current Value) × 100<br />
-                  = ({fmtINR(m.currentValue)} ÷ {fmtINR(totalCurrentValue)}) × 100<br />
-                  <b style={{ color: C.navy }}>= {fmtPct(m.holdingPct)}</b>
+                  Holding <b style={{ color: C.navy }}>{fmtPct(m.holdingPct)}</b>, from the published cap table.<br />
+                  {totalCurrentValue
+                    ? <>Worth {fmtPct(m.holdingPct)} × {fmtINR(totalCurrentValue)}<br />
+                        <b style={{ color: C.navy }}>= {fmtINR(m.currentValue)}</b></>
+                    : <span>Record an agreed company valuation to price this stake.</span>}
                 </div>
               </div>
             </div>
@@ -841,22 +893,27 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Current Value Calculation</div>
             <SummaryLine label="First Investment" value={fmtINR(m.firstInvestment)} />
             <SummaryLine label="Reinvestment" value={fmtINR(m.reinvestment)} />
-            <SummaryLine label="Total Invested (First Investment + Reinvestment)" value={fmtINR(m.totalInvested)} />
-            <SummaryLine label="Less: Total Dividends (OUT)" value={`- ${fmtINR(m.totalDividends)}`} valueColor={IC.red} />
-            <SummaryLine label="Less: Total Exit / Withdrawal (OUT)" value={`- ${fmtINR(m.totalExit)}`} valueColor={IC.red} />
+            <SummaryLine label="Total Invested (First Investment + Reinvestment)" value={fmtINR(m.totalInvested)} bold />
             <div style={{ height: 1, background: C.border, margin: "10px 0" }} />
-            <SummaryLine label="Current Value" value={fmtINR(m.currentValue)} bold valueColor={IC.primary} />
+            <SummaryLine label="Dividends received (OUT)" value={fmtINR(m.totalDividends)} valueColor={IC.green} />
+            <SummaryLine label="Exit / Withdrawal paid (OUT)" value={fmtINR(m.totalExit)} valueColor={IC.red} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8, lineHeight: 1.5 }}>
+              Dividends are a return <i>on</i> this investment, not a return <i>of</i> it — they are
+              money already earned, and they do not reduce the stake still held.
+            </div>
           </div>
 
           <div style={cardStyle}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Holding % Calculation</div>
-            <SummaryLine label={`${investor.name} - Current Value`} value={fmtINR(m.currentValue)} />
-            <SummaryLine label="Total Current Value (All Investors)" value={fmtINR(totalCurrentValue)} />
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>What the stake is worth</div>
+            <SummaryLine label="Holding % (from the cap table)" value={fmtPct(m.holdingPct)} />
+            <SummaryLine label="Company value, as agreed" value={fmtINR(totalCurrentValue)} />
             <div style={{ height: 1, background: C.border, margin: "10px 0" }} />
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}>
-              Holding % = (Current Value ÷ Total Current Value) × 100 = ({fmtINR(m.currentValue)} ÷ {fmtINR(totalCurrentValue)}) × 100
+              {totalCurrentValue
+                ? <>Value = Holding % × company value = {fmtPct(m.holdingPct)} × {fmtINR(totalCurrentValue)}</>
+                : <>No company valuation has been agreed yet, so this stake is unpriced. Record one on the Ownership tab.</>}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: IC.primary }}>{fmtPct(m.holdingPct)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: IC.primary }}>{fmtINR(m.currentValue)}</div>
           </div>
 
           <div style={cardStyle}>
@@ -920,7 +977,7 @@ function InvestorList({ investors, metricsById, totalCurrentValue, portfolioXIRR
         const m = metricsById[inv.id];
         acc.first += m.firstInvestment;
         acc.reinv += m.reinvestment;
-        acc.current += m.currentValue;
+        acc.current += m.currentValue || 0;
         acc.dividends += m.totalDividends;
         acc.exit += m.totalExit;
         return acc;
@@ -934,8 +991,8 @@ function InvestorList({ investors, metricsById, totalCurrentValue, portfolioXIRR
     if (statusFilter !== "All") list = list.filter((inv) => inv.status === statusFilter);
     const sorted = [...list].sort((a, b) => {
       const ma = metricsById[a.id], mb = metricsById[b.id];
-      if (sortKey === "currentValueDesc") return mb.currentValue - ma.currentValue;
-      if (sortKey === "currentValueAsc") return ma.currentValue - mb.currentValue;
+      if (sortKey === "currentValueDesc") return (mb.currentValue || 0) - (ma.currentValue || 0);
+      if (sortKey === "currentValueAsc") return (ma.currentValue || 0) - (mb.currentValue || 0);
       if (sortKey === "nameAsc") return a.name.localeCompare(b.name);
       return 0;
     });
@@ -957,7 +1014,7 @@ function InvestorList({ investors, metricsById, totalCurrentValue, portfolioXIRR
 
       <StatRow>
         <StatCard label="Total Investors" value={investors.length} icon="👥" />
-        <StatCard label="Current Total Value" value={fmtINR(totalCurrentValue)} sub="After Reinvestment" icon="💰" />
+        <StatCard label="Company Value" value={fmtINR(totalCurrentValue)} sub="Whole business, as agreed" icon="💰" />
         <StatCard label="Total Dividends (OUT)" value={fmtINR(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
         <StatCard label="Total Exit Paid (OUT)" value={fmtINR(totals.exit)} sub="All Time" icon="↩️" valueColor={IC.red} />
         <StatCard label="Portfolio XIRR" value={fmtPct(portfolioXIRR)} sub="All Investor (XIRR)" icon="🥧" valueColor={IC.purple} />
@@ -1067,7 +1124,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
 
   const donutSegments = investors.map((inv, i) => ({
     label: inv.name,
-    value: Math.max(metricsById[inv.id].currentValue, 0),
+    value: Math.max(metricsById[inv.id].holdingPct, 0),
     color: [IC.primary, IC.green, IC.purple, "#F97316", "#0EA5E9", "#DB2777"][i % 6],
   }));
 
@@ -1090,7 +1147,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
 
       <StatRow>
         <StatCard label="Total Investors" value={investors.length} sub="Active Investors" icon="👥" />
-        <StatCard label="Current Total Value" value={fmtINR(totalCurrentValue)} sub="After Reinvestment" icon="💰" />
+        <StatCard label="Company Value" value={fmtINR(totalCurrentValue)} sub="Whole business, as agreed" icon="💰" />
         <StatCard label="Total Dividends" value={fmtINR(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
         <StatCard label="Total Exit Paid" value={fmtINR(totals.exit)} sub="All Time" icon="↩️" valueColor={IC.red} />
         <StatCard label="Portfolio XIRR" value={fmtPct(portfolioXIRR)} sub="All Investor XIRR" icon="🥧" valueColor={IC.purple} />
@@ -1112,7 +1169,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
             <div style={{ padding: "24px 0", textAlign: "center", color: C.textMuted, fontSize: 12.5 }}>No investors yet.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-              <DonutChart size={170} thickness={26} segments={donutSegments} centerTitle="Total" centerValue={fmtINR(totalCurrentValue)} />
+              <DonutChart size={170} thickness={26} segments={donutSegments} centerTitle="Company" centerValue={fmtINR(totalCurrentValue)} />
               <div style={{ width: "100%" }}>
                 {investors.map((inv, i) => (
                   <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "4px 0" }}>
@@ -1233,6 +1290,10 @@ export default function Investors({
   // above, so a dividend can never move a percentage. See Ownership.jsx.
   ownershipEvents = [],
   ownershipMode = "admin_attest",
+  companyValuation = null,
+  valuationHistory = [],
+  onCreateValuation,
+  onDeleteValuation,
   onCreateOwnershipEvent,
   onSubmitOwnershipEvent,
   onDecideOwnershipEvent,
@@ -1250,7 +1311,17 @@ export default function Investors({
   const [txnTargetId, setTxnTargetId] = useState(null);
   const [txnPreset, setTxnPreset] = useState(TXN_TYPES.FIRST_INVESTMENT);
 
-  const { metricsById, totalCurrentValue } = useMemo(() => computeHoldingPercents(investors), [investors]);
+  // Holding % is read from the published cap table, and each stake is priced
+  // at that share of the one company valuation the group agreed — so every
+  // screen in this module reports the same two agreed facts.
+  const capTableToday = useMemo(
+    () => holdingsAsOf(ownershipEvents, new Date().toISOString().slice(0, 10)),
+    [ownershipEvents]
+  );
+  const { metricsById, totalCurrentValue, pricedFromCapTable } = useMemo(
+    () => computeHoldingPercents(investors, capTableToday, companyValuation?.amount ?? null),
+    [investors, capTableToday, companyValuation]
+  );
   const portfolioXIRR = useMemo(() => computePortfolioXIRR(investors), [investors]);
   const selectedInvestor = investors.find((i) => i.id === selectedId) || null;
 
@@ -1409,6 +1480,18 @@ export default function Investors({
         </div>
       )}
 
+      {/* Until an opening cap table is published, holding % here is only the
+          capital ratio. Say so, rather than letting a provisional number pass
+          for an agreed one. */}
+      {view !== "nav" && investors.length > 0 && !pricedFromCapTable && (
+        <div style={{ background: C.amberFaint, borderLeft: `3px solid ${C.amber}`, borderRadius: "0 8px 8px 0", padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.textSec }}>
+          No cap table published yet, so these holding percentages are just the ratio of capital put
+          in. Record the opening table on{" "}
+          <span onClick={() => setView("ownership")} style={{ color: IC.primary, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Ownership</span>{" "}
+          to make them the agreed figures.
+        </div>
+      )}
+
       {view === "dashboard" && (
         <OverviewDashboard
           investors={investors}
@@ -1445,6 +1528,10 @@ export default function Investors({
           onPublishEvent={onPublishOwnershipEvent}
           onDeleteEvent={onDeleteOwnershipEvent}
           onChangeMode={onChangeOwnershipMode}
+          companyValuation={companyValuation}
+          valuationHistory={valuationHistory}
+          onCreateValuation={onCreateValuation}
+          onDeleteValuation={onDeleteValuation}
           prefill={ownershipPrefill}
           onPrefillConsumed={() => setOwnershipPrefill(null)}
         />

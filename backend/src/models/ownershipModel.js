@@ -189,6 +189,62 @@ async function holdingsAsOf(dateIso) {
   };
 }
 
+// What the business was agreed to be worth on a date.
+//
+// Two things can set that figure, and the later one wins:
+//   - a valuation the group recorded on its own ("we agree it's worth ₹1.8 Cr")
+//   - a published round that carried an agreed valuation, which implies one at
+//     its own date: pre-money plus the money that went in
+//
+// Reading both means a round automatically updates the company's value without
+// anyone re-entering it, and the two can never drift apart, because neither is
+// a copy of the other.
+async function valuationAsOf(dateIso) {
+  const { rows } = await db.query(
+    `SELECT date, amount, source, created_at FROM (
+       SELECT as_of AS date, amount, 'Recorded valuation' AS source, created_at
+         FROM company_valuations
+        WHERE as_of <= $1
+       UNION ALL
+       SELECT effective_date AS date,
+              pre_money_valuation + COALESCE(new_money_amount, 0) AS amount,
+              'Implied by the ' || type || ' entry' AS source,
+              created_at
+         FROM ownership_events
+        WHERE state = 'Effective'
+          AND pre_money_valuation IS NOT NULL
+          AND effective_date <= $1
+     ) agreed_figures
+     ORDER BY date DESC, created_at DESC
+     LIMIT 1`,
+    [dateIso]
+  );
+  if (!rows[0]) return null;
+  return {
+    asOf: rows[0].date,
+    amount: Number(rows[0].amount),
+    source: rows[0].source,
+  };
+}
+
+// Holdings on a date, each priced against the company valuation in force then.
+// `value` is null when nobody has agreed what the business is worth — an
+// unpriced stake is shown as unpriced, never as zero.
+async function valuedHoldingsAsOf(dateIso) {
+  const [table, valuation] = await Promise.all([
+    holdingsAsOf(dateIso),
+    valuationAsOf(dateIso),
+  ]);
+  return {
+    ...table,
+    valuation,
+    holdings: table.holdings.map((h) => ({
+      ...h,
+      value: valuation ? (h.pct / 100) * valuation.amount : null,
+    })),
+  };
+}
+
 // The latest Effective event overall — used to stop a back-dated publish from
 // silently rewriting history that has already been acted on.
 async function latestEffective(client = db) {
@@ -448,7 +504,7 @@ async function forInvestor(investorId) {
   const visible = (await getAll()).filter((e) => e.state !== "Draft");
 
   const today = new Date().toISOString().slice(0, 10);
-  const current = await holdingsAsOf(today);
+  const current = await valuedHoldingsAsOf(today);
   const mine = current.holdings.find((h) => h.investorId === investorId);
 
   const { rows: txRows } = await db.query(
@@ -465,6 +521,10 @@ async function forInvestor(investorId) {
       investorSince: investor.rows[0].investor_since,
     },
     currentPct: mine ? mine.pct : 0,
+    // Their stake priced off the company valuation the group agreed — null
+    // while nobody has agreed one.
+    currentValue: mine ? mine.value : null,
+    valuation: current.valuation,
     currentTable: current.holdings,
     asOf: today,
     events: visible,
@@ -494,7 +554,8 @@ async function investorIsInCapTable(investorId) {
 }
 
 module.exports = {
-  getAll, getById, holdingsAsOf, create, update, submit, decide, publish, remove, forInvestor,
+  getAll, getById, holdingsAsOf, valuationAsOf, valuedHoldingsAsOf,
+  create, update, submit, decide, publish, remove, forInvestor,
   investorIsInCapTable, validateHoldings,
   EVENT_TYPES, STATES, APPROVAL_MODES, SUM_TOLERANCE,
 };
