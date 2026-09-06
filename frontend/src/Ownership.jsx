@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
 import { Btn, Input, Select } from "./components";
+import { splitFromValuation } from "./capTableMath";
 
 /* =====================================================================================
    OWNERSHIP (CAP TABLE)
@@ -228,25 +229,56 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 }
 
 /* =============================================================== EVENT FORM MODAL === */
-// Wider than the shared Modal because the whole holdings table is entered here —
-// that is the point: you restate what everyone holds AFTER the change, and the
-// total has to come to 100 before it can be saved.
+// Wider than the shared Modal because the whole holdings table is entered here.
+//
+// Two ways in, because groups negotiate in two different currencies:
+//
+//   From an agreed valuation — the usual one. "We all agree the business is
+//   worth ₹1.2 Cr and Divya is putting in ₹30 L." The percentages follow:
+//
+//       new % = (old % × pre-money + what they put in now) ÷ post-money
+//
+//   which dilutes everyone who put nothing in, and lets an existing investor
+//   reinvest at a share different from the one they already hold — both by the
+//   same arithmetic, at the price the group set.
+//
+//   Percentages directly — when the split was decided some other way and the
+//   numbers are simply what everyone agreed.
+//
+// Either way, what gets STORED is the percentage table. The valuation is kept
+// alongside as the provenance behind it, so an investor reading the register in
+// four years sees the basis, not just the outcome. FleetOpz never works out a
+// valuation of its own — that number comes from the people whose money it is.
+//
 // Mounted only while open (the caller renders it conditionally), so every open
 // starts from the table as it actually stands rather than from whatever was
 // half-typed last time.
+
 function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }) {
+  const hasPriorTable = currentHoldings.length > 0;
+
+  // A first-ever table has nothing to dilute, so the money ratio IS the split
+  // and there is no valuation to agree yet.
+  const [entryMode, setEntryMode] = useState("valuation");
+
   const [type, setType] = useState(prefill?.type || "New Investor");
   const [effectiveDate, setEffectiveDate] = useState(prefill?.effectiveDate || todayIso());
   const [reason, setReason] = useState("");
-  const [newMoneyAmount, setNewMoneyAmount] = useState(
-    prefill?.newMoneyAmount ? String(prefill.newMoneyAmount) : ""
-  );
-  const [newMoneyInvestorId, setNewMoneyInvestorId] = useState(prefill?.newMoneyInvestorId || "");
+  const [preMoney, setPreMoney] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Seeded from the current table so the admin edits from reality rather than
-  // typing every percentage from scratch.
+  // What each investor is putting in at this event (valuation mode).
+  const [contribs, setContribs] = useState(() => {
+    const next = {};
+    investors.forEach((inv) => { next[inv.id] = ""; });
+    if (prefill?.newMoneyInvestorId && prefill?.newMoneyAmount) {
+      next[prefill.newMoneyInvestorId] = String(prefill.newMoneyAmount);
+    }
+    return next;
+  });
+
+  // Typed percentages (manual mode), seeded from the table as it stands.
   const [pcts, setPcts] = useState(() => {
     const next = {};
     investors.forEach((inv) => {
@@ -261,30 +293,70 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
     return row ? Number(row.pct) : null;
   };
 
+  // ── The valuation maths ───────────────────────────────────────────────────
+  const V = parseFloat(preMoney) || 0;
+  const moneyIn = investors.reduce((s, inv) => s + (parseFloat(contribs[inv.id]) || 0), 0);
+  const postMoney = V + moneyIn;
+
+  // Needs a valuation only when there is an existing stake to dilute. For the
+  // opening table, splitting the money put in is the whole answer.
+  const valuationNeeded = hasPriorTable;
+  const canCompute = postMoney > 0 && (!valuationNeeded || V > 0);
+
+  const computed = useMemo(
+    () => splitFromValuation(investors, currentHoldings, V, contribs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [V, JSON.stringify(contribs), JSON.stringify(currentHoldings), investors.length]
+  );
+
+  // Whichever mode is active supplies the table that will actually be saved.
+  const effectivePct = (id) =>
+    entryMode === "valuation"
+      ? (computed ? computed[id] ?? 0 : 0)
+      : (pcts[id] === "" || pcts[id] === undefined ? null : Number(pcts[id]));
+
   const rows = investors.map((inv) => ({
     inv,
     before: before(inv.id),
-    after: pcts[inv.id] === "" || pcts[inv.id] === undefined ? null : Number(pcts[inv.id]),
+    contribution: parseFloat(contribs[inv.id]) || 0,
+    after: effectivePct(inv.id),
   }));
 
   const total = rows.reduce((s, r) => s + (Number.isFinite(r.after) ? r.after : 0), 0);
   const balanced = Math.abs(total - 100) <= 0.01;
 
-  // Plain arithmetic on what has already been typed — never a valuation of our
-  // own. Shown so the group can see the basis they are agreeing to.
-  const money = parseFloat(newMoneyAmount) || 0;
-  const buyerPct = newMoneyInvestorId ? Number(pcts[newMoneyInvestorId]) : 0;
-  const impliedPost = money > 0 && buyerPct > 0 ? (money / buyerPct) * 100 : null;
-  const impliedPre = impliedPost === null ? null : impliedPost - money;
+  // Moving to manual carries the computed numbers across, so the group can
+  // nudge one figure without losing the valuation's work.
+  const switchToManual = () => {
+    if (computed) {
+      const next = { ...pcts };
+      investors.forEach((inv) => { next[inv.id] = computed[inv.id] ? String(computed[inv.id]) : ""; });
+      setPcts(next);
+    }
+    setEntryMode("manual");
+  };
+
+  const contributors = investors.filter((inv) => (parseFloat(contribs[inv.id]) || 0) > 0);
 
   const submit = async () => {
     setError("");
     if (!effectiveDate) return setError("Pick the date this change takes effect.");
+    if (entryMode === "valuation" && !canCompute) {
+      return setError(
+        valuationNeeded
+          ? "Enter the agreed valuation and at least one amount coming in."
+          : "Enter what each investor is putting in."
+      );
+    }
     if (!balanced) return setError(`Holdings must total 100% — this table totals ${total.toFixed(2)}%.`);
 
     const holdings = rows
       .filter((r) => Number.isFinite(r.after) && r.after > 0)
-      .map((r) => ({ investorId: r.inv.id, pct: r.after }));
+      .map((r) => ({
+        investorId: r.inv.id,
+        pct: r.after,
+        contribution: r.contribution > 0 ? r.contribution : null,
+      }));
 
     setSaving(true);
     try {
@@ -292,8 +364,10 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
         type,
         effectiveDate,
         reason: reason || null,
-        newMoneyAmount: money > 0 ? money : null,
-        newMoneyInvestorId: newMoneyInvestorId || null,
+        // Recorded only when the split actually came from a valuation.
+        preMoneyValuation: entryMode === "valuation" && V > 0 ? V : null,
+        newMoneyAmount: moneyIn > 0 ? moneyIn : null,
+        newMoneyInvestorId: contributors.length === 1 ? contributors[0].id : null,
         holdings,
       });
       onClose();
@@ -304,16 +378,33 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
     }
   };
 
+  const tabBtn = (active) => ({
+    padding: "8px 14px",
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: active ? C.surface : C.textSec,
+    background: active ? C.teal : "transparent",
+    border: `1px solid ${active ? C.teal : C.border}`,
+    borderRadius: 8,
+    cursor: "pointer",
+  });
+
+  const numCell = {
+    width: 128, padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6,
+    fontSize: 12.5, textAlign: "right", fontFamily: "inherit", outline: "none",
+    background: C.surface, color: C.textPri,
+  };
+
   return (
     <>
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200 }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: C.surface, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.15)", zIndex: 201, width: "min(720px, calc(100vw - 24px))", maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: C.surface, borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.15)", zIndex: 201, width: "min(780px, calc(100vw - 24px))", maxHeight: "90vh", overflowY: "auto" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", borderBottom: `1px solid ${C.border}` }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Record an ownership change</div>
             <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 2 }}>
-              Enter what everyone holds <b>after</b> the change. It saves as a draft first.
+              It saves as a draft first — nothing moves until it is published.
             </div>
           </div>
           <div onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: C.textMuted }}>✕</div>
@@ -325,80 +416,179 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
               {prefill.note}
             </div>
           )}
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
             <Select label="Type" value={type} onChange={(e) => setType(e.target.value)}
               options={EVENT_TYPES.map((t) => ({ value: t, label: t }))} />
             <Input label="Effective date" type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-            <Input label="Money coming in (₹, optional)" type="number" value={newMoneyAmount}
-              onChange={(e) => setNewMoneyAmount(e.target.value)} placeholder="e.g., 3000000" />
-            <Select label="…from which investor" value={newMoneyInvestorId}
-              onChange={(e) => setNewMoneyInvestorId(e.target.value)}
-              options={investors.map((i) => ({ value: i.id, label: i.name }))} />
-          </div>
-
           <Input label="Reason — in the group's own words" value={reason} onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g., D invests ₹30,00,000 at ₹1.20 Cr pre-money, agreed 28 Mar" />
+            placeholder="e.g., Agreed on the call, 28 Mar — fleet grew to 9 vehicles" />
 
-          {impliedPost !== null && (
-            <div style={{ background: C.blueFaint, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.textSec }}>
-              At {fmtPct(buyerPct)} for {fmtINR(money)}, this implies a{" "}
-              <b style={{ color: C.navy }}>{fmtCrLakh(impliedPre)} pre-money</b> /{" "}
-              <b style={{ color: C.navy }}>{fmtCrLakh(impliedPost)} post-money</b> valuation.
-              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>
-                Arithmetic on the numbers above — FleetOpz is not valuing your business. It is here so
-                everyone can see the basis they are agreeing to.
+          {/* ── How the split is being decided ── */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+            <button type="button" style={tabBtn(entryMode === "valuation")}
+              onClick={() => setEntryMode("valuation")}>
+              From an agreed valuation
+            </button>
+            <button type="button" style={tabBtn(entryMode === "manual")} onClick={switchToManual}>
+              Enter percentages directly
+            </button>
+          </div>
+
+          {entryMode === "valuation" ? (
+            <>
+              {valuationNeeded ? (
+                <Input
+                  label="Agreed valuation before this money goes in (₹)"
+                  type="number" value={preMoney} onChange={(e) => setPreMoney(e.target.value)}
+                  placeholder="e.g., 12000000"
+                />
+              ) : (
+                <div style={{ background: C.blueFaint, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.textSec }}>
+                  This is the opening table, so there is nothing to dilute yet — the split is simply
+                  the ratio of what each person is putting in. No valuation needed.
+                </div>
+              )}
+
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.textPri, marginBottom: 6 }}>
+                What is going in now, and what everyone ends up with
               </div>
-            </div>
-          )}
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflowX: "auto", marginBottom: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Investor</th>
+                      <th style={{ ...th, textAlign: "right" }}>Now</th>
+                      <th style={{ ...th, textAlign: "right", width: 160 }}>Putting in (₹)</th>
+                      <th style={{ ...th, textAlign: "right" }}>After</th>
+                      <th style={{ ...th, textAlign: "right" }}>Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => {
+                      const delta = r.before === null ? null : (Number.isFinite(r.after) ? r.after : 0) - r.before;
+                      return (
+                        <tr key={r.inv.id}>
+                          <td style={td}>{r.inv.name}</td>
+                          <td style={{ ...td, textAlign: "right", color: C.textMuted }}>
+                            {r.before === null ? "—" : fmtPct(r.before)}
+                          </td>
+                          <td style={{ ...td, textAlign: "right" }}>
+                            <input
+                              type="number" min="0" step="1000"
+                              value={contribs[r.inv.id] ?? ""}
+                              onChange={(e) => setContribs({ ...contribs, [r.inv.id]: e.target.value })}
+                              placeholder="0"
+                              style={numCell}
+                            />
+                          </td>
+                          <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>
+                            {computed ? fmtPct(r.after) : "—"}
+                          </td>
+                          <td style={{ ...td, textAlign: "right", color: delta === null ? C.textMuted : delta > 0 ? C.green : delta < 0 ? C.red : C.textMuted }}>
+                            {!computed ? "—" : delta === null ? "new" : Math.abs(delta) < 0.005 ? "—" : (delta > 0 ? "+" : "") + delta.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ ...td, fontWeight: 700, borderBottom: "none", background: C.linen }}>Total</td>
+                      <td style={{ ...td, borderBottom: "none", background: C.linen }} />
+                      <td style={{ ...td, textAlign: "right", fontWeight: 700, borderBottom: "none", background: C.linen }}>
+                        {moneyIn > 0 ? fmtINR(moneyIn) : "—"}
+                      </td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none", background: C.linen, color: balanced ? C.green : C.textMuted }}>
+                        {computed ? total.toFixed(2) + "%" : "—"}
+                      </td>
+                      <td style={{ ...td, borderBottom: "none", background: C.linen }} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
 
-          <div style={{ fontSize: 12, fontWeight: 600, color: C.textPri, marginBottom: 6 }}>Holdings after this change</div>
-          <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 6 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={th}>Investor</th>
-                  <th style={{ ...th, textAlign: "right" }}>Before</th>
-                  <th style={{ ...th, textAlign: "right", width: 150 }}>After %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.inv.id}>
-                    <td style={td}>{r.inv.name}</td>
-                    <td style={{ ...td, textAlign: "right", color: C.textMuted }}>
-                      {r.before === null ? "—" : fmtPct(r.before)}
-                    </td>
-                    <td style={{ ...td, textAlign: "right" }}>
-                      <input
-                        type="number" step="0.01" min="0" max="100"
-                        value={pcts[r.inv.id] ?? ""}
-                        onChange={(e) => setPcts({ ...pcts, [r.inv.id]: e.target.value })}
-                        placeholder="0"
-                        style={{ width: 110, padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", outline: "none" }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td style={{ ...td, fontWeight: 700, borderBottom: "none", background: C.linen }}>Total</td>
-                  <td style={{ ...td, borderBottom: "none", background: C.linen }} />
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none", background: C.linen, color: balanced ? C.green : C.red }}>
-                    {total.toFixed(2)}%
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div style={{ fontSize: 11.5, color: balanced ? C.textMuted : C.red, marginBottom: 4 }}>
-            {balanced
-              ? "Totals 100% — ready to save as a draft."
-              : `Off by ${(total - 100).toFixed(2)} points. Leave an investor blank to show they hold nothing.`}
-          </div>
+              {computed ? (
+                <div style={{ background: C.greenFaint, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 14px", marginBottom: 6, fontSize: 12, color: C.textSec }}>
+                  {valuationNeeded ? (
+                    <>
+                      <b style={{ color: C.navy }}>{fmtCrLakh(V)}</b> before the money, plus{" "}
+                      <b style={{ color: C.navy }}>{fmtCrLakh(moneyIn)}</b> going in, values the
+                      business at <b style={{ color: C.navy }}>{fmtCrLakh(postMoney)}</b> after.
+                      Everyone who is not putting money in keeps{" "}
+                      <b style={{ color: C.navy }}>{((V / postMoney) * 100).toFixed(2)}%</b> of the
+                      share they held.
+                    </>
+                  ) : (
+                    <>Split in the ratio of the <b style={{ color: C.navy }}>{fmtCrLakh(moneyIn)}</b> being put in.</>
+                  )}
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                    These percentages are worked out from the figures you entered — the valuation is
+                    the group's, never FleetOpz's. Switch to entering percentages directly if you
+                    want to adjust any of them by hand.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 6 }}>
+                  {valuationNeeded
+                    ? "Enter the agreed valuation and at least one amount above to see the new split."
+                    : "Enter what each investor is putting in to see the split."}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.textPri, marginBottom: 6 }}>
+                Holdings after this change
+              </div>
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflowX: "auto", marginBottom: 6 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Investor</th>
+                      <th style={{ ...th, textAlign: "right" }}>Before</th>
+                      <th style={{ ...th, textAlign: "right", width: 160 }}>After %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.inv.id}>
+                        <td style={td}>{r.inv.name}</td>
+                        <td style={{ ...td, textAlign: "right", color: C.textMuted }}>
+                          {r.before === null ? "—" : fmtPct(r.before)}
+                        </td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          <input
+                            type="number" step="0.01" min="0" max="100"
+                            value={pcts[r.inv.id] ?? ""}
+                            onChange={(e) => setPcts({ ...pcts, [r.inv.id]: e.target.value })}
+                            placeholder="0"
+                            style={numCell}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ ...td, fontWeight: 700, borderBottom: "none", background: C.linen }}>Total</td>
+                      <td style={{ ...td, borderBottom: "none", background: C.linen }} />
+                      <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none", background: C.linen, color: balanced ? C.green : C.red }}>
+                        {total.toFixed(2)}%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div style={{ fontSize: 11.5, color: balanced ? C.textMuted : C.red, marginBottom: 4 }}>
+                {balanced
+                  ? "Totals 100% — ready to save as a draft."
+                  : `Off by ${(total - 100).toFixed(2)} points. Leave an investor blank to show they hold nothing.`}
+              </div>
+            </>
+          )}
 
           {error && (
             <div style={{ background: C.redFaint, color: C.red, fontSize: 12, padding: "9px 12px", borderRadius: 8, marginTop: 10 }}>
@@ -477,9 +667,21 @@ function EventCard({ event, investors, colorOf, prevHoldings, mode, onSubmitForA
           {event.reason && <div style={{ fontSize: 12, color: C.textSec, marginTop: 5, maxWidth: 620 }}>{event.reason}</div>}
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 5 }}>
             {event.id}
-            {event.newMoneyAmount ? ` · ${fmtINR(event.newMoneyAmount)} in from ${nameOf(event.newMoneyInvestorId)}` : ""}
+            {event.newMoneyAmount
+              ? ` · ${fmtINR(event.newMoneyAmount)} in${event.newMoneyInvestorId ? ` from ${nameOf(event.newMoneyInvestorId)}` : ""}`
+              : ""}
             {event.createdBy ? ` · drafted by ${event.createdBy}` : ""}
           </div>
+          {/* The valuation the group agreed, when the split came from one. This
+              is the number an investor will want to see years later. */}
+          {event.preMoneyValuation ? (
+            <div style={{ fontSize: 11.5, color: C.textSec, marginTop: 5 }}>
+              Agreed valuation <b style={{ color: C.navy }}>{fmtCrLakh(event.preMoneyValuation)}</b> before the money
+              {event.newMoneyAmount
+                ? <> · <b style={{ color: C.navy }}>{fmtCrLakh(event.preMoneyValuation + event.newMoneyAmount)}</b> after</>
+                : null}
+            </div>
+          ) : null}
           {event.attestation && (
             <div style={{ fontSize: 11.5, color: C.textSec, marginTop: 5, fontStyle: "italic" }}>
               Agreed: {event.attestation}

@@ -376,3 +376,15 @@ INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_
   ('Investor','Deposit Refunds', false,false,false,false),
   ('Investor','Investors',       true, false,false,false)
 ON CONFLICT (role, module) DO NOTHING;
+
+-- ── VALUATION-BASED ENTRY ───────────────────────────────────────────────────
+-- A group usually agrees a valuation, not a set of percentages: "the business
+-- is worth ₹1.2 Cr, Divya is putting in ₹30 L". The percentages follow from
+-- that, but the valuation is the thing that was actually negotiated — so it is
+-- recorded alongside, and shown on the entry forever. The stored percentages
+-- remain the source of truth; this is the provenance behind them.
+ALTER TABLE ownership_events ADD COLUMN IF NOT EXISTS pre_money_valuation NUMERIC(16,2);
+
+-- What this investor put in AT this event, which is what lets an existing
+-- investor reinvest at a share different from the one they already hold.
+ALTER TABLE ownership_event_holdings ADD COLUMN IF NOT EXISTS contribution NUMERIC(14,2);

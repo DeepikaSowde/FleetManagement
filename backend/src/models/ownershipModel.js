@@ -36,6 +36,10 @@ function toEvent(r) {
     reason: r.reason,
     newMoneyAmount: r.new_money_amount === null ? null : Number(r.new_money_amount),
     newMoneyInvestorId: r.new_money_investor_id,
+    // The valuation the group agreed, when the split was worked out from one.
+    // Kept as provenance for the percentages, never as a figure FleetOpz
+    // derived on its own.
+    preMoneyValuation: r.pre_money_valuation === null ? null : Number(r.pre_money_valuation),
     linkedTxId: r.linked_tx_id,
     attestation: r.attestation,
     attachmentPath: r.attachment_path,
@@ -46,7 +50,13 @@ function toEvent(r) {
   };
 }
 
-const toHolding = (r) => ({ investorId: r.investor_id, pct: Number(r.pct) });
+const toHolding = (r) => ({
+  investorId: r.investor_id,
+  pct: Number(r.pct),
+  // What this investor put in at this event — what lets someone reinvest at a
+  // share different from the one they already hold.
+  contribution: r.contribution === null || r.contribution === undefined ? null : Number(r.contribution),
+});
 
 const toApproval = (r) => ({
   investorId: r.investor_id,
@@ -212,8 +222,8 @@ async function writeHoldings(client, eventId, holdings) {
   await client.query("DELETE FROM ownership_event_holdings WHERE event_id = $1", [eventId]);
   for (const h of holdings) {
     await client.query(
-      "INSERT INTO ownership_event_holdings (event_id, investor_id, pct) VALUES ($1,$2,$3)",
-      [eventId, h.investorId, Number(h.pct)]
+      "INSERT INTO ownership_event_holdings (event_id, investor_id, pct, contribution) VALUES ($1,$2,$3,$4)",
+      [eventId, h.investorId, Number(h.pct), h.contribution == null ? null : Number(h.contribution)]
     );
   }
 }
@@ -242,15 +252,16 @@ async function create(payload, actor) {
     const { rows } = await client.query(
       `INSERT INTO ownership_events
          (id, effective_date, type, state, reason, new_money_amount, new_money_investor_id,
-          linked_tx_id, attestation, attachment_path, reverses_event_id, created_by)
-       VALUES ($1,$2,$3,'Draft',$4,$5,$6,$7,$8,$9,$10,$11)
+          linked_tx_id, attestation, attachment_path, reverses_event_id, created_by,
+          pre_money_valuation)
+       VALUES ($1,$2,$3,'Draft',$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [
         id, effectiveDate, type, payload.reason ?? null,
         payload.newMoneyAmount ?? null, payload.newMoneyInvestorId ?? null,
         payload.linkedTxId ?? null, payload.attestation ?? null,
         payload.attachmentPath ?? null, payload.reversesEventId ?? null,
-        actor ?? null,
+        actor ?? null, payload.preMoneyValuation ?? null,
       ]
     );
     await writeHoldings(client, id, holdings);
@@ -281,13 +292,13 @@ async function update(id, updates) {
       `UPDATE ownership_events SET
          effective_date = $2, type = $3, reason = $4, new_money_amount = $5,
          new_money_investor_id = $6, linked_tx_id = $7, attestation = $8,
-         attachment_path = $9, reverses_event_id = $10
+         attachment_path = $9, reverses_event_id = $10, pre_money_valuation = $11
        WHERE id = $1
        RETURNING *`,
       [
         id, e.effectiveDate, e.type, e.reason ?? null, e.newMoneyAmount ?? null,
         e.newMoneyInvestorId ?? null, e.linkedTxId ?? null, e.attestation ?? null,
-        e.attachmentPath ?? null, e.reversesEventId ?? null,
+        e.attachmentPath ?? null, e.reversesEventId ?? null, e.preMoneyValuation ?? null,
       ]
     );
     if (updates.holdings !== undefined) await writeHoldings(client, id, updates.holdings);

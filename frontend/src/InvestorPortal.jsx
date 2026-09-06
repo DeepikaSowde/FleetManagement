@@ -85,6 +85,17 @@ function ApprovalRequest({ event, meId, colorOf, priorTable, onDecide, busy }) {
             {fmtINR(event.newMoneyAmount)} coming into the business with this change.
           </div>
         ) : null}
+        {/* The basis, not just the outcome — this is what makes the proposal
+            something an investor can actually judge. */}
+        {event.preMoneyValuation ? (
+          <div style={{ fontSize: 12, color: C.textSec, marginTop: 6 }}>
+            Priced on an agreed valuation of{" "}
+            <b style={{ color: C.navy }}>{fmtINR(event.preMoneyValuation)}</b> before the money
+            {event.newMoneyAmount
+              ? <>, <b style={{ color: C.navy }}>{fmtINR(event.preMoneyValuation + event.newMoneyAmount)}</b> after</>
+              : null}.
+          </div>
+        ) : null}
       </div>
 
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
