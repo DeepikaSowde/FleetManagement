@@ -957,6 +957,35 @@ export const useFleetData = () => {
     const newExpense = { ...expense, id: nextId, amount: parseFloat(expense.amount) };
     setExpenses(prev => [...prev, newExpense]);
     api.post("/expenses", newExpense).catch(onWriteError);
+
+    // Logging a "Repairs & Maintenance" expense against a car opens a
+    // maintenance issue on it: the car goes to "Maintenance" (FleetOpz's
+    // out-of-service status) using the expense's own date as the record
+    // date — no separate Start Date field. Nothing else in this app clears
+    // Maintenance automatically; only completeMaintenance() below does.
+    // If the car is ALREADY under an open issue, this is just another cost
+    // against it — the start date must not be reset.
+    if (newExpense.category === "Repairs & Maintenance" && newExpense.plate) {
+      const car = fleet.find(c => c.plate === newExpense.plate);
+      if (car && car.status !== "Maintenance") {
+        updateFleet(newExpense.plate, {
+          status: "Maintenance",
+          maintenanceStartDate: newExpense.date || new Date().toISOString().slice(0, 10),
+        });
+      }
+    }
+  };
+
+  // Manually closes an active maintenance issue: the car returns to Available
+  // and the exact completion moment is stamped. A car placed into Maintenance
+  // never clears itself — this is the only path back to Available for it.
+  const completeMaintenance = (plate) => {
+    updateFleet(plate, {
+      status: "Available",
+      maintenanceStartDate: null,
+      maintenanceCompletedAt: new Date().toISOString(),
+      maintenanceAutoReleased: false,
+    });
   };
 
   const updateExpense = (expenseId, updates) => {
@@ -1614,6 +1643,7 @@ export const useFleetData = () => {
     addExpense,
     updateExpense,
     deleteExpense,
+    completeMaintenance,
 
     // Investor operations (persisted profiles + money ledger, reshaped for the page)
     investorsWithTx,

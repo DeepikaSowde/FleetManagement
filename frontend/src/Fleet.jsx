@@ -9,10 +9,13 @@ import EditVehicleForm from "./EditVehicleForm";
 // ─────────────────────────────────────────────────────────────────────────
 // Expense taxonomy — shared between the Add Vehicle Expense form and Expense History
 // ─────────────────────────────────────────────────────────────────────────
-const EXPENSE_CATEGORIES = ["Repair", "Insurance", "Road Tax", "Fuel", "Cleaning", "Parking", "Tyres", "Accessories", "Other"];
+// "Repairs & Maintenance" matches the category name used on the Expense
+// Management page exactly — selecting it for a car (from either surface)
+// opens a maintenance issue on that vehicle; see addExpense in useFleetData.js.
+const EXPENSE_CATEGORIES = ["Repairs & Maintenance", "Insurance", "Road Tax", "Fuel", "Cleaning", "Parking", "Tyres", "Accessories", "Other"];
 
 const CATEGORY_META = {
-  Repair: { icon: "🔧", color: C.red },
+  "Repairs & Maintenance": { icon: "🔧", color: C.red },
   Insurance: { icon: "🛡", color: C.teal },
   "Road Tax": { icon: "📋", color: C.navy },
   Fuel: { icon: "⛽", color: C.amber },
@@ -210,7 +213,7 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
 // ─────────────────────────────────────────────────────────────────────────
 // Compact Vehicle Details Modal — overlays on top of Fleet list
 // ─────────────────────────────────────────────────────────────────────────
-const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, onEdit, onClose }) => {
+const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, onCompleteMaintenance, onClose }) => {
   const fin = useMemo(() => computeCarFinancials(car, bookings, expenses), [car, bookings, expenses]);
   const d = daysUntil(car.coe);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -262,6 +265,24 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
               {d < 30 ? "⚠" : d < 90 ? "⚡" : "✓"} Reg. Expiry: {car.coe}
             </div>
           </div>
+
+          {/* Active maintenance issue — the only way this clears is the
+              Complete Maintenance button below; nothing here does it automatically. */}
+          {car.status === "Maintenance" && (
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.amberFaint, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
+              <span style={{ fontSize: 12 }}>🔧</span>
+              <div style={{ fontSize: 10.5, color: C.amber, fontWeight: 600, lineHeight: 1.5 }}>
+                Under maintenance{car.maintenanceStartDate ? ` since ${car.maintenanceStartDate}` : ""} — unavailable for new bookings until Complete Maintenance is used below.
+              </div>
+            </div>
+          )}
+          {/* A quiet record of the last completion, once the issue is closed —
+              not shown while a new issue is currently open. */}
+          {car.status !== "Maintenance" && car.maintenanceCompletedAt && (
+            <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: -8, marginBottom: 12 }}>
+              Last maintenance completed {new Date(car.maintenanceCompletedAt).toLocaleString()}
+            </div>
+          )}
 
           {/* Vehicle Details */}
           <div style={{ marginBottom: 12 }}>
@@ -334,13 +355,20 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* Action Buttons — one row, every button flex:1 so they land at
+              the same height and share the width evenly regardless of how
+              many are showing (Edit Vehicle lives on its own screen now,
+              reachable from the table's pencil icon, so it isn't repeated here). */}
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
             <Btn small onClick={() => setDrawerOpen(true)} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
               + Add Vehicle Expense
             </Btn>
-            <Btn small onClick={() => onEdit(car)} style={{ background: C.tealFaint, color: C.teal, border: `1px solid ${C.teal}` }}>Edit Vehicle</Btn>
-            <Btn small onClick={onDelete} style={{ background: C.redFaint, color: C.red, border: `1px solid ${C.red}` }}>Delete</Btn>
+            {car.status === "Maintenance" && (
+              <Btn small onClick={onCompleteMaintenance} style={{ flex: 1, background: C.tealFaint, color: C.teal, border: `1px solid ${C.teal}` }}>
+                ✓ Complete Maintenance
+              </Btn>
+            )}
+            <Btn small onClick={onDelete} style={{ flex: 1, background: C.redFaint, color: C.red, border: `1px solid ${C.red}` }}>Delete</Btn>
           </div>
         </div>
       </div>
@@ -455,6 +483,31 @@ const DeleteConfirmModal = ({ car, onConfirm, onCancel }) => (
   </>
 );
 
+// Confirms closing an active maintenance issue — the one deliberate step
+// between "under maintenance" and "back on the road," since nothing else in
+// the app is allowed to make that move for the user.
+const CompleteMaintenanceConfirmModal = ({ car, onConfirm, onCancel }) => (
+  <>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", zIndex: 300 }} />
+    <div style={{
+      position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+      background: C.surface, borderRadius: 14, boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)",
+      zIndex: 301, width: "min(400px, calc(100vw - 32px))", padding: 24, textAlign: "center",
+      boxSizing: "border-box",
+    }}>
+      <div style={{ width: 48, height: 48, borderRadius: "50%", background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, margin: "0 auto 14px" }}>✓</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Complete maintenance on this vehicle?</div>
+      <div style={{ fontSize: 12.5, color: C.textMuted, lineHeight: 1.5, marginBottom: 20 }}>
+        <strong style={{ color: C.textPri }}>{car.make} {car.model} ({car.plate})</strong> will be marked Available again and open for new bookings. This closes the active maintenance issue and records the completion date and time.
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn secondary onClick={onCancel} style={{ flex: 1 }}>Cancel</Btn>
+        <Btn onClick={onConfirm} style={{ flex: 1, background: C.teal, color: "#fff" }}>Complete Maintenance</Btn>
+      </div>
+    </div>
+  </>
+);
+
 // Compact rounded-square icon action button used in the Fleet table rows —
 // same visual language as the Bookings list's row actions.
 const IconBtn = ({ children, title, color, testid, onClick }) => (
@@ -481,6 +534,7 @@ const FlPageBtn = ({ children, active, disabled, onClick }) => (
 // ─────────────────────────────────────────────────────────────────────────
 const Fleet = ({
   fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense,
+  onCompleteMaintenanceCar,
   initialEditPlate, onInitialEditPlateHandled, initialViewPlate, onInitialViewPlateHandled,
 }) => {
   // Which car's details modal is open, keyed by plate (not a row index) so it
@@ -492,6 +546,7 @@ const Fleet = ({
   const [editPlate, setEditPlate] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [confirmDeleteCar, setConfirmDeleteCar] = useState(null);
+  const [confirmMaintenanceCar, setConfirmMaintenanceCar] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPlate, setSelectedPlate] = useState("All Plates");
   const [coeFilter, setCoeFilter] = useState("All Registration");
@@ -628,6 +683,16 @@ const Fleet = ({
     onDeleteCar(confirmDeleteCar.plate);
     setConfirmDeleteCar(null);
     setOpenPlate(null);
+  };
+
+  const handleCompleteMaintenance = (targetCar) => setConfirmMaintenanceCar(targetCar);
+
+  // The car stays open in the details modal afterwards (unlike Delete, it
+  // still exists) — the status flips to Available and the banner disappears
+  // in place, which is the clearest possible confirmation the flow worked.
+  const handleConfirmCompleteMaintenance = () => {
+    onCompleteMaintenanceCar(confirmMaintenanceCar.plate);
+    setConfirmMaintenanceCar(null);
   };
 
   return (
@@ -832,6 +897,10 @@ const Fleet = ({
         <DeleteConfirmModal car={confirmDeleteCar} onConfirm={handleConfirmDelete} onCancel={() => setConfirmDeleteCar(null)} />
       )}
 
+      {confirmMaintenanceCar && (
+        <CompleteMaintenanceConfirmModal car={confirmMaintenanceCar} onConfirm={handleConfirmCompleteMaintenance} onCancel={() => setConfirmMaintenanceCar(null)} />
+      )}
+
       {/* Vehicle Details Modal Overlay */}
       {car && (
         <VehicleDetailsModal
@@ -839,9 +908,8 @@ const Fleet = ({
           bookings={bookings}
           expenses={expenses}
           onAddExpense={onAddExpense}
-          onUpdateCar={onUpdateCar}
           onDelete={() => handleDelete(car)}
-          onEdit={(c) => { setOpenPlate(null); setEditPlate(c.plate); }}
+          onCompleteMaintenance={() => handleCompleteMaintenance(car)}
           onClose={() => setOpenPlate(null)}
         />
       )}

@@ -788,6 +788,17 @@ export default function FleetOpzApp() {
   const validateStep2 = () => {
     const errors = {};
     if (!newBookingData.plate) errors.plate = "Please select a car";
+    // A car with an active maintenance issue is blocked from NEW bookings
+    // regardless of the dates chosen — it only clears via Complete
+    // Maintenance in Fleet, never by picking a date far enough out. Editing
+    // or extending an existing booking on the plate is unaffected; this only
+    // gates starting a brand-new one.
+    else if (!editingBookingId) {
+      const selectedCar = fleetData.fleet.find(c => c.plate === newBookingData.plate);
+      if (selectedCar?.status === "Maintenance") {
+        errors.plate = "This vehicle is currently under maintenance and unavailable for booking.";
+      }
+    }
     if (!newBookingData.start || !newBookingData.end) {
       errors.dates = "Pickup Date and Return Date are required";
     } else if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
@@ -1206,6 +1217,7 @@ export default function FleetOpzApp() {
         bookings={fleetData.bookings}
         expenses={fleetData.expenses}
         onAddExpense={fleetData.addExpense}
+        onCompleteMaintenanceCar={fleetData.completeMaintenance}
         customers={fleetData.customers}
         initialEditPlate={renewPlate}
         onInitialEditPlateHandled={() => setRenewPlate(null)}
@@ -2224,6 +2236,13 @@ export default function FleetOpzApp() {
                         {!car.targetRate && (
                           <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, margin: "-4px 0 16px" }}>
                             No target rental rate set for {car.plate}. Please set a target rate in Fleet before booking this car.
+                          </div>
+                        )}
+                        {/* Editing/extending an existing booking on this plate is
+                            never blocked here — only starting a new one is. */}
+                        {!editingBookingId && car.status === "Maintenance" && (
+                          <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, margin: "-4px 0 16px" }}>
+                            🔧 {car.plate} is currently under maintenance and unavailable for booking. Use Complete Maintenance in Fleet once it's ready.
                           </div>
                         )}
                       </>
