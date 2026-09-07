@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions } from "./theme";
+import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions, purchaseAfterCoe, PURCHASE_AFTER_COE_MESSAGE } from "./theme";
 import { Btn, Input } from "./components";
 
 const STEPS = [
@@ -292,7 +292,13 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   // Step 2 — Compliance & Validity. COE Expiry is REQUIRED (it also drives the
   // investment horizon / target-rate math); the other validity dates stay
   // optional, so only COE gates proceeding from this step.
-  const canProceedStep1 = !!car.coe && daysUntil(car.coe) >= 0;
+  //
+  // The purchase date is entered on step 1 and the COE date here, so this is
+  // the first point at which the pair can be checked. Blocking here also stops
+  // the COE horizon and investment maths on the steps after it from ever
+  // running on contradictory dates.
+  const coeBeforePurchase = purchaseAfterCoe({ purchaseDate: car.purchaseDate, coe: car.coe });
+  const canProceedStep1 = !!car.coe && daysUntil(car.coe) >= 0 && !coeBeforePurchase;
 
   const handleGenerate = () => {
     // theme.js's generateTargetOptions now targets a CAGR per tier (Conservative/
@@ -419,6 +425,17 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
                 <ComplianceField label="Inspection Due" value={car.inspectionExpiry} onChange={e => setField("inspectionExpiry", e.target.value)} />
               </div>
               <ComplianceField label="COE Expiry Date *" value={car.coe} onChange={e => setField("coe", e.target.value)} blocking />
+              {/* Shown against the COE field because that is the one being
+                  edited on this step — the purchase date is two steps back. */}
+              {coeBeforePurchase && (
+                <div style={{ display: "flex", gap: 6, alignItems: "flex-start", background: C.redFaint, border: `1px solid ${C.red}55`, borderRadius: 6, padding: "8px 10px", marginTop: 2 }}>
+                  <span style={{ fontSize: 11, color: C.red }}>⚠</span>
+                  <span style={{ fontSize: 10.5, color: C.red, fontWeight: 600 }}>
+                    {PURCHASE_AFTER_COE_MESSAGE}. Purchase date is {car.purchaseDate} — go back and
+                    correct it, or set an expiry on or after that date.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

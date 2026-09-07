@@ -109,20 +109,26 @@ const LedgerDashboard = ({
   const assetRows = useMemo(() =>
     fleet.map((c) => {
       const cost = totalInv(c);
+      // null when the car's purchase and expiry dates contradict each other —
+      // it cannot be valued, so it is shown as unvalued rather than given a
+      // figure worked out from dates that run backwards.
       const value = carAssetValueBy(c, depMethod, depRate);
+      const unvalued = value === null || value === undefined;
       return {
         plate: c.plate,
         model: `${c.make || ""} ${c.model || ""}`.trim() || c.plate,
         cost,
         value,
+        unvalued,
         manualValue: hasManualValue(c) ? Number(c.manualValue) : null,
-        depreciation: Math.max(0, cost - value),
-        depPct: cost > 0 ? ((cost - value) / cost) * 100 : 0,
+        depreciation: unvalued ? null : Math.max(0, cost - value),
+        depPct: unvalued || cost <= 0 ? null : ((cost - value) / cost) * 100,
       };
-    }).filter((r) => r.cost > 0).sort((a, b) => b.value - a.value),
+    }).filter((r) => r.cost > 0).sort((a, b) => (b.value ?? -1) - (a.value ?? -1)),
   [fleet, depMethod, depRate]);
   const fleetValue = useMemo(() => fleetAssetValueBy(fleet, depMethod, depRate), [fleet, depMethod, depRate]);
   const totalCost = assetRows.reduce((s, r) => s + r.cost, 0);
+  const totalDepreciation = assetRows.reduce((s, r) => s + (r.depreciation ?? 0), 0);
   const netWorth = currentBalance + fleetValue;
 
   const kpis = [
@@ -278,11 +284,19 @@ const LedgerDashboard = ({
                       <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>
                         {depMethod === "manual" && onUpdateCar
                           ? <ManualValueCell value={r.manualValue} cost={r.cost} onCommit={(val) => onUpdateCar(r.plate, { manualValue: val })} />
-                          : fmt(Math.round(r.value))}
+                          : r.unvalued
+                            ? <span title="Purchase date is later than the registration expiry — fix the dates on the Fleet record to value this car." style={{ color: C.textMuted, fontWeight: 600 }}>—</span>
+                            : fmt(Math.round(r.value))}
                       </td>
                       <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                        <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: DOWN }}>−{fmt(Math.round(r.depreciation))}</span>
-                        <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>({r.depPct.toFixed(0)}%)</span>
+                        {r.unvalued ? (
+                          <span style={{ fontSize: 10, color: C.textMuted }}>dates conflict</span>
+                        ) : (
+                          <>
+                            <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: DOWN }}>−{fmt(Math.round(r.depreciation))}</span>
+                            <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>({r.depPct.toFixed(0)}%)</span>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -290,7 +304,10 @@ const LedgerDashboard = ({
                     <td style={{ padding: "9px 12px", fontSize: 11, fontWeight: 700, color: C.textPri }}>Total</td>
                     <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.textSec, textAlign: "right" }}>{fmt(Math.round(totalCost))}</td>
                     <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 800, color: C.navy, textAlign: "right" }}>{fmt(Math.round(fleetValue))}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: DOWN, textAlign: "right" }}>−{fmt(Math.round(totalCost - fleetValue))}</td>
+                    {/* Summed from the valued rows rather than cost − value, so
+                        a car that cannot be valued does not read as if it had
+                        depreciated to nothing. */}
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: DOWN, textAlign: "right" }}>−{fmt(Math.round(totalDepreciation))}</td>
                   </tr>
                 </tbody>
               </table>

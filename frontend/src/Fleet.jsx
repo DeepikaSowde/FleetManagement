@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions } from "./theme";
+import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions, purchaseAfterCoe, PURCHASE_AFTER_COE_MESSAGE } from "./theme";
 import { fleetDisplayStatus } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
@@ -273,6 +273,14 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
     }
     if (!editForm.coe) {
       setEditError("COE Expiry Date is required.");
+      return;
+    }
+    // The purchase date isn't editable here, so the only way to break this pair
+    // from the edit modal is to pull the expiry back behind it. Blocking the
+    // save is what stops the car's remaining life — and its book value — being
+    // computed from dates that run backwards.
+    if (purchaseAfterCoe({ purchaseDate: car.purchaseDate, coe: editForm.coe })) {
+      setEditError(`${PURCHASE_AFTER_COE_MESSAGE}. This car was purchased on ${car.purchaseDate}.`);
       return;
     }
     const negativeField = [

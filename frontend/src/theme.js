@@ -69,9 +69,31 @@ export const daysUntil = (d) => Math.ceil((new Date(d) - APP_NOW) / 86400000);
 // the asset counterpart to the auto "Vehicle Purchase" expense: buying a car
 // doesn't destroy money, it converts cash into a depreciating asset.
 //   value = totalInv × (timeLeftToExpiry / totalLife),  clamped to [0, cost]
-// When the purchase/expiry dates are missing or nonsensical we hold the value at
-// cost rather than guessing a life.
+// With a date simply missing we hold the value at cost rather than guessing a
+// life; with the two dates contradicting each other we refuse to value it at
+// all (see below).
+// A car cannot have been bought after its registration already expired. That
+// is not an unusual record, it is a wrong one: the straight-line life would run
+// backwards and every figure derived from it would be nonsense. The entry forms
+// block it (Add Car wizard and Fleet edit), and this is the guard for anything
+// that got in before the check existed.
+//
+// Buying ON the expiry date is allowed — zero remaining life, but not contradictory.
+export const PURCHASE_AFTER_COE_MESSAGE =
+  "Purchase date cannot be later than the COE expiry date";
+
+export const purchaseAfterCoe = (car) => {
+  if (!car || !car.purchaseDate || !car.coe) return false;
+  const start = new Date(car.purchaseDate);
+  const end = new Date(car.coe);
+  if (Number.isNaN(+start) || Number.isNaN(+end)) return false;
+  return start > end;
+};
+
+// Returns null — not a number — when the dates contradict each other, so a
+// caller shows "—" rather than a value invented from bad data.
 export const carAssetValue = (c) => {
+  if (purchaseAfterCoe(c)) return null;
   const cost = totalInv(c);
   if (cost <= 0) return 0;
   const start = c.purchaseDate ? new Date(c.purchaseDate) : null;
@@ -82,7 +104,9 @@ export const carAssetValue = (c) => {
 };
 
 // Total current book value of every car still owned in the fleet.
-export const fleetAssetValue = (fleet = []) => fleet.reduce((s, c) => s + carAssetValue(c), 0);
+// A car that cannot be valued contributes nothing to the total rather than
+// dragging the whole figure to NaN.
+export const fleetAssetValue = (fleet = []) => fleet.reduce((s, c) => s + (carAssetValue(c) ?? 0), 0);
 
 // ── Selectable depreciation methods ─────────────────────────────────────────
 // The Balance Sheet lets the user pick how a car's value is written down. All
@@ -126,7 +150,7 @@ export const carAssetValueBy = (c, method = "coe", ratePct = 20) => {
 };
 
 export const fleetAssetValueBy = (fleet = [], method = "coe", ratePct = 20) =>
-  fleet.reduce((s, c) => s + carAssetValueBy(c, method, ratePct), 0);
+  fleet.reduce((s, c) => s + (carAssetValueBy(c, method, ratePct) ?? 0), 0);
 
 // ── DAILY RATE BANDS (SGD/day) ──────────────────────────────────────────────
 // Reference ranges so daily rates can be set sensibly per vehicle category
