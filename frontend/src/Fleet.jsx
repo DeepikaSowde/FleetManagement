@@ -3,6 +3,7 @@ import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions, purchaseAfter
 import { fleetDisplayStatus } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
+import EditVehicleForm from "./EditVehicleForm";
 
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -209,125 +210,15 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
 // ─────────────────────────────────────────────────────────────────────────
 // Compact Vehicle Details Modal — overlays on top of Fleet list
 // ─────────────────────────────────────────────────────────────────────────
-const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCar, onDelete, onClose, startEditing = false }) => {
+const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, onEdit, onClose }) => {
   const fin = useMemo(() => computeCarFinancials(car, bookings, expenses), [car, bookings, expenses]);
   const d = daysUntil(car.coe);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // Edit mode — toggled by the "Edit" button below, or entered immediately
-  // when opened via the table's "Edit" link (startEditing). `editForm` holds
-  // a draft copy of the editable fields; nothing is written back to the
-  // fleet via onUpdateCar until Save is pressed, so Cancel always discards cleanly.
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState(null);
-  const [editError, setEditError] = useState("");
+  // Details is read-only — editing happens on the Edit Vehicle screen, so
+  // there is one vehicle form and one set of validation rules, not two.
   const recoveryPct = fin.inv > 0 ? Math.min((fin.bookingRevenue / fin.inv) * 100, 100) : 0;
   const profitColor = fin.netProfit > 0 ? C.green : fin.netProfit < 0 ? C.red : C.amber;
 
-  const handleStartEdit = () => {
-    setEditForm({
-      make: car.make || "",
-      model: car.model || "",
-      year: car.year ?? "",
-      color: car.color || "",
-      fuelType: car.fuelType || "Petrol",
-      transmission: car.transmission || "Automatic",
-      purchase: car.purchase ?? 0,
-      purchaseAdvance: car.purchaseAdvance ?? 0,
-      insurance: car.insurance ?? 0,
-      reg: car.reg ?? 0,
-      otherCharges: car.otherCharges ?? 0,
-      coe: car.coe || "",
-      insuranceExpiry: car.insuranceExpiry || "",
-      ltaTransferDate: car.ltaTransferDate || "",
-      roadTaxExpiry: car.roadTaxExpiry || "",
-      inspectionExpiry: car.inspectionExpiry || "",
-      targetRate: car.targetRate ?? "",
-      runningDaysTarget: car.runningDaysTarget ?? "",
-      profitPctTarget: car.profitPctTarget ?? "",
-    });
-    setEditError("");
-    setEditing(true);
-  };
-
-  const handleCancelEdit = () => {
-    setEditing(false);
-    setEditForm(null);
-    setEditError("");
-  };
-
-  // Opened via the Fleet table's "Edit" link (as opposed to "Details →") —
-  // jump straight into edit mode instead of making the user click Edit again.
-  useEffect(() => {
-    if (startEditing) handleStartEdit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSaveEdit = () => {
-    if (!editForm.make.trim() || !editForm.model.trim()) {
-      setEditError("Make and Model can't be empty.");
-      return;
-    }
-    if (!editForm.year || Number(editForm.year) <= 0) {
-      setEditError("Enter a valid Year.");
-      return;
-    }
-    if (!editForm.coe) {
-      setEditError("COE Expiry Date is required.");
-      return;
-    }
-    // The purchase date isn't editable here, so the only way to break this pair
-    // from the edit modal is to pull the expiry back behind it. Blocking the
-    // save is what stops the car's remaining life — and its book value — being
-    // computed from dates that run backwards.
-    if (purchaseAfterCoe({ purchaseDate: car.purchaseDate, coe: editForm.coe })) {
-      setEditError(`${PURCHASE_AFTER_COE_MESSAGE}. This car was purchased on ${car.purchaseDate}.`);
-      return;
-    }
-    const negativeField = [
-      ["purchase", "Purchase"], ["purchaseAdvance", "Purchase Advance"],
-      ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"],
-    ].find(([key]) => editForm[key] !== "" && Number(editForm[key]) < 0);
-    if (negativeField) {
-      setEditError(`${negativeField[1]} can't be negative.`);
-      return;
-    }
-    const nonWholeField = [
-      ["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"],
-      ["reg", "Registration"], ["otherCharges", "Other Charges"],
-    ].find(([key]) => editForm[key] !== "" && !Number.isInteger(Number(editForm[key])));
-    if (nonWholeField) {
-      setEditError(`${nonWholeField[1]} must be a whole number.`);
-      return;
-    }
-    if (typeof onUpdateCar !== "function") {
-      setEditError("Saving isn't wired up yet.");
-      return;
-    }
-    onUpdateCar(car.plate, {
-      make: editForm.make.trim(),
-      model: editForm.model.trim(),
-      year: Number(editForm.year),
-      color: editForm.color.trim(),
-      fuelType: editForm.fuelType,
-      transmission: editForm.transmission,
-      purchase: Number(editForm.purchase) || 0,
-      purchaseAdvance: Number(editForm.purchaseAdvance) || 0,
-      insurance: Number(editForm.insurance) || 0,
-      reg: Number(editForm.reg) || 0,
-      otherCharges: Number(editForm.otherCharges) || 0,
-      coe: editForm.coe,
-      insuranceExpiry: editForm.insuranceExpiry,
-      ltaTransferDate: editForm.ltaTransferDate,
-      roadTaxExpiry: editForm.roadTaxExpiry,
-      inspectionExpiry: editForm.inspectionExpiry,
-      targetRate: editForm.targetRate === "" ? car.targetRate : Number(editForm.targetRate),
-      runningDaysTarget: editForm.runningDaysTarget === "" ? car.runningDaysTarget : Number(editForm.runningDaysTarget),
-      profitPctTarget: editForm.profitPctTarget === "" ? car.profitPctTarget : Number(editForm.profitPctTarget),
-    });
-    setEditing(false);
-    setEditForm(null);
-    setEditError("");
-  };
 
   return (
     <>
@@ -375,151 +266,40 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
           {/* Vehicle Details */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Vehicle</div>
-            {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Make</div>
-                  <input type="text" value={editForm.make} onChange={(e) => setEditForm({ ...editForm, make: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Model</div>
-                  <input type="text" value={editForm.model} onChange={(e) => setEditForm({ ...editForm, model: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Year</div>
-                  <input type="number" value={editForm.year} onChange={(e) => setEditForm({ ...editForm, year: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Colour</div>
-                  <input type="text" value={editForm.color} onChange={(e) => setEditForm({ ...editForm, color: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Fuel Type</div>
-                  <select value={editForm.fuelType} onChange={(e) => { const v = e.target.value; setEditForm({ ...editForm, fuelType: v, transmission: v === "EV" ? "Automatic" : editForm.transmission }); }} style={{ ...fieldStyle, cursor: "pointer" }}>
-                    <option value="Petrol">Petrol</option>
-                    <option value="Diesel">Diesel</option>
-                    <option value="EV">EV</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Transmission</div>
-                  <select value={editForm.transmission} onChange={(e) => setEditForm({ ...editForm, transmission: e.target.value })} disabled={editForm.fuelType === "EV"} style={{ ...fieldStyle, cursor: "pointer" }}>
-                    <option value="Automatic">Automatic</option>
-                    {editForm.fuelType !== "EV" && <option value="Manual">Manual</option>}
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <>
                 <CompactRow label="Make" value={car.make} useMono={false} />
                 <CompactRow label="Model" value={car.model} useMono={false} />
                 <CompactRow label="Year" value={car.year} useMono={false} />
                 <CompactRow label="Colour" value={car.color} useMono={false} />
                 <CompactRow label="Fuel Type" value={car.fuelType || "—"} useMono={false} />
                 <CompactRow label="Transmission" value={car.transmission || "—"} useMono={false} />
-              </>
-            )}
           </div>
 
           {/* Compliance & Validity */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Compliance & Validity</div>
-            {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Insurance Expiry</div>
-                  <input type="date" value={editForm.insuranceExpiry} onChange={(e) => setEditForm({ ...editForm, insuranceExpiry: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>LTA Transfer Validity</div>
-                  <input type="date" value={editForm.ltaTransferDate} onChange={(e) => setEditForm({ ...editForm, ltaTransferDate: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Road Tax Expiry</div>
-                  <input type="date" value={editForm.roadTaxExpiry} onChange={(e) => setEditForm({ ...editForm, roadTaxExpiry: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Inspection Due</div>
-                  <input type="date" value={editForm.inspectionExpiry} onChange={(e) => setEditForm({ ...editForm, inspectionExpiry: e.target.value })} style={fieldStyle} />
-                </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>COE Expiry *</div>
-                  <input type="date" value={editForm.coe} onChange={(e) => setEditForm({ ...editForm, coe: e.target.value })} style={fieldStyle} />
-                </div>
-              </div>
-            ) : (
-              <>
                 <ComplianceRow label="Insurance Expiry" date={car.insuranceExpiry} />
                 <ComplianceRow label="LTA Transfer Validity" date={car.ltaTransferDate} />
                 <ComplianceRow label="Road Tax Expiry" date={car.roadTaxExpiry} />
                 <ComplianceRow label="Inspection Due" date={car.inspectionExpiry} />
-              </>
-            )}
           </div>
 
           {/* Investment */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Investment</div>
-            {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Purchase (SGD)</div>
-                  <input type="number" min="0" value={editForm.purchase} onChange={(e) => setEditForm({ ...editForm, purchase: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Purchase Advance (SGD)</div>
-                  <input type="number" min="0" step="1" value={editForm.purchaseAdvance} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, purchaseAdvance: v }); }} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Insurance (SGD)</div>
-                  <input type="number" min="0" step="1" value={editForm.insurance} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, insurance: v }); }} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Registration (SGD)</div>
-                  <input type="number" min="0" step="1" value={editForm.reg} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, reg: v }); }} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Other Charges (SGD)</div>
-                  <input type="number" min="0" step="1" value={editForm.otherCharges} onChange={(e) => { const v = e.target.value; if (v !== "" && !/^\d+$/.test(v)) return; setEditForm({ ...editForm, otherCharges: v }); }} style={fieldStyle} />
-                </div>
-              </div>
-            ) : (
-              <>
                 <CompactRow label="Purchase" value={fmt(car.purchase)} />
                 <CompactRow label="Purchase Advance" value={fmt(car.purchaseAdvance || 0)} />
                 <CompactRow label="Insurance" value={fmt(car.insurance)} />
                 <CompactRow label="Registration" value={fmt(car.reg)} />
                 <CompactRow label="Other Charges" value={fmt(car.otherCharges || 0)} />
                 <CompactRow label="Total" value={fmt(fin.inv)} valueColor={C.green} bold />
-              </>
-            )}
           </div>
 
           {/* Target */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Target</div>
-            {editing ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Target Rate (SGD/day)</div>
-                  <input type="number" min="0" value={editForm.targetRate} onChange={(e) => setEditForm({ ...editForm, targetRate: e.target.value })} style={fieldStyle} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Running Days / Month</div>
-                  <input type="number" min="0" value={editForm.runningDaysTarget} onChange={(e) => setEditForm({ ...editForm, runningDaysTarget: e.target.value })} style={fieldStyle} />
-                </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Target Profit %</div>
-                  <input type="number" step="0.1" value={editForm.profitPctTarget} onChange={(e) => setEditForm({ ...editForm, profitPctTarget: e.target.value })} style={fieldStyle} />
-                </div>
-              </div>
-            ) : (
-              <>
                 <CompactRow label="Target Rate" value={car.targetRate != null ? `SGD ${car.targetRate}/day` : "—"} useMono={false} />
                 <CompactRow label="Running Days Target" value={car.runningDaysTarget != null ? `${car.runningDaysTarget} days/mo` : "—"} useMono={false} />
                 <CompactRow label="Target Profit %" value={car.profitPctTarget != null ? `${car.profitPctTarget}%` : "—"} useMono={false} />
-              </>
-            )}
           </div>
 
           {/* Financial Summary — Simplified */}
@@ -555,25 +335,12 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onUpdateCa
           </div>
 
           {/* Action Buttons */}
-          {editError && (
-            <div style={{ marginTop: 10, fontSize: 11, fontWeight: 600, color: C.red }}>{editError}</div>
-          )}
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            {editing ? (
-              <>
-                <Btn small onClick={handleSaveEdit} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
-                  Save Changes
-                </Btn>
-                <Btn small onClick={handleCancelEdit}>Cancel</Btn>
-              </>
-            ) : (
-              <>
-                <Btn small onClick={() => setDrawerOpen(true)} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
-                  + Add Vehicle Expense
-                </Btn>
-                <Btn small onClick={onDelete} style={{ background: C.redFaint, color: C.red, border: `1px solid ${C.red}` }}>Delete</Btn>
-              </>
-            )}
+            <Btn small onClick={() => setDrawerOpen(true)} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
+              + Add Vehicle Expense
+            </Btn>
+            <Btn small onClick={() => onEdit(car)} style={{ background: C.tealFaint, color: C.teal, border: `1px solid ${C.teal}` }}>Edit Vehicle</Btn>
+            <Btn small onClick={onDelete} style={{ background: C.redFaint, color: C.red, border: `1px solid ${C.red}` }}>Delete</Btn>
           </div>
         </div>
       </div>
@@ -712,13 +479,17 @@ const FlPageBtn = ({ children, active, disabled, onClick }) => (
 // ─────────────────────────────────────────────────────────────────────────
 // Fleet — table/filter list + modal details overlay
 // ─────────────────────────────────────────────────────────────────────────
-const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense, initialOpenPlate, onInitialOpenPlateHandled }) => {
+const Fleet = ({
+  fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense,
+  initialEditPlate, onInitialEditPlateHandled, initialViewPlate, onInitialViewPlateHandled,
+}) => {
   // Which car's details modal is open, keyed by plate (not a row index) so it
   // stays correct across pagination/filtering/sorting.
   const [openPlate, setOpenPlate] = useState(null);
-  // True when the details modal should open straight into edit mode — set by
-  // the table's Edit icon, as opposed to the View icon which opens read-only.
-  const [editOnOpen, setEditOnOpen] = useState(false);
+  // Which car the Edit Vehicle screen is open for, again keyed by plate. The
+  // table's Edit icon opens it directly; View opens the read-only details,
+  // which has its own Edit Vehicle button.
+  const [editPlate, setEditPlate] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [confirmDeleteCar, setConfirmDeleteCar] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -730,18 +501,26 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Deep-link support — e.g. the Alerts page's "Renew Now" / "View Vehicle"
-  // buttons set initialOpenPlate to jump straight to that car's edit modal.
+  // Deep-link support from the Alerts page. Two separate entry points, because
+  // the two alert types mean different things: a COE alert's "Renew Now" IS an
+  // edit (the expiry date needs changing), while a maintenance alert's "View
+  // Vehicle" is informational and should land on the read-only details.
   // Same "consume once" pattern as Booking.jsx's detailBookingId: the parent
   // hands off a plate, this opens it, then immediately clears it via the
   // handler so the same plate doesn't re-trigger on the next render.
   useEffect(() => {
-    if (!initialOpenPlate) return;
-    setEditOnOpen(true);
-    setOpenPlate(initialOpenPlate);
-    onInitialOpenPlateHandled?.();
+    if (!initialEditPlate) return;
+    setEditPlate(initialEditPlate);
+    onInitialEditPlateHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialOpenPlate]);
+  }, [initialEditPlate]);
+
+  useEffect(() => {
+    if (!initialViewPlate) return;
+    setOpenPlate(initialViewPlate);
+    onInitialViewPlateHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialViewPlate]);
 
   // Generate unique plates from fleet (automatically updates when fleet changes)
   const uniquePlates = useMemo(() => {
@@ -810,6 +589,9 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
   // Car whose details modal is open, resolved by plate against the current
   // sorted/filtered list (falls back to null if it's since been filtered out).
   const car = openPlate ? sortedFleet.find(c => c.plate === openPlate) : null;
+  // Resolved against the whole fleet, not the filtered list, so the form stays
+  // open even if an edit moves the vehicle out of the current filter.
+  const editCar = editPlate ? fleet.find(c => c.plate === editPlate) : null;
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -974,7 +756,7 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
               const d = daysUntil(c.coe);
               return (
                 <tr key={c.plate} data-testid="fleet-row" data-plate={c.plate}
-                  onClick={() => { setEditOnOpen(false); setOpenPlate(c.plate); }}
+                  onClick={() => setOpenPlate(c.plate)}
                   onMouseEnter={(e) => { e.currentTarget.style.background = C.bg; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: "transparent", transition: "background 0.12s" }}>
@@ -998,8 +780,8 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
                   <td style={{ padding: "12px 14px" }}><StatusTag status={toFleetPageStatus(c.status)} /></td>
                   <td style={{ padding: "9px 14px" }} onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <IconBtn testid="fleet-row-details" title="View details" color={C.green} onClick={() => { setEditOnOpen(false); setOpenPlate(c.plate); }}>👁</IconBtn>
-                      <IconBtn testid="fleet-row-edit" title="Edit vehicle" color={C.green} onClick={() => { setEditOnOpen(true); setOpenPlate(c.plate); }}>✏️</IconBtn>
+                      <IconBtn testid="fleet-row-details" title="View Vehicle" color={C.green} onClick={() => setOpenPlate(c.plate)}>👁</IconBtn>
+                      <IconBtn testid="fleet-row-edit" title="Edit Vehicle" color={C.green} onClick={() => setEditPlate(c.plate)}>✏️</IconBtn>
                     </div>
                   </td>
                 </tr>
@@ -1053,8 +835,18 @@ const Fleet = ({ fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarM
           onAddExpense={onAddExpense}
           onUpdateCar={onUpdateCar}
           onDelete={() => handleDelete(car)}
-          onClose={() => { setOpenPlate(null); setEditOnOpen(false); }}
-          startEditing={editOnOpen}
+          onEdit={(c) => { setOpenPlate(null); setEditPlate(c.plate); }}
+          onClose={() => setOpenPlate(null)}
+        />
+      )}
+
+      {/* Edit Vehicle — the Add Car form, pre-filled with this vehicle */}
+      {editCar && (
+        <EditVehicleForm
+          car={editCar}
+          fleet={fleet}
+          onSave={(plate, updates) => { onUpdateCar(plate, updates); setEditPlate(null); }}
+          onCancel={() => setEditPlate(null)}
         />
       )}
     </div>

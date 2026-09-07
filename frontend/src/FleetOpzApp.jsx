@@ -458,9 +458,11 @@ export default function FleetOpzApp() {
   // Booking.jsx consumes it once and calls back to clear it — see
   // onDetailBookingIdHandled below — so it never re-triggers.
   const [detailBookingId, setDetailBookingId] = useState(null);
-  // Same "consume once" pattern, for the Alerts page's Renew Now / View
-  // Vehicle buttons deep-linking into a specific car's edit modal on Fleet.
+  // Same "consume once" pattern, for the Alerts page's deep links into Fleet:
+  // "Renew Now" (COE) opens Edit Vehicle since renewing IS an edit; "View
+  // Vehicle" (maintenance) opens the read-only details.
   const [renewPlate, setRenewPlate] = useState(null);
+  const [viewVehiclePlate, setViewVehiclePlate] = useState(null);
 
   // Real auth: the logged-in user comes from AuthContext (JWT-backed). Role
   // gates (like who can see Restricted Driving Licenses) read currentUserRole,
@@ -1205,8 +1207,10 @@ export default function FleetOpzApp() {
         expenses={fleetData.expenses}
         onAddExpense={fleetData.addExpense}
         customers={fleetData.customers}
-        initialOpenPlate={renewPlate}
-        onInitialOpenPlateHandled={() => setRenewPlate(null)}
+        initialEditPlate={renewPlate}
+        onInitialEditPlateHandled={() => setRenewPlate(null)}
+        initialViewPlate={viewVehiclePlate}
+        onInitialViewPlateHandled={() => setViewVehiclePlate(null)}
       />
     ),
     "car-availability": (
@@ -1349,6 +1353,7 @@ export default function FleetOpzApp() {
         fleet={fleetData.fleet}
         onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
         onRenewVehicle={(plate) => { setRenewPlate(plate); setActive("fleet"); }}
+        onViewVehicle={(plate) => { setViewVehiclePlate(plate); setActive("fleet"); }}
       />
     ),
     settings: (

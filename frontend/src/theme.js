@@ -236,6 +236,11 @@ export const generateTargetOptions = ({ investment, purchaseDate, coe, minRate, 
       monthlyIncome: Math.round(monthlyIncome),
       profitPct: Math.round(profitPct * 10) / 10,
       cagr: Math.round(cagr * 1000) / 10, // e.g. 0.11 -> 11 (%)
+      // The compounded value the target is aiming at, and the runway it is
+      // compounded over. Both move when the purchase or expiry date changes,
+      // so Edit Vehicle can show what a date change actually did.
+      futureValue: Math.round(fv),
+      yearsToExpiry: Math.round(yearsToExpiry * 100) / 100,
     };
   });
 };

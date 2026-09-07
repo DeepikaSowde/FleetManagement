@@ -68,7 +68,7 @@ const BASE_BRAND_MODELS = {
 // Merges the base catalog above with whatever brand/model pairs already
 // exist in the live fleet, so newly-registered brands/models show up too
 // without needing a code change.
-const buildBrandModelMap = (fleet = []) => {
+export const buildBrandModelMap = (fleet = []) => {
   const map = {};
   Object.entries(BASE_BRAND_MODELS).forEach(([brand, models]) => {
     map[brand] = new Set(models);
@@ -98,7 +98,9 @@ const selectFieldStyle = {
 // Dropdown-with-free-typing combobox: shows suggestions like a <select>, but
 // lets staff type a brand/model that isn't in the list yet (a genuinely new
 // one), since <select> alone can't do that. Backed by <input list=...>.
-const Combobox = ({ label, value, onChange, options, placeholder, listId, error }) => (
+// Exported so Edit Vehicle uses the SAME field components as Add Car rather
+// than look-alikes that can drift apart.
+export const Combobox = ({ label, value, onChange, options, placeholder, listId, error }) => (
   <div>
     <div style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>{label}</div>
     <input
@@ -117,7 +119,7 @@ const Combobox = ({ label, value, onChange, options, placeholder, listId, error 
 
 
 
-const SelectField = ({ label, value, onChange, options, error }) => (
+export const SelectField = ({ label, value, onChange, options, error }) => (
   <div>
     <div style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>{label}</div>
     <select value={value} onChange={onChange} style={{ ...selectFieldStyle, ...(error ? { borderColor: C.red } : {}) }}>
@@ -140,7 +142,7 @@ const complianceStatus = (days) => {
 
 // A single Compliance & Validity field: a date input plus an auto-computed
 // days-remaining / status readout underneath — no manual status entry.
-const ComplianceField = ({ label, value, onChange, blocking = false }) => {
+export const ComplianceField = ({ label, value, onChange, blocking = false }) => {
   const days = value ? daysUntil(value) : null;
   const st = complianceStatus(days);
   const isPast = days != null && days < 0;

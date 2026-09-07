@@ -95,7 +95,7 @@ const rowColumns = (a) => {
 
 // The action buttons for a row — see the header comment for exactly which
 // buttons each alert type/subtype gets; matches the reference design 1:1.
-const rowActions = (a, { onOpenBooking, onRenewVehicle, sent, onSend }) => {
+const rowActions = (a, { onOpenBooking, onRenewVehicle, onViewVehicle, sent, onSend }) => {
   const sendBtn = sent
     ? { label: "✓ Sent", kind: "outline", color: C.textMuted, disabled: true }
     : { label: "Send Reminder", kind: "outline", color: C.blue, onClick: onSend };
@@ -107,7 +107,9 @@ const rowActions = (a, { onOpenBooking, onRenewVehicle, sent, onSend }) => {
     return [{ label: "View Booking", kind: "outline", color: C.blue, onClick: () => onOpenBooking?.(a.bookingId) }]; // upcoming
   }
   if (a.type === "coe") return [{ label: "Renew Now", kind: "outline", color: C.blue, onClick: () => onRenewVehicle?.(a.plate) }];
-  if (a.type === "maintenance") return [{ label: "View Vehicle", kind: "outline", color: C.blue, onClick: () => onRenewVehicle?.(a.plate) }];
+  // "View Vehicle" opens the read-only details, not the edit screen — a
+  // maintenance note is informational, unlike a COE renewal which IS an edit.
+  if (a.type === "maintenance") return [{ label: "View Vehicle", kind: "outline", color: C.blue, onClick: () => onViewVehicle?.(a.plate) }];
   return [{ label: "View Booking", kind: "outline", color: C.blue, onClick: () => onOpenBooking?.(a.bookingId) }]; // return / booking
 };
 
@@ -128,11 +130,15 @@ const ActionButton = ({ label, kind, color, disabled, onClick }) => (
   </button>
 );
 
-const AlertRow = ({ a, onOpenBooking, onRenewVehicle, sent, onSend }) => {
+const AlertRow = ({ a, onOpenBooking, onRenewVehicle, onViewVehicle, sent, onSend }) => {
   const v = rowVisual(a);
   const cols = rowColumns(a);
-  const acts = rowActions(a, { onOpenBooking, onRenewVehicle, sent, onSend });
-  const clickable = a.bookingId ? () => onOpenBooking?.(a.bookingId) : a.plate ? () => onRenewVehicle?.(a.plate) : undefined;
+  const acts = rowActions(a, { onOpenBooking, onRenewVehicle, onViewVehicle, sent, onSend });
+  // Row click mirrors whichever action button this alert shows, so clicking
+  // anywhere on a maintenance row opens the same read-only view the button does.
+  const clickable = a.bookingId ? () => onOpenBooking?.(a.bookingId)
+    : a.plate ? () => (a.type === "maintenance" ? onViewVehicle?.(a.plate) : onRenewVehicle?.(a.plate))
+    : undefined;
 
   return (
     <div
@@ -174,7 +180,7 @@ const NOTIFICATION_RULES = [
   { label: "Maintenance Pending", val: "2 days into maintenance", channel: "In-App" },
 ];
 
-const Alert = ({ alerts = [], onOpenBooking, onRenewVehicle }) => {
+const Alert = ({ alerts = [], onOpenBooking, onRenewVehicle, onViewVehicle }) => {
   const [tab, setTab] = useState("all");
   const [sentIds, setSentIds] = useState(() => new Set());
   const [showSettings, setShowSettings] = useState(false);
@@ -280,7 +286,7 @@ const Alert = ({ alerts = [], onOpenBooking, onRenewVehicle }) => {
             ) : (
               <>
                 {items.map((a) => (
-                  <AlertRow key={a.id} a={a} onOpenBooking={onOpenBooking} onRenewVehicle={onRenewVehicle} sent={sentIds.has(a.id)} onSend={() => markSent(a.id)} />
+                  <AlertRow key={a.id} a={a} onOpenBooking={onOpenBooking} onRenewVehicle={onRenewVehicle} onViewVehicle={onViewVehicle} sent={sentIds.has(a.id)} onSend={() => markSent(a.id)} />
                 ))}
                 {tab === "all" && (
                   <div style={{ padding: "12px 20px", textAlign: "center" }}>
