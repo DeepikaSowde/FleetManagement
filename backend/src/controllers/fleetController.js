@@ -19,8 +19,8 @@ function findNegativeFieldError(body) {
 }
 
 const WHOLE_NUMBER_FIELDS = [
-  ["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"],
-  ["reg", "Registration"], ["otherCharges", "Other Charges"],
+  ["purchase", "Purchase Price"], ["purchaseAdvance", "Purchase Advance"],
+  ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"],
 ];
 function findNonWholeFieldError(body) {
   for (const [key, label] of WHOLE_NUMBER_FIELDS) {

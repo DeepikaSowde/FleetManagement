@@ -125,6 +125,8 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
 
     if (String(form.purchase).trim() === "" || Number(form.purchase) <= 0) {
       e.purchase = "Purchase Price must be greater than 0";
+    } else if (!Number.isInteger(Number(form.purchase))) {
+      e.purchase = "Purchase Price must be a whole number";
     }
     [["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"]]
       .forEach(([k, l]) => {

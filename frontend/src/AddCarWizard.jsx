@@ -206,19 +206,9 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     setErrors(e => ({ ...e, plate: isDuplicate ? "Car Plate already exists" : undefined }));
   };
 
-  // Purchase Price / Advance / Insurance / Registration / Other Charges: block
-  // a negative value from ever being entered, mirroring the required
-  // "must not accept negative values" rule at the point of typing rather than
-  // only flagging it after the fact.
-  const handleNonNegativeChange = (key) => (e) => {
-    const v = e.target.value;
-    if (v !== "" && Number(v) < 0) return;
-    setField(key, v);
-  };
-
-  // Purchase Advance / Insurance / Registration / Other Charges must be whole
-  // numbers — reject anything but digits (so no "-", ".", or exponent form
-  // can land in the field at all).
+  // Purchase Price / Advance / Insurance / Registration / Other Charges must all
+  // be whole numbers — reject anything but digits (so no "-", ".", or exponent
+  // form can land in the field at all).
   const handleWholeNumberChange = (key) => (e) => {
     const v = e.target.value;
     if (v !== "" && !/^\d+$/.test(v)) return;
@@ -275,6 +265,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     if (!String(car.fuelType).trim()) e.fuelType = "Fuel Type is required";
     if (!String(car.transmission).trim()) e.transmission = "Transmission is required";
     if (String(car.purchase).trim() === "" || Number(car.purchase) <= 0) e.purchase = "Purchase Price must be greater than 0";
+    else if (!Number.isInteger(Number(car.purchase))) e.purchase = "Purchase Price must be a whole number";
     [["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"]].forEach(([k, l]) => {
       if (String(car[k]).trim() === "") return;
       if (Number(car[k]) < 0) e[k] = `${l} can't be negative`;
@@ -324,7 +315,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const handleFinish = () => {
     const finalCar = {
       ...car,
-      purchase: parseFloat(car.purchase),
+      purchase: parseInt(car.purchase, 10),
       purchaseAdvance: parseFloat(car.purchaseAdvance) || 0,
       insurance: parseFloat(car.insurance) || 0,
       reg: parseFloat(car.reg) || 0,
@@ -400,7 +391,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" min="0" value={car.purchase} onChange={handleNonNegativeChange("purchase")} placeholder="e.g., 26000" error={errors.purchase} />
+                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" min="0" step="1" value={car.purchase} onChange={handleWholeNumberChange("purchase")} placeholder="e.g., 26000" error={errors.purchase} />
                 <Input label="Purchase Advance (SGD)" type="number" min="0" step="1" value={car.purchaseAdvance} onChange={handleWholeNumberChange("purchaseAdvance")} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
