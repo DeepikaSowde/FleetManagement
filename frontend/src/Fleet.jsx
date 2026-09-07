@@ -538,6 +538,12 @@ const Fleet = ({
     return Object.keys(statusCounts).sort();
   }, [statusCounts]);
 
+  // The "All Plates (N)" dropdown label tracks whichever status tab is active
+  // — the total fleet size under "All", or that status's own count under
+  // "Available" / "On Rental" / etc. — so the two filters read as one scope
+  // instead of the label silently disagreeing with the pill just clicked.
+  const allPlatesCount = statusPillFilter === "All" ? fleet.length : (statusCounts[statusPillFilter] || 0);
+
   // Combined filtering logic
   const filteredFleet = useMemo(() => {
     return fleet.filter(car => {
@@ -663,7 +669,7 @@ const Fleet = ({
           onChange={(e) => setSelectedPlate(e.target.value)}
           style={{ padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12.5, fontWeight: 600, color: C.textSec, cursor: "pointer", fontFamily: "inherit", outline: "none" }}
         >
-          <option value="All Plates">All Plates ({fleet.length})</option>
+          <option value="All Plates">All Plates ({allPlatesCount})</option>
           {uniquePlates.map((plate) => <option key={plate} value={plate}>{plate}</option>)}
         </select>
         <select
