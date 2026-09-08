@@ -258,6 +258,33 @@ const computeBookingInvoice = (b) => {
   const finalVatAmount = taxableSubtotal * (vatPct / 100);
   const finalInvoiceTotal = taxableSubtotal + finalVatAmount + bookingChargesNonTaxableTotal + nonTaxableChargesTotal;
 
+  // Extend Booking's contribution to Balance Due is worked out SEPARATELY
+  // from finalInvoiceTotal above (which stays exactly as it was — it's what
+  // "Total Rental" displays, unchanged). Folding an extension into one
+  // combined taxable-subtotal-then-floor, as finalInvoiceTotal does, lets a
+  // pre-existing overpayment silently discount the extension: floor(1320 +
+  // 480 - 1400) = 400, quietly eating the customer's 80 credit into the new
+  // charge. An extension is a new charge agreed today — it must add its own
+  // Grand Total (amount + its own VAT) in full, on top of whatever was
+  // already owed, never netted against a credit that predates it.
+  //
+  // "Existing Outstanding Balance" is the invoice as it stood immediately
+  // before any Extend Booking action — the Agreement plus any non-extension
+  // post-charges (e.g. a Fuel Charge from a return) — floored at 0 on ITS
+  // OWN, before the extension is added. Each extension's own Grand Total is
+  // then added unfloored, so it can never be quietly waived.
+  const extensionCharges = postCharges.filter(c => c.origin === "extension");
+  const otherPostCharges = postCharges.filter(c => c.origin !== "extension");
+  const otherTaxableChargesTotal = otherPostCharges.filter(c => c.taxable).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const otherNonTaxableChargesTotal = otherPostCharges.filter(c => !c.taxable).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const preExtensionTaxableSubtotal = agreementTaxableBase + otherTaxableChargesTotal;
+  const preExtensionVatAmount = preExtensionTaxableSubtotal * (vatPct / 100);
+  const preExtensionInvoiceTotal = preExtensionTaxableSubtotal + preExtensionVatAmount + bookingChargesNonTaxableTotal + otherNonTaxableChargesTotal;
+  const extensionGrandTotal = extensionCharges.reduce((s, c) => {
+    const amt = Number(c.amount) || 0;
+    return s + (c.taxable ? amt * (1 + vatPct / 100) : amt);
+  }, 0);
+
   // `payments` is the single source of truth for money received on this
   // booking, and it's built explicitly — with "Amount Collected Now"
   // already included as its first entry — the moment the booking is
@@ -272,14 +299,16 @@ const computeBookingInvoice = (b) => {
     ? [{ id: "legacy-seed", amount: Number(b.amountCollected), method: b.paymentMethod || "Cash", reference: b.referenceCode || "", addedAt: b.amountCollectedAt || b.createdAt || null }]
     : []);
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  // Balance Due must never go negative — once payments cover the invoice in
-  // full, it stops at 0. handleRecordPayment blocks overpayment at entry so
-  // totalPaid should never legitimately exceed finalInvoiceTotal; this clamp
-  // is just a safety net (e.g. for pre-existing/legacy data).
+  // Balance Due = the pre-extension balance (floored at 0 on its own) plus
+  // every extension's own Grand Total, added in full — see the comment above
+  // extensionGrandTotal. Equal to Math.max(0, finalInvoiceTotal - totalPaid)
+  // whenever there's no overpayment to protect (the ordinary case); differs
+  // only when payments already exceeded what was owed before the extension.
   // Security Deposit (`deposit`, above) is intentionally never added into
   // totalPaid or balanceDue — it's refundable and tracked as its own figure,
   // never part of what's "owed" on the rental invoice.
-  const balanceDue = Math.max(0, finalInvoiceTotal - totalPaid);
+  const preExtensionBalance = Math.max(0, preExtensionInvoiceTotal - totalPaid);
+  const balanceDue = preExtensionBalance + extensionGrandTotal;
 
   // Deposit collected so far (partial allowed). Fallback for older bookings:
   // the depositCollected flag being true → full deposit was taken; else 0.
@@ -292,7 +321,11 @@ const computeBookingInvoice = (b) => {
   // (The deposit is still returned at vehicle return via the refund flow.)
   const grandTotal = deposit + finalInvoiceTotal;
   const grandTotalPaid = depositPaid + totalPaid;
-  const grandBalanceDue = Math.max(0, grandTotal - grandTotalPaid);
+  // Built from the corrected balanceDue (already floored pre-extension, then
+  // extension Grand Totals added in full) plus any deposit still owed — not
+  // from grandTotal - grandTotalPaid directly, for the same reason balanceDue
+  // itself isn't derived that way any more.
+  const grandBalanceDue = balanceDue + Math.max(0, deposit - depositPaid);
 
   return {
     days, rateCharge, deliveryCharge, collectionCharge, additionalDriverCharge, otherCharges, deposit, vatPct,

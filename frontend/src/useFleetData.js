@@ -123,6 +123,24 @@ export const computeBookingInvoice = (b) => {
   const finalVatAmount = taxableSubtotal * (vatPct / 100);
   const finalInvoiceTotal = taxableSubtotal + finalVatAmount + bookingChargesNonTaxableTotal + nonTaxableChargesTotal;
 
+  // Extend Booking's contribution to Balance Due is worked out separately
+  // from finalInvoiceTotal above (unchanged) — see Booking.jsx's copy of this
+  // function for the full rationale. In short: combining an extension into
+  // one taxable subtotal then flooring once lets a pre-existing overpayment
+  // silently discount the extension; an extension's own Grand Total must
+  // always add in full on top of whatever was already owed.
+  const extensionCharges = postCharges.filter(c => c.origin === "extension");
+  const otherPostCharges = postCharges.filter(c => c.origin !== "extension");
+  const otherTaxableChargesTotal = otherPostCharges.filter(c => c.taxable).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const otherNonTaxableChargesTotal = otherPostCharges.filter(c => !c.taxable).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const preExtensionTaxableSubtotal = agreementTaxableBase + otherTaxableChargesTotal;
+  const preExtensionVatAmount = preExtensionTaxableSubtotal * (vatPct / 100);
+  const preExtensionInvoiceTotal = preExtensionTaxableSubtotal + preExtensionVatAmount + bookingChargesNonTaxableTotal + otherNonTaxableChargesTotal;
+  const extensionGrandTotal = extensionCharges.reduce((s, c) => {
+    const amt = Number(c.amount) || 0;
+    return s + (c.taxable ? amt * (1 + vatPct / 100) : amt);
+  }, 0);
+
   // Older bookings only ever had a single amountCollected value from the
   // wizard's Payment step — surface that as the first "payment" if no
   // payments array has been recorded yet, so history is never empty when
@@ -131,10 +149,11 @@ export const computeBookingInvoice = (b) => {
     ? [{ id: "seed", amount: Number(b.amountCollected), method: b.paymentMethod || "Cash", reference: b.referenceCode || "", addedAt: b.createdAt || null }]
     : []);
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  // Balance Due must never go negative — once payments (including any Fuel
-  // Charge folded into finalInvoiceTotal above) cover the invoice in full, it
-  // stops at 0. Kept in sync with Booking.jsx's copy of this same clamp.
-  const balanceDue = Math.max(0, finalInvoiceTotal - totalPaid);
+  // Balance Due = the pre-extension balance (floored at 0 on its own) plus
+  // every extension's own Grand Total, added in full. Kept in sync with
+  // Booking.jsx's copy of this same formula.
+  const preExtensionBalance = Math.max(0, preExtensionInvoiceTotal - totalPaid);
+  const balanceDue = preExtensionBalance + extensionGrandTotal;
 
   return {
     days, rateCharge, deliveryCharge, collectionCharge, additionalDriverCharge, otherCharges, deposit, vatPct,
