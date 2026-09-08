@@ -26,6 +26,12 @@ const fmtDate = (iso) => {
   const [y, m, d] = String(iso).slice(0, 10).split("-");
   return `${d} ${MON[Number(m) - 1]} ${y}`;
 };
+const fmtDateTime = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return `${fmtDate(iso)} at ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+};
 
 const SERIES_COLORS = ["#2563EB", "#15803D", "#7C3AED", "#B45309", "#0E7490", "#9D174D", "#4338CA", "#65A30D"];
 
@@ -171,7 +177,7 @@ function HistoryCard({ event, meId, colorOf, priorTable }) {
         )}
         {myAnswer && myAnswer.decision !== "Pending" && (
           <div style={{ fontSize: 11.5, marginTop: 5, color: myAnswer.decision === "Accepted" ? C.green : C.red, fontWeight: 700 }}>
-            You {myAnswer.decision.toLowerCase()} this{myAnswer.note ? ` — “${myAnswer.note}”` : ""}
+            You {myAnswer.decision.toLowerCase()} this{myAnswer.decidedAt ? ` on ${fmtDateTime(myAnswer.decidedAt)}` : ""}{myAnswer.note ? ` — “${myAnswer.note}”` : ""}
           </div>
         )}
       </div>
