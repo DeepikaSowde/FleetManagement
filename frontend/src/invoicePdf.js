@@ -198,14 +198,6 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.6, text: has(returnMileage) ? `${returnMileage} km` : "—" },
   ]);
   y = cellRow(y, [
-    { w: contentWidth * 0.4, text: "No. of KMs (customer)", bold: true },
-    { w: contentWidth * 0.6, text: split ? `${split.customerKm} km` : "—" },
-  ]);
-  y = cellRow(y, [
-    { w: contentWidth * 0.4, text: "Staff / Company KMs", bold: true },
-    { w: contentWidth * 0.6, text: split ? `${split.staffKm} km (not charged)` : "—" },
-  ]);
-  y = cellRow(y, [
     { w: contentWidth * 0.4, text: "Total KMs", bold: true },
     { w: contentWidth * 0.6, text: split ? `${split.totalKm} km` : "—" },
   ]);
