@@ -138,11 +138,14 @@ const StatCard = ({ icon, iconBg, iconColor, value, label, description, linkText
   </Card>
 );
 
-const EMPTY_USER_DRAFT = () => ({ name: "", username: "", role: "Staff", password: "" });
+const EMPTY_USER_DRAFT = () => ({ name: "", username: "", role: "Staff", password: "", investorId: "" });
 
 // ── MAIN MODULE ──────────────────────────────────────────────────────────────
 const UserManagement = ({
   users = [],
+  // Real investor records — powers the "Which investor is this?" picker
+  // shown when Role is set to Investor, so a login can be linked to one.
+  investors = [],
   onAddUser = () => {},
   onUpdateUser = () => {},
   onDeleteUser = () => {},
@@ -184,6 +187,7 @@ const UserManagement = ({
       username: u.username || "",
       role: u.role || "Staff",
       password: "",
+      investorId: u.investorId || "",
     });
     setEditingId(u.id);
     setShowUserModal(true);
@@ -209,7 +213,16 @@ const UserManagement = ({
       alert("Please set a password for this user.");
       return;
     }
-    const payload = { ...draft, name: draft.name.trim(), username };
+    // An Investor login is a view onto one investor's record, so it is
+    // meaningless — and the server refuses it — without that link.
+    if (draft.role === "Investor" && !draft.investorId) {
+      alert("Choose which investor this login belongs to.");
+      return;
+    }
+    const payload = {
+      ...draft, name: draft.name.trim(), username,
+      investorId: draft.role === "Investor" ? draft.investorId : null,
+    };
     if (editingId) {
       const { password, ...rest } = payload;
       onUpdateUser(editingId, password.trim() ? { ...rest, password } : rest);
@@ -599,14 +612,30 @@ const UserManagement = ({
         />
         <Select id="user-role" label="Role" value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}
           options={ROLE_META.map(r => ({ value: r.id, label: r.name }))} />
-        <div style={{ marginTop: 6, marginBottom: 4 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 8, color: C.textPri }}>Permissions</label>
-          <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 11.5, color: C.textMuted, lineHeight: 1.5 }}>
-            This user inherits permissions from the <strong style={{ color: C.navy }}>{draft.role}</strong> role.
-            Manage what that role can access under the <strong style={{ color: C.navy }}>Role & Permission</strong> tab —
-            changes there apply to every user with this role.
+        {draft.role === "Investor" ? (
+          <>
+            <Select
+              id="user-investor"
+              label="Which investor is this?"
+              value={draft.investorId || ""}
+              onChange={e => setDraft(d => ({ ...d, investorId: e.target.value }))}
+              options={investors.map(i => ({ value: i.id, label: i.name }))}
+            />
+            <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: -8, marginBottom: 4 }}>
+              They will sign in to their own screen showing their holding, the changes waiting on
+              their agreement, and the full ownership history — and nothing else in FleetOpz.
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 6, marginBottom: 4 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 8, color: C.textPri }}>Permissions</label>
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 11.5, color: C.textMuted, lineHeight: 1.5 }}>
+              This user inherits permissions from the <strong style={{ color: C.navy }}>{draft.role}</strong> role.
+              Manage what that role can access under the <strong style={{ color: C.navy }}>Role & Permission</strong> tab —
+              changes there apply to every user with this role.
+            </div>
           </div>
-        </div>
+        )}
       </Modal>
     </div>
   );

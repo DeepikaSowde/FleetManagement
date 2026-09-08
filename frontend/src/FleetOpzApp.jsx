@@ -439,7 +439,6 @@ export default function FleetOpzApp() {
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile sidebar drawer
   const [showNewBooking, setShowNewBooking] = useState(false);
   const [showNewFleet, setShowNewFleet] = useState(false);
-  const [showNewUser, setShowNewUser] = useState(false);
   // Set to the booking's id while the New Booking wizard is reused to edit
   // an existing booking (opened via Booking.jsx's Edit button) — null means
   // the wizard is in normal create mode. Read throughout the wizard to swap
@@ -1151,14 +1150,6 @@ export default function FleetOpzApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extendMode, extendBaseline, newBookingData.start, newBookingData.end]);
 
-  const [newUserData, setNewUserData] = useState({
-    name: "",
-    username: "",
-    password: "",
-    role: "Staff",
-    investorId: ""
-  });
-
   // Order matters: the sidebar groups by index — Operations = slice(0,6),
   // Finance = slice(6,13), System = slice(13).
   // Nav icons are lucide-react components (rendered as <n.icon />), giving the
@@ -1377,13 +1368,13 @@ export default function FleetOpzApp() {
     ),
     settings: (
       <Settings
-        onAddUser={() => setShowNewUser(true)}
         currentUserRole={currentUserRole}
       />
     ),
     usermgmt: (
       <UserManagement
         users={fleetData.users}
+        investors={fleetData.investorsWithTx}
         onAddUser={fleetData.addUser}
         onUpdateUser={fleetData.updateUser}
         onDeleteUser={fleetData.deleteUser}
@@ -1732,37 +1723,6 @@ export default function FleetOpzApp() {
     closeNewBookingModal();
     setActive("bookings");
     setDetailBookingId(editingBookingId);
-  };
-
-  // Creates a real account via the admin-only register endpoint. The admin's
-  // own token is attached automatically by api.js; the token returned for the
-  // new user is ignored, so the admin stays logged in as themselves.
-  const handleNewUserSubmit = async (e) => {
-    e.preventDefault();
-    if (!newUserData.name || !newUserData.username || !newUserData.password) {
-      alert("Name, username and password are required.");
-      return;
-    }
-    // An Investor login is a view onto one investor's record, so it is
-    // meaningless — and the server refuses it — without that link.
-    if (newUserData.role === "Investor" && !newUserData.investorId) {
-      alert("Choose which investor this login belongs to.");
-      return;
-    }
-    try {
-      await api.post("/auth/register", {
-        name: newUserData.name,
-        username: newUserData.username,
-        password: newUserData.password,
-        role: newUserData.role.toLowerCase(), // backend stores "admin" | "staff" | "investor"
-        investorId: newUserData.role === "Investor" ? newUserData.investorId : null,
-      });
-      alert(`User created: ${newUserData.name} (${newUserData.role})`);
-      setNewUserData({ name: "", username: "", password: "", role: "Staff", investorId: "" });
-      setShowNewUser(false);
-    } catch (err) {
-      alert(err.message || "Failed to create user");
-    }
   };
 
   // Derived pricing for Step 3 (Pricing & Charges) — recomputed from
@@ -3384,58 +3344,6 @@ export default function FleetOpzApp() {
         </>
       )}
 
-      {/* NEW USER MODAL */}
-      <Modal
-        open={showNewUser}
-        title="Add New User"
-        onClose={() => setShowNewUser(false)}
-        onSubmit={handleNewUserSubmit}
-        submitText="Add User"
-      >
-        <Input
-          label="Full Name"
-          value={newUserData.name}
-          onChange={(e) => setNewUserData({ ...newUserData, name: e.target.value })}
-          placeholder="e.g., Nur Aisyah"
-        />
-        <Input
-          label="Username"
-          value={newUserData.username}
-          onChange={(e) => setNewUserData({ ...newUserData, username: e.target.value })}
-          placeholder="e.g., aisyah"
-        />
-        <Input
-          label="Password"
-          type="password"
-          value={newUserData.password}
-          onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
-          placeholder="Set a password for this user"
-        />
-        <Select
-          label="Role"
-          value={newUserData.role}
-          onChange={(e) => setNewUserData({ ...newUserData, role: e.target.value })}
-          options={[
-            { value: "Admin", label: "Admin" },
-            { value: "Staff", label: "Staff" },
-            { value: "Investor", label: "Investor — own investment record only" }
-          ]}
-        />
-        {newUserData.role === "Investor" && (
-          <>
-            <Select
-              label="Which investor is this?"
-              value={newUserData.investorId || ""}
-              onChange={(e) => setNewUserData({ ...newUserData, investorId: e.target.value })}
-              options={(fleetData.investorsWithTx || []).map((i) => ({ value: i.id, label: i.name }))}
-            />
-            <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: -8, marginBottom: 4 }}>
-              They will sign in to their own screen showing their holding, the changes waiting on
-              their agreement, and the full ownership history — and nothing else in FleetOpz.
-            </div>
-          </>
-        )}
-      </Modal>
     </div>
   );
 }

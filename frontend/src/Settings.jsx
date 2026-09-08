@@ -32,10 +32,8 @@ const currencyLabel = (v) => ({ SGD: "SGD (Singapore Dollar)", MYR: "MYR (Malays
 const timezoneLabel = (v) => ({ SGT: "SGT (UTC+8)", MYT: "MYT (UTC+8)", UTC: "UTC" }[v] || v);
 
 const Settings = ({
-  onAddUser,
   currentUserRole = "Staff",
 }) => {
-  const isAdmin = currentUserRole === "Admin";
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [draft, setDraft] = useState(DEFAULT_PROFILE);
   const [editing, setEditing] = useState(false);
@@ -83,7 +81,7 @@ const Settings = ({
         </Card>
 
         <Card>
-          <CardHeader title="User Management" right={isAdmin ? <Btn small primary onClick={onAddUser}>＋ Add User</Btn> : null} />
+          <CardHeader title="User Management" />
           <div style={{ padding: 16 }}>
             {[
               { name: "Selvakumar", role: "Admin", email: "selva@sgwheels.com" },
