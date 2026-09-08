@@ -1029,6 +1029,10 @@ export const useFleetData = () => {
 
   // Create an investor (+ its initial/first transactions) from the page's shape:
   // { name, investorId, status, since, transactions:[{type,date,amount,description}] }.
+  // Returns a promise resolving to the created investor once the server has
+  // confirmed the row exists — callers that need to reference the investor's
+  // id in a follow-up write (e.g. an ownership event's holdings, which has its
+  // own FK to investors) must await this rather than assume it landed.
   const createInvestor = (data) => {
     const investor = {
       id: nextSeqId("INV", investors),
@@ -1053,13 +1057,12 @@ export const useFleetData = () => {
     });
     if (newTxs.length) setInvestorTx(prev => [...prev, ...newTxs]);
 
-    api.post("/investors", investor)
+    return api.post("/investors", investor)
       .then(() => {
         newTxs.forEach((tx) => api.post("/investor-transactions", tx).catch(onWriteError));
+        return investor;
       })
-      .catch(onWriteError);
-
-    return investor;
+      .catch((err) => { onWriteError(err); throw err; });
   };
 
   // Partial update from the edit modal: { name, investorId, status }.

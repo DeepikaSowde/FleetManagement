@@ -1285,6 +1285,7 @@ export default function Investors({
   investors = [],
   onCreateInvestor,
   onUpdateInvestor,
+  onDeleteInvestor,
   onCreateTransaction,
   // Cap table — ownership lives in its own record, not in the money ledger
   // above, so a dividend can never move a percentage. See Ownership.jsx.
@@ -1332,6 +1333,14 @@ export default function Investors({
   // register quietly out of date until someone remembers to update it.
   const [ownershipPrefill, setOwnershipPrefill] = useState(null);
 
+  // Step 1's investor is NOT created here — only staged. It becomes real (a
+  // server-persisted row) only once Step 2's ownership change actually saves;
+  // Cancel/X on Step 2 just drops this and nothing was ever created. This is
+  // what keeps the two-step "Add Investor" flow atomic — see saveInvestor and
+  // handleCreateOwnershipEvent below.
+  const [draftInvestor, setDraftInvestor] = useState(null);
+  const DRAFT_INVESTOR_ID = "__draft_investor__";
+
   const openAddInvestor = () => { setEditingInvestor(null); setShowInvestorModal(true); };
   const openEditInvestor = (inv) => { setEditingInvestor(inv); setShowInvestorModal(true); };
   const saveInvestor = (data) => {
@@ -1342,21 +1351,57 @@ export default function Investors({
       return;
     }
 
-    const created = onCreateInvestor?.(data);
     setShowInvestorModal(false);
     setEditingInvestor(null);
 
-    if (created?.id) {
-      setOwnershipPrefill({
-        // The very first entry is the opening table; after that, a new investor
-        // joining an existing one.
-        type: ownershipEvents.length === 0 ? "Opening" : "New Investor",
-        effectiveDate: data.since,
-        newMoneyAmount: data.transactions?.[0]?.amount || null,
-        newMoneyInvestorId: created.id,
-        note: `${data.name} was added with ${data.transactions?.[0]?.amount ? "₹" + Math.round(data.transactions[0].amount).toLocaleString("en-IN") : "no opening amount"}. Set what everyone holds now, and have it agreed.`,
-      });
-      setView("ownership");
+    setDraftInvestor(data);
+    setOwnershipPrefill({
+      // The very first entry is the opening table; after that, a new investor
+      // joining an existing one.
+      type: ownershipEvents.length === 0 ? "Opening" : "New Investor",
+      effectiveDate: data.since,
+      newMoneyAmount: data.transactions?.[0]?.amount || null,
+      newMoneyInvestorId: DRAFT_INVESTOR_ID,
+      note: `${data.name} will be added with ${data.transactions?.[0]?.amount ? "₹" + Math.round(data.transactions[0].amount).toLocaleString("en-IN") : "no opening amount"} once this change is saved. Set what everyone holds now, and have it agreed.`,
+    });
+    setView("ownership");
+  };
+
+  // The investor doesn't exist yet, so the ownership form can't show them as a
+  // real row — this merges the not-yet-created draft into the list it renders,
+  // display-only, purely so Step 2 can show them and take their contribution.
+  const investorsForOwnership = useMemo(
+    () => (draftInvestor ? [...investors, { id: DRAFT_INVESTOR_ID, name: draftInvestor.name, status: draftInvestor.status }] : investors),
+    [investors, draftInvestor]
+  );
+
+  // What actually commits Step 1: only reached when Step 2's "Save as draft"
+  // is clicked. Creates the real investor first (ownership_event_holdings has
+  // an FK to investors, so it must exist before the event does), swaps the
+  // placeholder id for the real one, then saves the ownership event. If the
+  // event save fails, the investor we just created is rolled back so a failed
+  // Step 2 leaves exactly as little behind as a cancelled one.
+  const handleCreateOwnershipEvent = async (payload) => {
+    if (!draftInvestor) return onCreateOwnershipEvent(payload);
+
+    const created = await onCreateInvestor?.(draftInvestor);
+    if (!created?.id) throw new Error("Could not create the investor — please try again.");
+
+    const resolvedPayload = {
+      ...payload,
+      newMoneyInvestorId: payload.newMoneyInvestorId === DRAFT_INVESTOR_ID ? created.id : payload.newMoneyInvestorId,
+      holdings: (payload.holdings || []).map((h) =>
+        h.investorId === DRAFT_INVESTOR_ID ? { ...h, investorId: created.id } : h
+      ),
+    };
+
+    try {
+      const event = await onCreateOwnershipEvent(resolvedPayload);
+      setDraftInvestor(null);
+      return event;
+    } catch (err) {
+      onDeleteInvestor?.(created.id);
+      throw err;
     }
   };
 
@@ -1519,10 +1564,10 @@ export default function Investors({
 
       {view === "ownership" && (
         <Ownership
-          investors={investors}
+          investors={investorsForOwnership}
           events={ownershipEvents}
           mode={ownershipMode}
-          onCreateEvent={onCreateOwnershipEvent}
+          onCreateEvent={handleCreateOwnershipEvent}
           onSubmitEvent={onSubmitOwnershipEvent}
           onDecideEvent={onDecideOwnershipEvent}
           onPublishEvent={onPublishOwnershipEvent}
@@ -1533,7 +1578,7 @@ export default function Investors({
           onCreateValuation={onCreateValuation}
           onDeleteValuation={onDeleteValuation}
           prefill={ownershipPrefill}
-          onPrefillConsumed={() => setOwnershipPrefill(null)}
+          onPrefillConsumed={() => { setOwnershipPrefill(null); setDraftInvestor(null); }}
         />
       )}
 

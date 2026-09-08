@@ -1319,6 +1319,7 @@ export default function FleetOpzApp() {
         investors={fleetData.investorsWithTx}
         onCreateInvestor={fleetData.createInvestor}
         onUpdateInvestor={fleetData.updateInvestor}
+        onDeleteInvestor={fleetData.deleteInvestor}
         onCreateTransaction={fleetData.createInvestorTransaction}
         ownershipEvents={fleetData.ownershipEvents}
         ownershipMode={fleetData.ownershipMode}
