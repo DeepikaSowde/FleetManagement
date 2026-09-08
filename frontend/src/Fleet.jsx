@@ -213,15 +213,70 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
 // ─────────────────────────────────────────────────────────────────────────
 // Compact Vehicle Details Modal — overlays on top of Fleet list
 // ─────────────────────────────────────────────────────────────────────────
+// One cell in the Vehicle Details / Compliance & Validation grids — muted
+// label above, bold value below, with hairline dividers on the right/bottom
+// edges (skipped on the last column/row) so the grid reads as one card
+// instead of loose text. Compliance cells additionally carry a small icon
+// and a coloured "Active · Nd left" status line, reusing the exact same
+// complianceStatus()/daysUntil() the rest of the app already uses, so the
+// wording and thresholds can never disagree with anywhere else it appears.
+const DetailGridCell = ({ label, value, icon, statusDate, lastCol, lastRow }) => {
+  const days = statusDate ? daysUntil(statusDate) : null;
+  const st = statusDate ? complianceStatus(days) : null;
+  return (
+    <div style={{
+      padding: "12px 16px",
+      borderRight: lastCol ? "none" : `1px solid ${C.border}`,
+      borderBottom: lastRow ? "none" : `1px solid ${C.border}`,
+      display: "flex", gap: icon ? 10 : 0, alignItems: icon ? "flex-start" : undefined,
+    }}>
+      {icon && (
+        <span style={{ width: 30, height: 30, borderRadius: 8, background: C.bg, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>
+          {icon}
+        </span>
+      )}
+      <div>
+        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>{label}</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.textPri }}>{value}</div>
+        {st && (
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: st.color, marginTop: 3 }}>
+            {st.label}{days != null ? ` · ${days >= 0 ? `${days}d left` : `${Math.abs(days)}d overdue`}` : ""}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Section header used above both grid cards on the Vehicle Overview tab —
+// small icon in a tinted circle + bold title, same visual weight for both
+// sections so neither reads as more or less important than the other.
+const CardSectionHeading = ({ icon, tint, title }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
+    <span style={{ width: 30, height: 30, borderRadius: "50%", background: tint, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{icon}</span>
+    <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{title}</span>
+  </div>
+);
+
+const DETAIL_TABS = [
+  { key: "overview", label: "Vehicle Overview", icon: "🚗" },
+  { key: "investment", label: "Investment", icon: "🪙" },
+  { key: "target", label: "Target", icon: "🎯" },
+  { key: "financial", label: "Financial Summary", icon: "📄" },
+  { key: "performance", label: "Performance", icon: "📈" },
+];
+
 const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, onCompleteMaintenance, onClose }) => {
   const fin = useMemo(() => computeCarFinancials(car, bookings, expenses), [car, bookings, expenses]);
   const d = daysUntil(car.coe);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
   // Details is read-only — editing happens on the Edit Vehicle screen, so
   // there is one vehicle form and one set of validation rules, not two.
   const recoveryPct = fin.inv > 0 ? Math.min((fin.bookingRevenue / fin.inv) * 100, 100) : 0;
   const profitColor = fin.netProfit > 0 ? C.green : fin.netProfit < 0 ? C.red : C.amber;
-
+  const regExpiryColor = d < 30 ? C.red : d < 90 ? C.amber : C.green;
+  const regExpiryFaint = d < 30 ? C.redFaint : d < 90 ? C.amberFaint : C.greenFaint;
 
   return (
     <>
@@ -232,144 +287,163 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
       {/* Backdrop */}
       {/* Backdrop click no longer closes the details panel — close only via ✕. */}
       <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.3)", zIndex: 40, animation: "detailsFade 0.15s ease" }} />
-      
-      {/* Modal */}
+
+      {/* Modal — widened from the old single-column layout so 5 tabs of
+          content each fit without their own scrollbar in the common case;
+          overflowY on the content area below is a safety net only. */}
       <div style={{
-        position: "fixed", top: "55%", left: "50%", transform: "translate(-50%, -50%)",
-        width: "100%", maxWidth: 520, margin: "0 14px", maxHeight: "75vh",
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+        width: "100%", maxWidth: 920, margin: "0 14px", maxHeight: "90vh",
         background: C.surface, zIndex: 41, display: "flex", flexDirection: "column",
         border: `1px solid ${C.border}`, borderRadius: 14,
         boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)", animation: "detailsSlide 0.2s cubic-bezier(.2,.8,.2,1)",
         overflow: "hidden",
       }}>
-        {/* Header */}
-        <div style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        {/* Header — vehicle identity on the left; live status, registration
+            expiry and close on the right, all in one row. */}
+        <div style={{ padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{car.make} {car.model}</div>
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{car.plate}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{car.make} {car.model}</div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{car.plate}</div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: 18, color: C.textMuted, cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <StatusTag status={toFleetPageStatus(car.status)} />
+            <div style={{ fontSize: 11, fontWeight: 700, padding: "6px 12px", borderRadius: 20, background: regExpiryFaint, color: regExpiryColor, whiteSpace: "nowrap" }}>
+              {d < 30 ? "⚠" : d < 90 ? "⚡" : "✓"} Reg Expiry: {car.coe}
+            </div>
+            <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: 18, color: C.textMuted, cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
+          </div>
         </div>
 
-        {/* Scrollable Content */}
-        <div style={{ padding: "8px 12px", overflowY: "auto", flex: 1, fontSize: 12 }}>
-          
-          {/* Status & Registration Alert */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid ${C.border}` }}>
-            <StatusTag status={toFleetPageStatus(car.status)} />
-            <div style={{
-              fontSize: 10.5, fontWeight: 600, padding: "6px 10px", borderRadius: 8,
-              background: d < 30 ? C.redFaint : d < 90 ? C.amberFaint : C.greenFaint,
-              color: d < 30 ? C.red : d < 90 ? C.amber : C.green,
-            }}>
-              {d < 30 ? "⚠" : d < 90 ? "⚡" : "✓"} Reg. Expiry: {car.coe}
+        {/* Active maintenance issue — visible regardless of which tab is open,
+            since it's a state of the vehicle itself, not one tab's content.
+            The only way this clears is the Complete Maintenance button below;
+            nothing here does it automatically. */}
+        {car.status === "Maintenance" && (
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.amberFaint, borderBottom: `1px solid ${C.amber}55`, padding: "10px 20px", flexShrink: 0 }}>
+            <span style={{ fontSize: 12 }}>🔧</span>
+            <div style={{ fontSize: 11, color: C.amber, fontWeight: 600, lineHeight: 1.5 }}>
+              Under maintenance{car.maintenanceStartDate ? ` since ${car.maintenanceStartDate}` : ""} — unavailable for new bookings until Complete Maintenance is used below.
             </div>
           </div>
+        )}
+        {car.status !== "Maintenance" && car.maintenanceCompletedAt && (
+          <div style={{ fontSize: 10, color: C.textMuted, padding: "6px 20px 0", flexShrink: 0 }}>
+            Last maintenance completed {new Date(car.maintenanceCompletedAt).toLocaleString()}
+          </div>
+        )}
 
-          {/* Active maintenance issue — the only way this clears is the
-              Complete Maintenance button below; nothing here does it automatically. */}
+        {/* Tab bar — a single segmented control (not floating pills), so the
+            active tab reads as an elevated card sitting inside it. */}
+        <div style={{ display: "flex", gap: 4, background: C.bg, borderRadius: 10, padding: 4, margin: "16px 20px 0" }}>
+          {DETAIL_TABS.map((t) => {
+            const isActive = activeTab === t.key;
+            return (
+              <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                padding: "10px 8px", borderRadius: 8, cursor: "pointer",
+                background: isActive ? C.surface : "transparent",
+                borderBottom: isActive ? `2px solid ${C.teal}` : "2px solid transparent",
+                color: isActive ? C.teal : C.textMuted,
+                fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
+              }}>
+                <span style={{ fontSize: 13 }}>{t.icon}</span>
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab content */}
+        <div style={{ padding: "16px 20px 4px", overflowY: "auto", flex: 1 }}>
+
+          {activeTab === "overview" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <CardSectionHeading icon="🚗" tint={C.tealFaint} title="Vehicle Details" />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+                  <DetailGridCell label="Make" value={car.make} />
+                  <DetailGridCell label="Model" value={car.model} />
+                  <DetailGridCell label="Year" value={car.year} lastCol />
+                  <DetailGridCell label="Colour" value={car.color} lastRow />
+                  <DetailGridCell label="Fuel Type" value={car.fuelType || "—"} lastRow />
+                  <DetailGridCell label="Transmission" value={car.transmission || "—"} lastCol lastRow />
+                </div>
+              </div>
+
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <CardSectionHeading icon="🛡️" tint={C.tealFaint} title="Compliance & Validation" />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)" }}>
+                  <DetailGridCell icon="🛡️" label="Insurance Expiry" value={car.insuranceExpiry || "—"} statusDate={car.insuranceExpiry} />
+                  <DetailGridCell icon="📄" label="LTA Transfer Validity" value={car.ltaTransferDate || "—"} statusDate={car.ltaTransferDate} lastCol />
+                  <DetailGridCell icon="⚠️" label="Road Tax Expiry" value={car.roadTaxExpiry || "—"} statusDate={car.roadTaxExpiry} lastRow />
+                  <DetailGridCell icon="🔧" label="Inspection Due" value={car.inspectionExpiry || "—"} statusDate={car.inspectionExpiry} lastCol lastRow />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "investment" && (
+            <div style={{ fontSize: 12 }}>
+              <CompactRow label="Purchase" value={fmt(car.purchase)} />
+              <CompactRow label="Purchase Advance" value={fmt(car.purchaseAdvance || 0)} />
+              <CompactRow label="Insurance" value={fmt(car.insurance)} />
+              <CompactRow label="Registration" value={fmt(car.reg)} />
+              <CompactRow label="Other Charges" value={fmt(car.otherCharges || 0)} />
+              <CompactRow label="Total" value={fmt(fin.inv)} valueColor={C.green} bold />
+            </div>
+          )}
+
+          {activeTab === "target" && (
+            <div style={{ fontSize: 12 }}>
+              <CompactRow label="Target Rate" value={car.targetRate != null ? `SGD ${car.targetRate}/day` : "—"} useMono={false} />
+              <CompactRow label="Running Days Target" value={car.runningDaysTarget != null ? `${car.runningDaysTarget} days/mo` : "—"} useMono={false} />
+              <CompactRow label="Target Profit %" value={car.profitPctTarget != null ? `${car.profitPctTarget}%` : "—"} useMono={false} />
+            </div>
+          )}
+
+          {activeTab === "financial" && (
+            <div style={{ fontSize: 12 }}>
+              <CompactRow label="Total Investment" value={fmt(fin.inv)} valueColor={C.navy} bold />
+              <CompactRow label="Booking Revenue" value={fmt(fin.bookingRevenue)} valueColor={C.green} />
+              <CompactRow label="Vehicle Expense" value={fmt(fin.vehicleExpense)} valueColor={C.amber} />
+              <CompactRow label="Net Profit" value={fmt(fin.netProfit)} valueColor={profitColor} bold />
+              <CompactRow label="ROI" value={`${fin.roi.toFixed(2)}%`} valueColor={profitColor} bold />
+            </div>
+          )}
+
+          {activeTab === "performance" && (
+            <div style={{ fontSize: 12 }}>
+              <CompactRow label="Rental Days" value={`${fin.rentalDays}d`} useMono={false} />
+              <CompactRow label="Total Bookings" value={fin.totalBookings} useMono={false} />
+              <CompactRow label="Recovery %" value={`${recoveryPct.toFixed(0)}%`} useMono={false} />
+              <div style={{ marginTop: 8 }}>
+                <div style={{ position: "relative", height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${recoveryPct}%`, height: "100%", background: C.teal, borderRadius: 3 }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.textMuted, marginTop: 4 }}>
+                  <span>{fmt(fin.bookingRevenue)}</span>
+                  <span>Target: {fmt(fin.inv)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Action Buttons — unchanged: one row, every button flex:1 so they
+            land at the same height and share the width evenly regardless of
+            how many are showing (Edit Vehicle lives on its own screen now,
+            reachable from the table's pencil icon, so it isn't repeated here). */}
+        <div style={{ display: "flex", gap: 8, padding: "16px 20px", borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <Btn small onClick={() => setDrawerOpen(true)} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
+            + Add Vehicle Expense
+          </Btn>
           {car.status === "Maintenance" && (
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.amberFaint, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
-              <span style={{ fontSize: 12 }}>🔧</span>
-              <div style={{ fontSize: 10.5, color: C.amber, fontWeight: 600, lineHeight: 1.5 }}>
-                Under maintenance{car.maintenanceStartDate ? ` since ${car.maintenanceStartDate}` : ""} — unavailable for new bookings until Complete Maintenance is used below.
-              </div>
-            </div>
-          )}
-          {/* A quiet record of the last completion, once the issue is closed —
-              not shown while a new issue is currently open. */}
-          {car.status !== "Maintenance" && car.maintenanceCompletedAt && (
-            <div style={{ fontSize: 9.5, color: C.textMuted, marginTop: -8, marginBottom: 12 }}>
-              Last maintenance completed {new Date(car.maintenanceCompletedAt).toLocaleString()}
-            </div>
-          )}
-
-          {/* Vehicle Details */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Vehicle</div>
-                <CompactRow label="Make" value={car.make} useMono={false} />
-                <CompactRow label="Model" value={car.model} useMono={false} />
-                <CompactRow label="Year" value={car.year} useMono={false} />
-                <CompactRow label="Colour" value={car.color} useMono={false} />
-                <CompactRow label="Fuel Type" value={car.fuelType || "—"} useMono={false} />
-                <CompactRow label="Transmission" value={car.transmission || "—"} useMono={false} />
-          </div>
-
-          {/* Compliance & Validity */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Compliance & Validity</div>
-                <ComplianceRow label="Insurance Expiry" date={car.insuranceExpiry} />
-                <ComplianceRow label="LTA Transfer Validity" date={car.ltaTransferDate} />
-                <ComplianceRow label="Road Tax Expiry" date={car.roadTaxExpiry} />
-                <ComplianceRow label="Inspection Due" date={car.inspectionExpiry} />
-          </div>
-
-          {/* Investment */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Investment</div>
-                <CompactRow label="Purchase" value={fmt(car.purchase)} />
-                <CompactRow label="Purchase Advance" value={fmt(car.purchaseAdvance || 0)} />
-                <CompactRow label="Insurance" value={fmt(car.insurance)} />
-                <CompactRow label="Registration" value={fmt(car.reg)} />
-                <CompactRow label="Other Charges" value={fmt(car.otherCharges || 0)} />
-                <CompactRow label="Total" value={fmt(fin.inv)} valueColor={C.green} bold />
-          </div>
-
-          {/* Target */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Target</div>
-                <CompactRow label="Target Rate" value={car.targetRate != null ? `SGD ${car.targetRate}/day` : "—"} useMono={false} />
-                <CompactRow label="Running Days Target" value={car.runningDaysTarget != null ? `${car.runningDaysTarget} days/mo` : "—"} useMono={false} />
-                <CompactRow label="Target Profit %" value={car.profitPctTarget != null ? `${car.profitPctTarget}%` : "—"} useMono={false} />
-          </div>
-
-          {/* Financial Summary — Simplified */}
-       <div style={{ marginBottom: 12 }}>
-  <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>
-    Financial Summary
-  </div>
-
-  <CompactRow label="Total Investment" value={fmt(fin.inv)} valueColor={C.navy} bold />
-  <CompactRow label="Booking Revenue" value={fmt(fin.bookingRevenue)} valueColor={C.green} />
-  <CompactRow label="Vehicle Expense" value={fmt(fin.vehicleExpense)} valueColor={C.amber} />
-  <CompactRow label="Net Profit" value={fmt(fin.netProfit)} valueColor={profitColor} bold />
-  <CompactRow label="ROI" value={`${fin.roi.toFixed(2)}%`} valueColor={profitColor} bold />
-</div>
-
-          {/* Performance Metrics */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "uppercase", marginBottom: 8 }}>Performance</div>
-            <CompactRow label="Rental Days" value={`${fin.rentalDays}d`} useMono={false} />
-            <CompactRow label="Total Bookings" value={fin.totalBookings} useMono={false} />
-            <CompactRow label="Recovery %" value={`${recoveryPct.toFixed(0)}%`} useMono={false} />
-            
-            {/* Recovery Progress Bar */}
-            <div style={{ marginTop: 8 }}>
-              <div style={{ position: "relative", height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: `${recoveryPct}%`, height: "100%", background: C.teal, borderRadius: 3 }} />
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.textMuted, marginTop: 4 }}>
-                <span>{fmt(fin.bookingRevenue)}</span>
-                <span>Target: {fmt(fin.inv)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Buttons — one row, every button flex:1 so they land at
-              the same height and share the width evenly regardless of how
-              many are showing (Edit Vehicle lives on its own screen now,
-              reachable from the table's pencil icon, so it isn't repeated here). */}
-          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <Btn small onClick={() => setDrawerOpen(true)} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
-              + Add Vehicle Expense
+            <Btn small onClick={onCompleteMaintenance} style={{ flex: 1, background: C.tealFaint, color: C.teal, border: `1px solid ${C.teal}` }}>
+              ✓ Complete Maintenance
             </Btn>
-            {car.status === "Maintenance" && (
-              <Btn small onClick={onCompleteMaintenance} style={{ flex: 1, background: C.tealFaint, color: C.teal, border: `1px solid ${C.teal}` }}>
-                ✓ Complete Maintenance
-              </Btn>
-            )}
-            <Btn small onClick={onDelete} style={{ flex: 1, background: C.redFaint, color: C.red, border: `1px solid ${C.red}` }}>Delete</Btn>
-          </div>
+          )}
+          <Btn small onClick={onDelete} style={{ flex: 1, background: C.redFaint, color: C.red, border: `1px solid ${C.red}` }}>Delete</Btn>
         </div>
       </div>
 
