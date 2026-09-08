@@ -796,14 +796,19 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       return;
     }
     {
-      // The customer's leg starts where the staff delivery leg ended, so the
-      // floor for B is A + S — not A.
+      // Customer Handover ODO = Starting Mileage + Staff → Customer distance
+      // — one addition, done once. staffToCustomerKm is already that leg's
+      // own distance (e.g. 25), never itself a reading to add again on top.
       const b = Number(customerReturnMileage);
       const a = Number(booking.startingMileage) || 0;
       const sKm = Number(booking.staffToCustomerKm) || 0;
-      const floor = a + sKm;
-      if (b < floor || b > Number(mileageIn)) {
-        alert(`Customer Return Odometer must be between ${floor} (Starting Mileage ${a}${sKm ? ` + ${sKm} km staff delivery` : ""}) and the Final Odometer (${mileageIn}).`);
+      const handoverOdo = a + sKm;
+      if (b < handoverOdo) {
+        alert(`Customer Return ODO must be at least ${handoverOdo} km, which is the Customer Handover ODO (Starting Mileage ${a} km + Staff → Customer ${sKm} km).`);
+        return;
+      }
+      if (b > Number(mileageIn)) {
+        alert(`Customer Return ODO can't exceed the Final Odometer (${mileageIn} km).`);
         return;
       }
     }

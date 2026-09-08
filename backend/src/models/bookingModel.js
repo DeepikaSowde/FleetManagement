@@ -14,6 +14,36 @@ const CORE = [
   "status", "cancelled", "forceCompleted", "maintenanceTriggered",
 ];
 
+// The Customer Handover Odometer is Starting Mileage + the staff delivery
+// leg — one addition, done once. staffToCustomerKm is that leg's own
+// distance (e.g. 25 km), never itself a reading to be added again on top of
+// the floor — the exact double-count this guards against.
+//
+// Only checked when a Customer Return Odometer is actually present: a
+// booking mid-handover with no return recorded yet has nothing to validate.
+// Runs on the merged record (current + incoming patch for an update, or the
+// payload as given for a create), so a request that only sends
+// customerReturnMileage still gets floored against startingMileage /
+// staffToCustomerKm captured earlier at handover.
+function validateMileage(record) {
+  if (record.customerReturnMileage === undefined || record.customerReturnMileage === null || record.customerReturnMileage === "") {
+    return;
+  }
+  const b = Number(record.customerReturnMileage);
+  if (!Number.isFinite(b)) return;
+  const startKm = Number(record.startingMileage) || 0;
+  const staffKm = Number(record.staffToCustomerKm) || 0;
+  const handoverOdo = startKm + staffKm;
+  if (b < handoverOdo) {
+    const err = new Error(
+      `Customer Return ODO must be at least ${handoverOdo} km, which is the Customer Handover ODO ` +
+      `(Starting Mileage ${startKm} km + Staff → Customer ${staffKm} km).`
+    );
+    err.status = 400;
+    throw err;
+  }
+}
+
 // Frontend object -> { core values, details bag }
 function split(booking) {
   const details = {};
@@ -54,6 +84,7 @@ async function getById(id) {
 }
 
 async function create(b) {
+  validateMileage(b);
   const { details } = split(b);
   const { rows } = await db.query(
     `INSERT INTO bookings (
@@ -77,6 +108,10 @@ async function update(id, updates) {
   const current = await getById(id);
   if (!current) return null;
   const merged = { ...current, ...updates, id };
+  // Validated on the MERGED record, not just this patch — a request that
+  // only sends customerReturnMileage is still floored against
+  // startingMileage/staffToCustomerKm captured at handover, already on file.
+  validateMileage(merged);
   const { details } = split(merged);
   const { rows } = await db.query(
     `UPDATE bookings SET

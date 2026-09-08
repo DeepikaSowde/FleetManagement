@@ -920,9 +920,15 @@ export default function FleetOpzApp() {
       }
       if (newBookingData.customerReturnMileage !== "") {
         const b = Number(newBookingData.customerReturnMileage);
-        const floor = startKm + (Number(newBookingData.staffToCustomerKm) || 0);
-        if (b < floor || b > finalKm) {
-          errors.customerReturnMileage = `Customer Return Odometer must be between ${floor} (Starting Mileage + staff delivery km) and the Final Odometer (${finalKm}).`;
+        // The Customer Handover Odometer is Starting Mileage + the staff
+        // delivery leg — a single addition, done once. staffToCustomerKm is
+        // already that leg's own distance (e.g. 25), never itself a reading
+        // to be added again on top of the floor.
+        const handoverOdo = startKm + (Number(newBookingData.staffToCustomerKm) || 0);
+        if (b < handoverOdo) {
+          errors.customerReturnMileage = `Customer Return ODO must be at least ${handoverOdo} km, which is the Customer Handover ODO (Starting Mileage ${startKm} km + Staff → Customer ${Number(newBookingData.staffToCustomerKm) || 0} km).`;
+        } else if (!isNaN(finalKm) && b > finalKm) {
+          errors.customerReturnMileage = `Customer Return ODO can't exceed the Final Odometer (${finalKm} km).`;
         }
       }
     }
@@ -3288,14 +3294,26 @@ export default function FleetOpzApp() {
                                 <div>
                                   <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
                                   <input type="number" min="0" value={newBookingData.customerReturnMileage}
-                                    onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, customerReturnMileage: v }); }}
-                                    placeholder="only if staff drove it back" style={bookingFieldInputStyle(false)} />
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v !== "" && Number(v) < 0) return;
+                                      clearFieldError("customerReturnMileage");
+                                      setNewBookingData({ ...newBookingData, customerReturnMileage: v });
+                                    }}
+                                    placeholder="only if staff drove it back" style={bookingFieldInputStyle(false, !!fieldErrors.customerReturnMileage)} />
+                                  <FieldErr msg={fieldErrors.customerReturnMileage} />
                                 </div>
                                 <div>
                                   <label style={bookingFieldLabelStyle}>Final Odometer (km) · after staff returns it</label>
                                   <input type="number" min="0" value={newBookingData.mileageIn}
-                                    onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, mileageIn: v }); }}
-                                    placeholder="9450" style={bookingFieldInputStyle(false)} />
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v !== "" && Number(v) < 0) return;
+                                      clearFieldError("mileageIn");
+                                      setNewBookingData({ ...newBookingData, mileageIn: v });
+                                    }}
+                                    placeholder="9450" style={bookingFieldInputStyle(false, !!fieldErrors.mileageIn)} />
+                                  <FieldErr msg={fieldErrors.mileageIn} />
                                 </div>
                                 <div>
                                   <label style={bookingFieldLabelStyle}>Fuel In (at return)</label>
