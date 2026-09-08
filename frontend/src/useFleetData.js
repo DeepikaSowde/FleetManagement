@@ -161,6 +161,8 @@ export const computeBookingInvoice = (b) => {
     charges, bookingCharges, postCharges,
     taxableChargesTotal, nonTaxableChargesTotal, taxableSubtotal, finalVatAmount, finalInvoiceTotal,
     payments, totalPaid, balanceDue,
+    // Kept in sync with Booking.jsx's copy — see that file for why these are exposed.
+    extensionCharges, otherPostCharges, extensionGrandTotal, preExtensionInvoiceTotal, preExtensionBalance,
   };
 };
 

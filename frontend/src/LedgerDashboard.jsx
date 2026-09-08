@@ -94,6 +94,16 @@ const LedgerDashboard = ({
   const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
   const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
 
+  // ── Financial Ledger — Transactions (compact, paginated view of `rows`) ────
+  // Newest first, same convention as the Ledger tab's full table.
+  const txRows = useMemo(() => rows.slice().reverse(), [rows]);
+  const [txPageSize, setTxPageSize] = useState(10);
+  const [txPage, setTxPage] = useState(1);
+  const txTotalPages = Math.max(1, Math.ceil(txRows.length / txPageSize));
+  const txCurPage = Math.min(txPage, txTotalPages);
+  const txPageRows = txRows.slice((txCurPage - 1) * txPageSize, txCurPage * txPageSize);
+  useEffect(() => { setTxPage(1); }, [txPageSize, txRows.length]);
+
   // ── Balance sheet (assets & net worth) ─────────────────────────────────────
   // The full car cost is booked as a "Vehicle Purchase" expense, which pulls the
   // cash balance down — but the car is still an asset you own. We value each car
@@ -130,6 +140,14 @@ const LedgerDashboard = ({
   const totalCost = assetRows.reduce((s, r) => s + r.cost, 0);
   const totalDepreciation = assetRows.reduce((s, r) => s + (r.depreciation ?? 0), 0);
   const netWorth = currentBalance + fleetValue;
+
+  // ── Per-vehicle asset table pagination ──────────────────────────────────
+  const [assetPageSize, setAssetPageSize] = useState(10);
+  const [assetPage, setAssetPage] = useState(1);
+  const assetTotalPages = Math.max(1, Math.ceil(assetRows.length / assetPageSize));
+  const assetCurPage = Math.min(assetPage, assetTotalPages);
+  const assetPageRows = assetRows.slice((assetCurPage - 1) * assetPageSize, assetCurPage * assetPageSize);
+  useEffect(() => { setAssetPage(1); }, [assetPageSize, assetRows.length]);
 
   const kpis = [
     { label: "Current Balance", value: currentBalance, sub: "Investment + Income − Expenses", color: VIZ.aqua, icon: "💵", delta: null },
@@ -202,6 +220,53 @@ const LedgerDashboard = ({
   const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid #EFEFEF`, whiteSpace: "nowrap" };
   const rank = ["#EAB308", "#94A3B8", "#B45309"];
   const selectStyle = { padding: "6px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 12, fontFamily: "inherit", color: C.textPri, outline: "none", cursor: "pointer" };
+  const fmtTxDate = (d) => {
+    const dt = new Date(d);
+    return isNaN(dt) ? d : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  };
+  const catStyle = {
+    Investment: VIZ.violet, "Rental Income": VIZ.green, "Deposit Income": VIZ.green,
+    "Deposit IN": VIZ.aqua, Expense: VIZ.red, "Deposit OUT": VIZ.orange,
+  };
+  const pageBtn = (active, disabled) => ({
+    minWidth: 26, height: 26, padding: "0 7px", borderRadius: 6,
+    border: `1px solid ${active ? VIZ.blue : "#E0E0E0"}`,
+    background: active ? VIZ.blue : "#fff",
+    color: active ? "#fff" : disabled ? "#C7C7C7" : C.textSec,
+    fontSize: 11, fontWeight: 700, cursor: disabled ? "default" : "pointer",
+  });
+  // 1 … cur-1 cur cur+1 … total, collapsing to plain runs when the gap is small.
+  const pageNumbersFor = (cur, total) => {
+    const nums = [1];
+    if (cur > 3) nums.push("…");
+    for (let p = Math.max(2, cur - 1); p <= Math.min(total - 1, cur + 1); p++) nums.push(p);
+    if (cur < total - 2) nums.push("…");
+    if (total > 1) nums.push(total);
+    return nums;
+  };
+  // Reusable "Show N entries" + ‹ 1 … n › pagination footer.
+  const PaginationBar = ({ pageSize, setPageSize, curPage, setPage, totalPages, totalCount }) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.textMuted }}>
+        Show
+        <select style={{ ...selectStyle, padding: "4px 8px" }} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
+          {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        entries — {totalCount} total
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <button style={pageBtn(false, curPage === 1)} disabled={curPage === 1} onClick={() => setPage(curPage - 1)}>‹</button>
+        {pageNumbersFor(curPage, totalPages).map((p, i) =>
+          p === "…" ? (
+            <span key={`e${i}`} style={{ fontSize: 11, color: C.textMuted, padding: "0 2px" }}>…</span>
+          ) : (
+            <button key={p} style={pageBtn(p === curPage)} onClick={() => setPage(p)}>{p}</button>
+          )
+        )}
+        <button style={pageBtn(false, curPage === totalPages)} disabled={curPage === totalPages} onClick={() => setPage(curPage + 1)}>›</button>
+      </div>
+    </div>
+  );
   const Delta = ({ v }) => v == null ? null : (
     <span style={{ fontSize: 10.5, fontWeight: 700, color: v >= 0 ? UP : DOWN }}>
       {v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}% <span style={{ color: C.textMuted, fontWeight: 500 }}>vs last month</span>
@@ -277,7 +342,7 @@ const LedgerDashboard = ({
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>{["Vehicle", "Invested", "Current Value", "Depreciation"].map((h, i) => <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {assetRows.map((r) => (
+                  {assetPageRows.map((r) => (
                     <tr key={r.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
                       <td style={{ padding: "9px 12px" }}><PlateBadge plate={r.plate} small /></td>
                       <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: C.textSec, textAlign: "right" }}>{fmt(Math.round(r.cost))}</td>
@@ -316,6 +381,14 @@ const LedgerDashboard = ({
             <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles with a recorded investment yet.</div>
           )}
 
+          {assetRows.length > 0 && (
+            <PaginationBar
+              pageSize={assetPageSize} setPageSize={setAssetPageSize}
+              curPage={assetCurPage} setPage={setAssetPage}
+              totalPages={assetTotalPages} totalCount={assetRows.length}
+            />
+          )}
+
           <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
             {depMethod === "coe" && <>Each car starts at its Total Investment and depreciates <b>straight-line to zero at its registration (COE) expiry</b>. </>}
             {depMethod === "wdv" && <>Each car loses <b>{depRate || 0}% of its remaining value per year</b> (reducing balance) since its purchase date. </>}
@@ -323,6 +396,49 @@ const LedgerDashboard = ({
             {depMethod === "manual" && <>Type each car's <b>current market/resale value</b> in the Current Value column (saved automatically). Leave a cell blank to fall back to its cost. </>}
             Because the full purchase is booked as an expense, adding the current fleet value back gives your true <b>Net Worth</b>.
           </div>
+        </div>
+      </Card>
+
+      {/* Financial Ledger — Transactions */}
+      <Card style={cardStyle}>
+        <CardHeader title="Financial Ledger — Transactions" subtitle="Every money movement, newest first" />
+        <div style={{ padding: "0 16px 16px" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Date", "Description", "Category", "Income", "Expense", "Balance"].map((h, i) => (
+                    <th key={h} style={i >= 3 ? { ...th, textAlign: "right" } : th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {txPageRows.map((r) => (
+                  <tr key={r.key} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                    <td style={{ padding: "9px 12px", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{fmtTxDate(r.date)}</td>
+                    <td style={{ padding: "9px 12px", fontSize: 11.5, color: C.textPri }}>{r.description}</td>
+                    <td style={{ padding: "9px 12px" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: catStyle[r.type] || C.textMuted, background: tint(catStyle[r.type] || C.textMuted), padding: "2px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{r.type}</span>
+                    </td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11.5, fontWeight: 700, color: VIZ.green, textAlign: "right", whiteSpace: "nowrap" }}>{r.credit ? fmt(Math.round(r.credit)) : "–"}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11.5, fontWeight: 700, color: VIZ.red, textAlign: "right", whiteSpace: "nowrap" }}>{r.debit ? fmt(Math.round(r.debit)) : "–"}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11.5, fontWeight: 800, color: C.navy, textAlign: "right", whiteSpace: "nowrap" }}>{fmt(Math.round(r.balance))}</td>
+                  </tr>
+                ))}
+                {txRows.length === 0 && (
+                  <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No transactions yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {txRows.length > 0 && (
+            <PaginationBar
+              pageSize={txPageSize} setPageSize={setTxPageSize}
+              curPage={txCurPage} setPage={setTxPage}
+              totalPages={txTotalPages} totalCount={txRows.length}
+            />
+          )}
         </div>
       </Card>
 

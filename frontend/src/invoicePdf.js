@@ -266,6 +266,14 @@ export const generateInvoicePdf = (booking, car, inv) => {
   y += 4;
 
   // --- Charges ---
+  // Original charges (what was signed at booking), an Extension block (if
+  // this booking was ever extended), Security Deposit (informational only —
+  // never summed into what's owed), then Payments and the final Balance Due.
+  // Keeping these as separate, clearly labeled blocks — rather than one flat
+  // list — is what stops an extension from reading as if it were merged into
+  // the original rental or taxed a second time: it has its own rental line,
+  // its own VAT line, and its own total, all sourced from the SAME fields
+  // computeBookingInvoice already computed for exactly this purpose.
   y = sectionHeader(y, "Charges");
   y += 1;
   const chargeRows = [
@@ -275,9 +283,10 @@ export const generateInvoicePdf = (booking, car, inv) => {
     ["Additional Named Driver", inv.additionalDriverCharge],
     ["Others", inv.otherCharges],
   ];
-  // Any charges added later (Charges & Payment tab) get their own rows too,
-  // so the Invoice always reflects the full finalInvoiceTotal below.
-  (inv.charges || []).forEach((c) => chargeRows.push([c.label, Number(c.amount) || 0]));
+  // Charges itemized at booking time (origin: "booking") are part of what was
+  // signed — they belong here, alongside the 4 fixed fields above, never in
+  // the Extension block below.
+  (inv.bookingCharges || []).forEach((c) => chargeRows.push([c.label, Number(c.amount) || 0]));
 
   chargeRows.forEach(([label, amt]) => {
     y = cellRow(y, [
@@ -285,34 +294,127 @@ export const generateInvoicePdf = (booking, car, inv) => {
       { w: contentWidth * 0.3, text: amt > 0 ? money(amt) : "", align: "center" },
     ]);
   });
-  // Security Deposit (Refundable) — its own charge line immediately after the
-  // other charges, then rolled into the Total below. It's collected alongside the
-  // rental and returned at the end.
+  // Subtotal → VAT → Agreement Total, for the ORIGINAL charges only — this is
+  // exactly agreementTotal, the figure that's frozen the moment the booking
+  // is signed and never changes afterward, extension or not.
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: "Subtotal", bold: true },
+    { w: contentWidth * 0.3, text: money(inv.agreementSubtotal), align: "center" },
+  ]);
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: `VAT (${inv.vatPct || 0}%)` },
+    { w: contentWidth * 0.3, text: money(inv.agreementVatAmount), align: "center" },
+  ]);
+  y = cellRow(y, [
+    { w: contentWidth * 0.7, text: "Agreement Total", bold: true },
+    { w: contentWidth * 0.3, text: money(inv.agreementTotal), bold: true, align: "center" },
+  ], 8);
+  y += 3;
+
+  // --- Extension charges — their own block, only when the booking was
+  // actually extended. Each extension charge gets its rental line, its own
+  // VAT (never folded into the Agreement's VAT above, never re-taxed inside
+  // Total Rental Due below), and its own total — extensionGrandTotal is
+  // exactly amount + amount*vatPct%, computed independently of any other
+  // charge or credit on the booking (see computeBookingInvoice).
+  const extensionCharges = inv.extensionCharges || [];
+  if (extensionCharges.length > 0) {
+    y = cellRow(y, [{ w: contentWidth, text: "Extension Charges", bold: true }]);
+    extensionCharges.forEach((c) => {
+      const amt = Number(c.amount) || 0;
+      const chargeVat = c.taxable ? amt * ((Number(inv.vatPct) || 0) / 100) : 0;
+      // The stored label already carries the day count, e.g.
+      // "Extension Rental (2 days)" — reworded to the requested phrasing
+      // rather than adding a second, differently-worded line for the same fact.
+      const dayMatch = /\((\d+)\s*day/i.exec(c.label || "");
+      const rentalLabel = dayMatch
+        ? `Extension Rental Charges – ${dayMatch[1]} Day${dayMatch[1] === "1" ? "" : "s"}`
+        : (c.label || "Extension Rental Charges");
+      y = cellRow(y, [
+        { w: contentWidth * 0.7, text: rentalLabel },
+        { w: contentWidth * 0.3, text: money(amt), align: "center" },
+      ]);
+      if (c.taxable) {
+        y = cellRow(y, [
+          { w: contentWidth * 0.7, text: `Extension VAT (${inv.vatPct || 0}%)` },
+          { w: contentWidth * 0.3, text: money(chargeVat), align: "center" },
+        ]);
+      }
+      y = cellRow(y, [
+        { w: contentWidth * 0.7, text: "Extension Total", bold: true },
+        { w: contentWidth * 0.3, text: money(amt + chargeVat), bold: true, align: "center" },
+      ]);
+    });
+    y += 3;
+  }
+
+  // --- Any other post-charges (e.g. a Fuel Charge added at Vehicle Return) —
+  // unrelated to an extension, kept exactly as they always rendered: flat
+  // rows, no special breakout, since only extensions were asked to be split
+  // out this way.
+  const otherPostCharges = inv.otherPostCharges || [];
+  if (otherPostCharges.length > 0) {
+    y = cellRow(y, [{ w: contentWidth, text: "Additional Charges", bold: true }]);
+    otherPostCharges.forEach((c) => {
+      y = cellRow(y, [
+        { w: contentWidth * 0.7, text: c.label },
+        { w: contentWidth * 0.3, text: money(Number(c.amount) || 0), align: "center" },
+      ]);
+    });
+    y += 3;
+  }
+
+  // Security Deposit (Refundable) — shown for reference only. It is
+  // deliberately NOT added into Total Rental Due or Balance Due below: it's
+  // refundable, not a rental charge, and excluding it here is what keeps the
+  // amount actually owed from ever being inflated by a deposit that will be
+  // returned.
   const deposit = Number(inv.deposit) || 0;
   if (deposit > 0) {
     y = cellRow(y, [
       { w: contentWidth * 0.7, text: "Security Deposit (Refundable)" },
       { w: contentWidth * 0.3, text: money(deposit), align: "center" },
     ]);
+    y += 3;
   }
 
-  // Subtotal → VAT → Total. The Total includes the Security Deposit; VAT is
-  // unchanged (the refundable deposit is not taxed); Subtotal is derived as
-  // Total − VAT so it always reconciles regardless of the taxable/non-taxable
-  // charge mix.
-  const grandTotal = (Number(inv.finalInvoiceTotal) || 0) + deposit;
-  const invSubtotal = grandTotal - (Number(inv.finalVatAmount) || 0);
+  // Total Rental Due = Agreement Total + every Extension Total + any other
+  // post-charges, excluding the deposit — exactly inv.finalInvoiceTotal,
+  // unchanged by this update; VAT is never combined a second time to reach
+  // it, since agreementVatAmount and each extension's own VAT were already
+  // computed independently above and this total is algebraically their sum.
   y = cellRow(y, [
-    { w: contentWidth * 0.7, text: "Subtotal", bold: true },
-    { w: contentWidth * 0.3, text: money(invSubtotal), align: "center" },
-  ]);
+    { w: contentWidth * 0.7, text: "Total Rental Due (excl. Deposit)", bold: true },
+    { w: contentWidth * 0.3, text: money(inv.finalInvoiceTotal), bold: true, align: "center" },
+  ], 8);
+  y += 3;
+
+  // --- Payments received ---
+  const payments = inv.payments || [];
+  if (payments.length > 0) {
+    y = cellRow(y, [{ w: contentWidth, text: "Payments Received", bold: true }]);
+    payments.forEach((p) => {
+      const when = p.addedAt ? fmtDateSlash(String(p.addedAt).slice(0, 10)) : "—";
+      const ref = p.reference ? ` · Ref ${p.reference}` : "";
+      y = cellRow(y, [
+        { w: contentWidth * 0.7, text: `${when} — ${p.method || "Cash"}${ref}` },
+        { w: contentWidth * 0.3, text: money(Number(p.amount) || 0), align: "center" },
+      ]);
+    });
+    y = cellRow(y, [
+      { w: contentWidth * 0.7, text: "Total Paid", bold: true },
+      { w: contentWidth * 0.3, text: money(inv.totalPaid), bold: true, align: "center" },
+    ]);
+    y += 3;
+  }
+
+  // --- Balance Due — the final outstanding amount, excluding the Security
+  // Deposit. This is inv.balanceDue: the pre-extension balance floored at 0
+  // on its own, plus every extension's own Grand Total added in full, so a
+  // credit that predates an extension can never quietly discount it.
   y = cellRow(y, [
-    { w: contentWidth * 0.7, text: `VAT (${inv.vatPct || 0}%)` },
-    { w: contentWidth * 0.3, text: money(inv.finalVatAmount), align: "center" },
-  ]);
-  y = cellRow(y, [
-    { w: contentWidth * 0.7, text: "Total", bold: true },
-    { w: contentWidth * 0.3, text: money(grandTotal), bold: true, align: "center" },
+    { w: contentWidth * 0.7, text: "Balance Due", bold: true },
+    { w: contentWidth * 0.3, text: money(inv.balanceDue), bold: true, align: "center" },
   ], 8);
   y += 6;
 

@@ -334,6 +334,10 @@ const computeBookingInvoice = (b) => {
     charges, bookingCharges, postCharges,
     taxableChargesTotal, nonTaxableChargesTotal, taxableSubtotal, finalVatAmount, finalInvoiceTotal,
     payments, totalPaid, balanceDue,
+    // Exposed so a consumer (the Invoice PDF) can show the extension as its
+    // own clearly separated block — its own rental amount, its own VAT, its
+    // own total — instead of re-deriving this same split a second time.
+    extensionCharges, otherPostCharges, extensionGrandTotal, preExtensionInvoiceTotal, preExtensionBalance,
   };
 };
 
