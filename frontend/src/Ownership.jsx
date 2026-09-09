@@ -42,6 +42,9 @@ const SERIES_COLORS = ["#2563EB", "#15803D", "#7C3AED", "#B45309", "#0E7490", "#
 const STATE_STYLE = {
   Draft:     { color: C.textMuted, bg: C.linen },
   Pending:   { color: C.amber, bg: C.amberFaint },
+  // Display-only — every holder has accepted, but the event is still "Pending"
+  // in the data until Publish is clicked. See EventCard's displayState.
+  Approved:  { color: C.teal, bg: C.tealFaint },
   Effective: { color: C.green, bg: C.greenFaint },
   Rejected:  { color: C.red, bg: C.redFaint },
 };
@@ -728,6 +731,11 @@ function EventCard({ event, investors, colorOf, prevHoldings, mode, onSubmitForA
 
   const isBusy = busyId === event.id;
   const outstanding = (event.approvals || []).filter((a) => a.decision !== "Accepted").length;
+  // Every holder has signed off, but this is still one Publish click away from
+  // Effective — the state column itself stays "Pending" (that's the model's
+  // truth: nothing has moved yet), but showing it as "Approved" once nobody is
+  // left to answer is what tells the admin the next step is on them now.
+  const displayState = event.state === "Pending" && outstanding === 0 ? "Approved" : event.state;
 
   return (
     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
@@ -735,7 +743,7 @@ function EventCard({ event, investors, colorOf, prevHoldings, mode, onSubmitForA
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13.5, fontWeight: 800, color: C.navy }}>{event.type}</span>
-            <StatePill state={event.state} />
+            <StatePill state={displayState} />
             <span style={{ fontSize: 11.5, color: C.textMuted }}>effective {fmtDate(event.effectiveDate)}</span>
           </div>
           {event.reason && <div style={{ fontSize: 12, color: C.textSec, marginTop: 5, maxWidth: 620 }}>{event.reason}</div>}

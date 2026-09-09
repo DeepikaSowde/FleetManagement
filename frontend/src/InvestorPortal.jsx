@@ -37,6 +37,9 @@ const SERIES_COLORS = ["#2563EB", "#15803D", "#7C3AED", "#B45309", "#0E7490", "#
 
 const STATE_STYLE = {
   Pending:   { color: C.amber, bg: C.amberFaint },
+  // Display-only — every holder (including this investor) has accepted, but
+  // the admin still has to click Publish before it's Effective.
+  Approved:  { color: C.teal, bg: C.tealFaint },
   Effective: { color: C.green, bg: C.greenFaint },
   Rejected:  { color: C.red, bg: C.redFaint },
 };
@@ -158,13 +161,15 @@ function HistoryCard({ event, meId, colorOf, priorTable }) {
     return row ? Number(row.pct) : null;
   };
   const myAnswer = (event.approvals || []).find((a) => a.investorId === meId);
+  const outstanding = (event.approvals || []).filter((a) => a.decision !== "Accepted").length;
+  const displayState = event.state === "Pending" && outstanding === 0 ? "Approved" : event.state;
 
   return (
     <div style={{ ...card, padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13.5, fontWeight: 800, color: C.navy }}>{event.type}</span>
-          <StatePill state={event.state} />
+          <StatePill state={displayState} />
           <span style={{ fontSize: 11.5, color: C.textMuted }}>{fmtDate(event.effectiveDate)}</span>
         </div>
         {event.reason && <div style={{ fontSize: 12, color: C.textSec, marginTop: 5 }}>{event.reason}</div>}
