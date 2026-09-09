@@ -37,6 +37,7 @@ function toCar(r) {
     maintenanceStartDate: r.maintenance_start_date,
     maintenanceCompletedAt: r.maintenance_completed_at,
     maintenanceAutoReleased: r.maintenance_auto_released,
+    maintenanceExpenseId: r.maintenance_expense_id,
   };
 }
 
@@ -68,9 +69,9 @@ async function create(car) {
        reg, other_charges, purchase_date, insurance_expiry, lta_transfer_date,
        road_tax_expiry, inspection_expiry, maint, coe, status, min_rate, max_rate,
        target_rate, running_days_target, profit_pct_target, monthly_forecast, maintenance_start_date,
-       maintenance_completed_at, maintenance_auto_released, manual_value
+       maintenance_completed_at, maintenance_auto_released, manual_value, maintenance_expense_id
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31
      )
      RETURNING *`,
     [
@@ -82,7 +83,7 @@ async function create(car) {
       car.targetRate ?? null, car.runningDaysTarget ?? null, car.profitPctTarget ?? null,
       car.monthlyForecast ?? null,
       car.maintenanceStartDate ?? null, car.maintenanceCompletedAt ?? null,
-      car.maintenanceAutoReleased ?? false, car.manualValue ?? null,
+      car.maintenanceAutoReleased ?? false, car.manualValue ?? null, car.maintenanceExpenseId ?? null,
     ]
   );
   return toCar(rows[0]);
@@ -105,7 +106,7 @@ async function update(plate, updates) {
        inspection_expiry = $17, maint = $18, coe = $19, status = $20, min_rate = $21,
        max_rate = $22, target_rate = $23, running_days_target = $24, profit_pct_target = $25,
        monthly_forecast = $26, maintenance_start_date = $27, maintenance_completed_at = $28,
-       maintenance_auto_released = $29, manual_value = $30
+       maintenance_auto_released = $29, manual_value = $30, maintenance_expense_id = $31
      WHERE plate = $1
      RETURNING *`,
     [
@@ -116,7 +117,7 @@ async function update(plate, updates) {
       c.minRate ?? null, c.maxRate ?? null, c.targetRate ?? null,
       c.runningDaysTarget ?? null, c.profitPctTarget ?? null, c.monthlyForecast ?? null,
       c.maintenanceStartDate ?? null, c.maintenanceCompletedAt ?? null,
-      c.maintenanceAutoReleased ?? false, c.manualValue ?? null,
+      c.maintenanceAutoReleased ?? false, c.manualValue ?? null, c.maintenanceExpenseId ?? null,
     ]
   );
   return toCar(rows[0]);

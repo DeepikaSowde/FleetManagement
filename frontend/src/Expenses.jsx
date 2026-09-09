@@ -242,13 +242,22 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
   const modelOf = (plate) => { const c = fleet.find((f) => f.plate === plate); return c ? (c.model || "") : ""; };
   const yTick = (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
 
+  // Repairs & Maintenance may be logged before the actual cost is known — the
+  // amount gets confirmed later via Fleet's Complete Maintenance action, which
+  // updates this same expense record. Every other category still needs a
+  // real amount up front.
   const handleAddExpense = () => {
-    if (!newExpense.plate || !newExpense.date || !newExpense.category || !newExpense.amount) { alert("Please fill in all required fields"); return; }
+    const isMaintenance = newExpense.category === "Repairs & Maintenance";
+    if (!newExpense.plate || !newExpense.date || !newExpense.category || (!isMaintenance && !newExpense.amount)) {
+      alert("Please fill in all required fields");
+      return;
+    }
     const isExternalPickup = newExpense.category === "External Pickup/Drop";
     if (isExternalPickup && !newExpense.paidTo.trim()) { alert("Enter the name of the external person paid for the pickup/drop."); return; }
     const desc = isExternalPickup && newExpense.paidTo.trim()
       ? `Paid to ${newExpense.paidTo.trim()}${newExpense.desc.trim() ? ` — ${newExpense.desc.trim()}` : ""}` : newExpense.desc;
-    onAddExpense({ ...newExpense, desc, amount: parseFloat(newExpense.amount) });
+    const amount = newExpense.amount === "" ? null : parseFloat(newExpense.amount);
+    onAddExpense({ ...newExpense, desc, amount });
     setNewExpense({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false, paidTo: "" });
     setShowForm(false);
   };
@@ -303,7 +312,10 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 12 }}>
               <div><div style={fieldLabel}>Description</div><input id="expense-desc" type="text" placeholder="e.g. 60,000 km oil change and filter" value={newExpense.desc} onChange={e => setNewExpense({ ...newExpense, desc: e.target.value })} style={{ ...fieldInput, fontFamily: "inherit" }} /></div>
-              <div><div style={fieldLabel}>Amount (SGD)</div><input id="expense-amount" type="number" placeholder="0.00" value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })} style={{ ...fieldInput, fontFamily: "'Courier New',monospace" }} /></div>
+              <div>
+                <div style={fieldLabel}>Amount (SGD){newExpense.category === "Repairs & Maintenance" && <span style={{ fontWeight: 400 }}> — optional</span>}</div>
+                <input id="expense-amount" type="number" placeholder={newExpense.category === "Repairs & Maintenance" ? "Leave blank if not yet known" : "0.00"} value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })} style={{ ...fieldInput, fontFamily: "'Courier New',monospace" }} />
+              </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <Btn primary small id="expense-save" onClick={handleAddExpense}>Save Expense</Btn>
@@ -669,7 +681,9 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                     </span>
                   </td>
                   <td style={{ padding: "10px 12px", fontSize: 11, color: C.textSec }}>{e.desc || "—"}</td>
-                  <td style={{ padding: "10px 12px", ...mono, fontSize: 12, fontWeight: 700, color: C.red, whiteSpace: "nowrap", textAlign: "right" }}>{fmt(e.amount)}</td>
+                  <td style={{ padding: "10px 12px", ...mono, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", textAlign: "right", color: e.amount == null ? C.amber : C.red }}>
+                    {e.amount == null ? "Pending" : fmt(e.amount)}
+                  </td>
                   <td style={{ padding: "10px 12px" }}>{e.receipt ? <span style={{ fontSize: 11, color: C.green }}>✓ Yes</span> : <span style={{ fontSize: 11, color: C.textMuted }}>—</span>}</td>
                   <td style={{ padding: "10px 12px" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>

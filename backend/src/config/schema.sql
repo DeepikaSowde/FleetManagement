@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS cars (
   maintenance_start_date     TEXT,
   maintenance_completed_at   TEXT,
   maintenance_auto_released  BOOLEAN DEFAULT false,
+  maintenance_expense_id     VARCHAR(20),   -- the open issue's Repairs & Maintenance expense, updated with the real cost on Complete Maintenance
   created_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -140,6 +141,7 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ;
 ALTER TABLE cars      ADD COLUMN IF NOT EXISTS monthly_forecast NUMERIC(12,2);
 ALTER TABLE cars      ADD COLUMN IF NOT EXISTS purchase_advance NUMERIC(12,2);
 ALTER TABLE cars      ADD COLUMN IF NOT EXISTS manual_value NUMERIC(12,2);
+ALTER TABLE cars      ADD COLUMN IF NOT EXISTS maintenance_expense_id VARCHAR(20);
 
 -- ── EMPLOYEES — staff who operations (pickups/returns) get assigned to ──────
 CREATE TABLE IF NOT EXISTS employees (

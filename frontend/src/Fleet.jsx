@@ -142,10 +142,16 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [error, setError] = useState("");
 
+  // Repairs & Maintenance may be logged with the cost still unknown — the
+  // actual amount gets confirmed later, on Complete Maintenance. Every other
+  // category still needs a real amount up front.
+  const isMaintenance = category === "Repairs & Maintenance";
+
   const handleSave = () => {
-    const amt = parseFloat(amount);
+    const amt = amount === "" ? null : parseFloat(amount);
     if (!description.trim()) { setError("Add a short description for this expense."); return; }
-    if (!amt || amt <= 0) { setError("Enter an amount greater than 0."); return; }
+    if (!isMaintenance && (!amt || amt <= 0)) { setError("Enter an amount greater than 0."); return; }
+    if (isMaintenance && amt !== null && amt <= 0) { setError("Enter an amount greater than 0, or leave it blank until the cost is known."); return; }
     if (!date) { setError("Pick a date for this expense."); return; }
     if (typeof onAddExpense !== "function") { setError("Expense saving isn't wired up yet."); return; }
 
@@ -191,9 +197,11 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 8 }}>
             <div>
-              <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Amount (SGD)</div>
+              <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>
+                Amount (SGD){isMaintenance && <span style={{ color: C.textMuted, fontWeight: 400 }}> — optional</span>}
+              </div>
               <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00" style={{ ...fieldStyle, fontFamily: mono.fontFamily }} />
+                placeholder={isMaintenance ? "Leave blank if not yet known" : "0.00"} style={{ ...fieldStyle, fontFamily: mono.fontFamily }} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Date</div>
@@ -559,28 +567,59 @@ const DeleteConfirmModal = ({ car, onConfirm, onCancel }) => (
 
 // Confirms closing an active maintenance issue — the one deliberate step
 // between "under maintenance" and "back on the road," since nothing else in
-// the app is allowed to make that move for the user.
-const CompleteMaintenanceConfirmModal = ({ car, onConfirm, onCancel }) => (
-  <>
-    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", zIndex: 300 }} />
-    <div style={{
-      position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-      background: C.surface, borderRadius: 14, boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)",
-      zIndex: 301, width: "min(400px, calc(100vw - 32px))", padding: 24, textAlign: "center",
-      boxSizing: "border-box",
-    }}>
-      <div style={{ width: 48, height: 48, borderRadius: "50%", background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, margin: "0 auto 14px" }}>✓</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Complete maintenance on this vehicle?</div>
-      <div style={{ fontSize: 12.5, color: C.textMuted, lineHeight: 1.5, marginBottom: 20 }}>
-        <strong style={{ color: C.textPri }}>{car.make} {car.model} ({car.plate})</strong> will be marked Available again and open for new bookings. This closes the active maintenance issue and records the completion date and time.
+// the app is allowed to make that move for the user. Also collects the
+// actual Maintenance Amount here — required, since this is the moment the
+// real cost is known — which overwrites the linked Repairs & Maintenance
+// expense (see addExpense/completeMaintenance in useFleetData.js) rather
+// than being logged as some separate figure.
+const CompleteMaintenanceConfirmModal = ({ car, expenses = [], onConfirm, onCancel }) => {
+  // Pre-fill from whatever's already on the linked expense (e.g. an amount
+  // entered upfront, or a partial estimate) — still fully editable, since the
+  // number confirmed here is what actually gets saved.
+  const linkedExpense = expenses.find((e) => e.id === car.maintenanceExpenseId);
+  const [amount, setAmount] = useState(linkedExpense?.amount != null ? String(linkedExpense.amount) : "");
+  const [error, setError] = useState("");
+
+  const handleConfirm = () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { setError("Enter the actual maintenance amount to complete this."); return; }
+    onConfirm(amt);
+  };
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", zIndex: 300 }} />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+        background: C.surface, borderRadius: 14, boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)",
+        zIndex: 301, width: "min(400px, calc(100vw - 32px))", padding: 24, textAlign: "center",
+        boxSizing: "border-box",
+      }}>
+        <div style={{ width: 48, height: 48, borderRadius: "50%", background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, margin: "0 auto 14px" }}>✓</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Complete maintenance on this vehicle?</div>
+        <div style={{ fontSize: 12.5, color: C.textMuted, lineHeight: 1.5, marginBottom: 16 }}>
+          <strong style={{ color: C.textPri }}>{car.make} {car.model} ({car.plate})</strong> will be marked Available again and open for new bookings. This closes the active maintenance issue and records the completion date and time.
+        </div>
+        <div style={{ textAlign: "left", marginBottom: 20 }}>
+          <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>
+            Maintenance Amount (SGD) <span style={{ color: C.red }}>*</span>
+          </div>
+          <input type="number" min="0" step="0.01" autoFocus value={amount}
+            onChange={(e) => { setAmount(e.target.value); setError(""); }}
+            placeholder="0.00" style={{ ...fieldStyle, fontFamily: mono.fontFamily }} />
+          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
+            Updates the Repairs &amp; Maintenance expense for this issue — reflected everywhere in Expense Management.
+          </div>
+          {error && <div style={{ fontSize: 10.5, color: C.red, marginTop: 6 }}>{error}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn secondary onClick={onCancel} style={{ flex: 1 }}>Cancel</Btn>
+          <Btn onClick={handleConfirm} style={{ flex: 1, background: C.teal, color: "#fff" }}>Complete Maintenance</Btn>
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn secondary onClick={onCancel} style={{ flex: 1 }}>Cancel</Btn>
-        <Btn onClick={onConfirm} style={{ flex: 1, background: C.teal, color: "#fff" }}>Complete Maintenance</Btn>
-      </div>
-    </div>
-  </>
-);
+    </>
+  );
+};
 
 // Compact rounded-square icon action button used in the Fleet table rows —
 // same visual language as the Bookings list's row actions.
@@ -764,8 +803,8 @@ const Fleet = ({
   // The car stays open in the details modal afterwards (unlike Delete, it
   // still exists) — the status flips to Available and the banner disappears
   // in place, which is the clearest possible confirmation the flow worked.
-  const handleConfirmCompleteMaintenance = () => {
-    onCompleteMaintenanceCar(confirmMaintenanceCar.plate);
+  const handleConfirmCompleteMaintenance = (amount) => {
+    onCompleteMaintenanceCar(confirmMaintenanceCar.plate, amount);
     setConfirmMaintenanceCar(null);
   };
 
@@ -972,7 +1011,7 @@ const Fleet = ({
       )}
 
       {confirmMaintenanceCar && (
-        <CompleteMaintenanceConfirmModal car={confirmMaintenanceCar} onConfirm={handleConfirmCompleteMaintenance} onCancel={() => setConfirmMaintenanceCar(null)} />
+        <CompleteMaintenanceConfirmModal car={confirmMaintenanceCar} expenses={expenses} onConfirm={handleConfirmCompleteMaintenance} onCancel={() => setConfirmMaintenanceCar(null)} />
       )}
 
       {/* Vehicle Details Modal Overlay */}

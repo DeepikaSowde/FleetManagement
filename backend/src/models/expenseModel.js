@@ -24,12 +24,18 @@ async function getById(id) {
   return toExpense(rows[0]);
 }
 
+// `amount` distinguishes "explicitly unknown yet" (null — a Repairs &
+// Maintenance expense logged before the actual cost is confirmed) from
+// "never sent at all" (undefined — old/other callers that never included the
+// field), defaulting only the latter to 0. toExpense() above already reads a
+// stored null back out as null; these writes previously collapsed both cases
+// to 0 via `?? 0`, which silently discarded a real pending amount on save.
 async function create(e) {
   const { rows } = await db.query(
     `INSERT INTO expenses (id, plate, date, category, "desc", amount, receipt)
      VALUES ($1,$2,$3,$4,$5,$6,$7)
      RETURNING *`,
-    [e.id, e.plate, e.date, e.category, e.desc ?? "", e.amount ?? 0, e.receipt ?? false]
+    [e.id, e.plate, e.date, e.category, e.desc ?? "", e.amount === undefined ? 0 : e.amount, e.receipt ?? false]
   );
   return toExpense(rows[0]);
 }
@@ -44,7 +50,7 @@ async function update(id, updates) {
        plate = $2, date = $3, category = $4, "desc" = $5, amount = $6, receipt = $7
      WHERE id = $1
      RETURNING *`,
-    [id, e.plate, e.date, e.category, e.desc ?? "", e.amount ?? 0, e.receipt ?? false]
+    [id, e.plate, e.date, e.category, e.desc ?? "", e.amount === undefined ? 0 : e.amount, e.receipt ?? false]
   );
   return toExpense(rows[0]);
 }

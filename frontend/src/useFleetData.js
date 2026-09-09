@@ -973,9 +973,16 @@ export const useFleetData = () => {
   };
 
   // ── EXPENSE OPERATIONS ────────────────────────────────────────────────────
+  // Amount is normally required, but a "Repairs & Maintenance" expense may be
+  // logged with the cost still unknown (the car's just gone into the shop) —
+  // blank/unset stays `null` rather than being forced through parseFloat into
+  // NaN, so every consumer's `e.amount || 0` fallback treats it as "not yet
+  // billed" instead of silently becoming a real 0.
   const addExpense = (expense) => {
     const nextId = `EX-${String(Math.max(...expenses.map(e => parseInt(e.id.slice(3))), 0) + 1).padStart(3, "0")}`;
-    const newExpense = { ...expense, id: nextId, amount: parseFloat(expense.amount) };
+    const amt = expense.amount === "" || expense.amount === null || expense.amount === undefined
+      ? null : parseFloat(expense.amount);
+    const newExpense = { ...expense, id: nextId, amount: amt };
     setExpenses(prev => [...prev, newExpense]);
     api.post("/expenses", newExpense).catch(onWriteError);
 
@@ -985,13 +992,17 @@ export const useFleetData = () => {
     // date — no separate Start Date field. Nothing else in this app clears
     // Maintenance automatically; only completeMaintenance() below does.
     // If the car is ALREADY under an open issue, this is just another cost
-    // against it — the start date must not be reset.
+    // against it — the start date (and the linked expense) must not be reset.
+    // `maintenanceExpenseId` remembers which expense IS this issue's cost, so
+    // completeMaintenance() below knows exactly which record to update once
+    // the actual amount is confirmed at completion time.
     if (newExpense.category === "Repairs & Maintenance" && newExpense.plate) {
       const car = fleet.find(c => c.plate === newExpense.plate);
       if (car && car.status !== "Maintenance") {
         updateFleet(newExpense.plate, {
           status: "Maintenance",
           maintenanceStartDate: newExpense.date || new Date().toISOString().slice(0, 10),
+          maintenanceExpenseId: newExpense.id,
         });
       }
     }
@@ -1000,10 +1011,21 @@ export const useFleetData = () => {
   // Manually closes an active maintenance issue: the car returns to Available
   // and the exact completion moment is stamped. A car placed into Maintenance
   // never clears itself — this is the only path back to Available for it.
-  const completeMaintenance = (plate) => {
+  // `amount`, when given, is the actual final cost confirmed at completion —
+  // it overwrites the linked Repairs & Maintenance expense (see addExpense's
+  // maintenanceExpenseId above) so Expense Management's totals/charts/reports
+  // pick it up the same way any other expense edit would.
+  const completeMaintenance = (plate, amount) => {
+    if (amount !== undefined && amount !== null && amount !== "") {
+      const car = fleet.find(c => c.plate === plate);
+      if (car?.maintenanceExpenseId) {
+        updateExpense(car.maintenanceExpenseId, { amount: Number(amount) });
+      }
+    }
     updateFleet(plate, {
       status: "Available",
       maintenanceStartDate: null,
+      maintenanceExpenseId: null,
       maintenanceCompletedAt: new Date().toISOString(),
       maintenanceAutoReleased: false,
     });
