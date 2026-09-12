@@ -590,6 +590,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // the teammate's Collect Rent / Collect Now fix.
   const [rentReference, setRentReference] = useState("");
   const [fullyCollectedNotice, setFullyCollectedNotice] = useState(false);
+  // Security deposit top-up at handover: whatever was or wasn't collected at
+  // booking (full or partial — see FleetOpzApp.jsx's Step 4), the deposit must
+  // reach 100% before the vehicle goes out. The amount itself isn't editable
+  // here — it's always exactly the remaining shortfall — only how it's paid.
+  const [depositTopUpMethod, setDepositTopUpMethod] = useState("Cash");
+  const [depositTopUpReference, setDepositTopUpReference] = useState("");
   // Daily / Monthly collection cards (Pricing & Payment). A collection is a
   // rental payment tagged with `kind` ("daily" | "monthly") so the two cards
   // can each list their own entries while still folding into the one Total
@@ -661,6 +667,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (staffToCustomerKm === "" || Number(staffToCustomerKm) < 0) { alert("Enter the Staff -> Customer Mileage (km) — enter 0 if the customer collected the car themselves."); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
 
+    // The full security deposit must be held before the vehicle goes out — a
+    // partial deposit collected at booking gets topped up right here, to 100%,
+    // as the one deliberate gate on handover. Unlike rent, this is NOT optional:
+    // no partial top-up, no skipping it.
+    const depositShortfall = Math.max(0, inv.deposit - inv.depositPaid);
+    if (depositShortfall > 0 && depositTopUpMethod !== "Cash" && !depositTopUpReference.trim()) {
+      alert("Enter the Transaction ID for the security deposit (required unless the payment method is Cash).");
+      return;
+    }
+
     // Rent at pickup — optional, not a gate. Clamp to Balance Due (no overpay);
     // a non-cash payment needs a Receipt/Reference No. It's recorded as a real
     // payment appended to the single `payments` source of truth so Balance Due
@@ -687,7 +703,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const updates = {
       startingMileage, staffToCustomerKm, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
       ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
-      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Staff→customer ${Number(staffToCustomerKm) || 0} km (internal) · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} (${rentMethod})` : ""}`)),
+      // Deposit top-up — same fields the booking wizard's own deposit
+      // collection writes (depositPaid/depositCollectedMethod/depositReference/
+      // depositCollectedAt), just overwritten here to reflect it's now full.
+      ...(depositShortfall > 0 ? {
+        depositPaid: String(inv.deposit),
+        depositCollectedMethod: depositTopUpMethod,
+        depositReference: depositTopUpReference.trim(),
+        depositCollectedAt: new Date().toISOString(),
+      } : {}),
+      history: withHistory(histEntry("handover", `Odometer ${startingMileage} km · Staff→customer ${Number(staffToCustomerKm) || 0} km (internal) · Fuel ${fuelLevel}${rentAmt > 0 ? ` · Collected ${fmt(rentAmt)} rent (${rentMethod})` : ""}${depositShortfall > 0 ? ` · Collected remaining deposit ${fmt(depositShortfall)} (${depositTopUpMethod})` : ""}`)),
     };
     onUpdateBooking(booking.id, updates);
     // The Rental Agreement needs mileage/fuel/condition — generate it now.
@@ -695,6 +720,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     setShowHandover(false);
     setRentAtPickup("");
     setRentReference("");
+    setDepositTopUpReference("");
   };
 
   // "Collect Now" — a standalone action separate from Save & Generate
@@ -1354,6 +1380,35 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <span style={{ fontSize: 11.5, color: C.textSec }}>This mileage is treated as company/internal mileage and will not be charged to the customer.</span>
                     </div>
 
+                    {/* Security deposit — UNLIKE rent below, this blocks handover.
+                        Whatever was or wasn't collected at booking (full or
+                        partial), it must reach 100% right here before the
+                        vehicle can go out; the amount itself isn't editable —
+                        only how the shortfall is being paid. */}
+                    {inv.deposit > inv.depositPaid && (
+                      <div style={{ marginTop: 12, borderTop: `1px dashed ${C.border}`, paddingTop: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy }}>🔒 Collect Security Deposit <span style={{ color: C.red }}>*</span></div>
+                          <div style={{ fontSize: 11.5, color: C.textMuted }}>Still owed <strong style={{ color: C.red }}>{fmt(inv.deposit - inv.depositPaid)}</strong></div>
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>
+                          Only {fmt(inv.depositPaid)} of {fmt(inv.deposit)} has been collected so far. The full deposit must be held before handover.
+                        </div>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                          <div style={{ flex: "1 1 120px" }}>
+                            <div style={detailFieldLabelStyle}>Method</div>
+                            <select value={depositTopUpMethod} onChange={(e) => setDepositTopUpMethod(e.target.value)} style={detailInputStyle}>
+                              {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ flex: "1 1 160px" }}>
+                            <div style={detailFieldLabelStyle}>Transaction ID{depositTopUpMethod === "Cash" ? "" : " *"}</div>
+                            <input type="text" value={depositTopUpReference} onChange={(e) => setDepositTopUpReference(e.target.value)} placeholder={depositTopUpMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Rent collected at pickup — the rental amount is taken here in
                         the deposit-first flow. Optional (doesn't block handover). */}
                     {inv.balanceDue > 0 && (
@@ -1423,7 +1478,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     </div>
                     <Btn
                       primary
-                      onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setShowHandover(true); }}
+                      onClick={() => { setRentAtPickup(inv.balanceDue > 0 ? String(inv.balanceDue) : ""); setDepositTopUpMethod("Cash"); setDepositTopUpReference(""); setShowHandover(true); }}
                     >
                       Complete Handover →
                     </Btn>
