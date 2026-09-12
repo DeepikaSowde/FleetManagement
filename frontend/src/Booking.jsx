@@ -663,6 +663,22 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   };
 
   const handleCompleteHandover = () => {
+    // The plate/date conflict check at booking creation only compares
+    // scheduled date ranges — it can't know a return is running late. So
+    // re-check for real, right here: if some OTHER booking on this same car
+    // has been handed over and genuinely hasn't been returned yet, the car
+    // isn't actually here to hand over again.
+    const conflictingActiveBooking = bookings.find((b) =>
+      b.id !== booking.id &&
+      b.plate === booking.plate &&
+      !b.cancelled &&
+      hasHandedOver(b) &&
+      !(!!b.mileageIn || isBookingClosedOut(b.status))
+    );
+    if (conflictingActiveBooking) {
+      alert(`This vehicle is still out on booking ${conflictingActiveBooking.id} (${conflictingActiveBooking.customer}) — it hasn't been returned yet. Record that return first before handing this car over again.`);
+      return;
+    }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
     if (staffToCustomerKm === "" || Number(staffToCustomerKm) < 0) { alert("Enter the Staff -> Customer Mileage (km) — enter 0 if the customer collected the car themselves."); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
