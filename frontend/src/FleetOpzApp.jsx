@@ -1117,7 +1117,10 @@ export default function FleetOpzApp() {
     const origRental = (rr !== undefined && rr !== null && String(rr).trim() !== "" && !isNaN(Number(rr)))
       ? Number(rr)
       : rate * origDays;
-    setExtendBaseline({ origDays, origRental, rate });
+    // origEnd is the booking's return date as it stood before extending —
+    // the floor for the Return calendar below, so extending can only ever
+    // push the date later, never pull it earlier than what was agreed.
+    setExtendBaseline({ origDays, origRental, rate, origEnd: booking.end });
   };
 
   const closeNewBookingModal = () => {
@@ -2302,7 +2305,11 @@ export default function FleetOpzApp() {
                             car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
                             bookings={calendarBookings}
                             selectedDate={newBookingData.returnDate}
-                            minDate={newBookingData.pickupDate}
+                            // Extending can only move the return date later —
+                            // never before the date already agreed — so the
+                            // floor is the booking's original return date, not
+                            // the (now-locked) pickup date used for a new booking.
+                            minDate={extendMode && extendBaseline?.origEnd ? extendBaseline.origEnd.slice(0, 10) : newBookingData.pickupDate}
                             rangeStart={newBookingData.pickupDate}
                             rangeEnd={newBookingData.returnDate}
                             onSelect={(iso) => {
