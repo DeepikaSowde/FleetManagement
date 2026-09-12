@@ -887,6 +887,16 @@ export default function FleetOpzApp() {
     return errors;
   };
 
+  // Staff → Customer Mileage is a DISTANCE (the shed-to-customer delivery
+  // leg), never an odometer reading — but it's easy for someone filling the
+  // form to just type what the odometer shows instead of subtracting
+  // Starting Mileage themselves. That mistake doesn't look wrong at entry
+  // time, it just quietly sets an impossible floor for Customer Return ODO
+  // later (Starting Mileage + this value), blocking Vehicle Return days
+  // afterward with a confusing error. Capped well above any real intra-city/
+  // cross-emirate delivery leg so a genuine long trip still goes through.
+  const MAX_SANE_STAFF_KM = 500;
+
   // Shared by the create-flow's Step 5 handover block and the Edit Booking
   // "Complete Handover" action — same two required fields either way.
   const validateHandoverFields = () => {
@@ -894,8 +904,11 @@ export default function FleetOpzApp() {
     if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
       errors.startingMileage = "Enter a valid Kilometer Out (Starting Mileage) to complete the handover";
     }
-    if (newBookingData.staffToCustomerKm === "" || Number(newBookingData.staffToCustomerKm) < 0) {
+    const staffKm = Number(newBookingData.staffToCustomerKm);
+    if (newBookingData.staffToCustomerKm === "" || staffKm < 0) {
       errors.staffToCustomerKm = "Enter the Staff → Customer Mileage (0 if the customer collected the car themselves)";
+    } else if (staffKm > MAX_SANE_STAFF_KM) {
+      errors.staffToCustomerKm = `${staffKm.toLocaleString()} km looks like an odometer reading, not a distance — enter how far staff actually drove (e.g., 25), not the odometer value.`;
     }
     if (!newBookingData.fuelLevel) errors.fuelLevel = "Select the Fuel Level to complete the handover";
     return errors;

@@ -680,7 +680,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       return;
     }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
-    if (staffToCustomerKm === "" || Number(staffToCustomerKm) < 0) { alert("Enter the Staff -> Customer Mileage (km) — enter 0 if the customer collected the car themselves."); return; }
+    const staffKmEntered = Number(staffToCustomerKm);
+    if (staffToCustomerKm === "" || staffKmEntered < 0) { alert("Enter the Staff -> Customer Mileage (km) — enter 0 if the customer collected the car themselves."); return; }
+    // Staff → Customer Mileage is a DISTANCE, not an odometer reading — a
+    // value this large almost always means someone typed what the odometer
+    // showed instead of the delivery leg's own distance, which quietly sets
+    // an impossible floor for Customer Return ODO at Vehicle Return later.
+    // Kept in sync with FleetOpzApp.jsx's MAX_SANE_STAFF_KM.
+    if (staffKmEntered > 500) { alert(`${staffKmEntered.toLocaleString()} km looks like an odometer reading, not a distance — enter how far staff actually drove (e.g., 25), not the odometer value.`); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
 
     // The full security deposit must be held before the vehicle goes out — a
@@ -1273,7 +1280,13 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Btn onClick={() => onEditBooking?.(booking)}>✏️ Edit</Btn>
-              {!booking.cancelled && onExtendBooking && (
+              {/* Extend only makes sense while the car is still with the
+                  customer — Upcoming (not yet picked up) or On Rental
+                  (Active/Ending Today/Overdue). Once it's back (Completed/
+                  Closed) or the booking's cancelled, there's nothing to
+                  extend. Mirrored server-side in bookingModel.js's
+                  validateExtend so this can't be bypassed via the API. */}
+              {!booking.cancelled && !alreadyReturned && onExtendBooking && (
                 <Btn onClick={() => onExtendBooking(booking)}>📅 Extend</Btn>
               )}
               {/* Agreement needs the mileage/fuel/condition captured at

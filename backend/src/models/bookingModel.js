@@ -44,6 +44,55 @@ function validateMileage(record) {
   }
 }
 
+// A booking whose vehicle has already come back (or that's cancelled) can't
+// have its return date pushed later — that's what extending does, and the
+// car isn't with the customer to extend anything. Checked against the
+// CURRENT stored record (never the client's own `status` string, which the
+// frontend derives live and never reliably persists), so this can't be
+// bypassed by calling the API directly instead of going through the UI's own
+// Extend gate. Keyed off the date itself, not an "extension" charge, so it
+// also catches an extend whose rental amount happens to be 0.
+function validateExtend(current, updates) {
+  if (updates.end === undefined) return;
+  const newEnd = new Date(updates.end).getTime();
+  const curEnd = new Date(current.end).getTime();
+  if (!Number.isFinite(newEnd) || !Number.isFinite(curEnd) || newEnd <= curEnd) return;
+
+  if (current.cancelled) {
+    const err = new Error("Cannot extend a cancelled booking.");
+    err.status = 400;
+    throw err;
+  }
+  if (current.mileageIn || current.forceCompleted) {
+    const err = new Error("Cannot extend a booking that has already been returned.");
+    err.status = 400;
+    throw err;
+  }
+}
+
+const MAX_SANE_STAFF_KM = 500;
+
+// Staff → Customer Mileage is a DISTANCE (the shed-to-customer delivery
+// leg), never an odometer reading. Typing what the odometer shows instead of
+// the leg's own distance doesn't look wrong at the point it's entered — it
+// just quietly sets an impossible floor for Customer Return ODO later (see
+// validateMileage above), which only surfaces as a confusing error at
+// Vehicle Return, days afterward. Caught here, at the point the value is
+// actually set — mirrors the same guard in FleetOpzApp.jsx/Booking.jsx, kept
+// as a request-level check (on whatever's actually being written) rather
+// than on the merged record, so it doesn't re-trip on an old booking's
+// already-bad value every time some unrelated field gets edited.
+function validateStaffToCustomerKm(patch) {
+  if (patch.staffToCustomerKm === undefined || patch.staffToCustomerKm === null || patch.staffToCustomerKm === "") return;
+  const km = Number(patch.staffToCustomerKm);
+  if (!Number.isFinite(km) || km <= MAX_SANE_STAFF_KM) return;
+  const err = new Error(
+    `${km.toLocaleString()} km looks like an odometer reading, not a distance — Staff → Customer Mileage should be how far staff actually drove (e.g., 25), not the odometer value.`
+  );
+  err.status = 400;
+  throw err;
+}
+
 // Frontend object -> { core values, details bag }
 function split(booking) {
   const details = {};
@@ -85,6 +134,7 @@ async function getById(id) {
 
 async function create(b) {
   validateMileage(b);
+  validateStaffToCustomerKm(b);
   const { details } = split(b);
   const { rows } = await db.query(
     `INSERT INTO bookings (
@@ -107,6 +157,13 @@ async function create(b) {
 async function update(id, updates) {
   const current = await getById(id);
   if (!current) return null;
+  // Checked against the PRE-update record — whether this specific request is
+  // allowed to push the return date out depends on the booking's state
+  // before this patch, not after it.
+  validateExtend(current, updates);
+  // Checked on the incoming patch, not the merged record — see
+  // validateStaffToCustomerKm's own comment for why.
+  validateStaffToCustomerKm(updates);
   const merged = { ...current, ...updates, id };
   // Validated on the MERGED record, not just this patch — a request that
   // only sends customerReturnMileage is still floored against
