@@ -3,6 +3,7 @@ import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Badge, PlateBadge } from "./components";
 import { buildLedgerRows } from "./ledgerUtils";
 import LedgerDashboard from "./LedgerDashboard";
+import DepositRefunds from "./DepositRefunds";
 
 // Read-only financial ledger. It is NOT a separate data source — it is a
 // unified, chronological view built from data the app already tracks:
@@ -37,9 +38,13 @@ const selectStyle = {
 const Ledger = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
-  onUpdateCar,
+  onUpdateCar, onOpenBooking,
 }) => {
   const [view, setView] = useState("dashboard"); // "dashboard" | "ledger"
+  // Sub-tab inside the "ledger" view — the Deposits tab shows the same
+  // Deposit Refunds screen that used to be its own sidebar module, moved
+  // here as-is (see DepositRefunds.jsx); nothing about its flow changed.
+  const [ledgerView, setLedgerView] = useState("all"); // "all" | "deposits"
   const [period, setPeriod] = useState("all");   // "all" | "YYYY-MM"
   const [vehicle, setVehicle] = useState("all");  // "all" | plate
   const [type, setType] = useState("all");        // "all" | "Rental Income" | "Expense"
@@ -176,6 +181,21 @@ const Ledger = ({
         />
       ) : (
       <>
+      {/* Ledger View: All Transactions (the existing Financial Ledger table,
+          unchanged) / Deposits (the former standalone Deposit Refunds page,
+          moved here as its own tab). */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 6 }}>Ledger View</div>
+        <div style={{ display: "inline-flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10 }}>
+          <button style={toggleBtn(ledgerView === "all")} onClick={() => setLedgerView("all")}>All Transactions</button>
+          <button style={toggleBtn(ledgerView === "deposits")} onClick={() => setLedgerView("deposits")}>Deposits</button>
+        </div>
+      </div>
+
+      {ledgerView === "deposits" ? (
+        <DepositRefunds bookings={bookings} fleet={fleet} onOpenBooking={onOpenBooking} />
+      ) : (
+      <>
       {/* Filters */}
       <Card style={{ marginBottom: 16 }}>
         <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 12 }}>
@@ -287,6 +307,8 @@ const Ledger = ({
           </div>
         )}
       </Card>
+      </>
+      )}
       </>
       )}
     </div>
