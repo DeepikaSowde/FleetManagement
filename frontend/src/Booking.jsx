@@ -684,7 +684,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // the odometer reading staff actually types into this by subtracting
     // Starting Mileage, so everything from here down is unchanged.
     const staffKmEntered = Number(staffToCustomerKm);
-    if (staffToCustomerKm === "" || staffKmEntered < 0) { alert("Enter the odometer reading when the car reached the customer — equal to Starting Mileage if the customer collected it themselves."); return; }
+    if (staffToCustomerKm === "") { alert("Enter the odometer reading when the car reached the customer — equal to Starting Mileage if the customer collected it themselves."); return; }
+    if (staffKmEntered < 0) { alert(`Odometer at Customer Handover can't be less than Starting Mileage (${startingMileage} km) — enter the actual reading.`); return; }
     // A converted distance this large means the odometer reading typed above
     // doesn't add up — most likely a typo (an extra digit, or Starting
     // Mileage itself is off). Kept in sync with FleetOpzApp.jsx's MAX_SANE_STAFF_KM.
@@ -1407,12 +1408,25 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           onChange={(e) => {
                             const v = e.target.value;
                             if (v !== "" && Number(v) < 0) return;
-                            setStaffToCustomerKm(v === "" ? "" : String(Math.max(0, Number(v) - (Number(startingMileage) || 0))));
+                            // Deliberately NOT clamped to 0 here — typing "10025"
+                            // digit by digit passes through readings below
+                            // Starting Mileage (1, 10, 100...), each of which
+                            // would go negative before the real value is reached.
+                            // Clamping mid-typing fed a rounded-up value back into
+                            // this same controlled input, which overwrote every
+                            // keystroke back to Starting Mileage — the field
+                            // looked like it flatly refused anything you typed.
+                            // The negative distance is caught at Save instead
+                            // (below), same as any other invalid entry.
+                            setStaffToCustomerKm(v === "" ? "" : String(Number(v) - (Number(startingMileage) || 0)));
                           }}
                           placeholder="e.g., 10025" style={detailInputStyle} />
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Reading on the odometer when the car reaches the customer — the app works out the distance by subtracting Starting Mileage.</div>
-                        {staffToCustomerKm !== "" && (
+                        {staffToCustomerKm !== "" && Number(staffToCustomerKm) >= 0 && (
                           <div style={{ fontSize: 10.5, color: C.teal, fontWeight: 600, marginTop: 2 }}>= {staffToCustomerKm} km driven by staff</div>
+                        )}
+                        {staffToCustomerKm !== "" && Number(staffToCustomerKm) < 0 && (
+                          <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, marginTop: 2 }}>Below Starting Mileage — keep typing, or check the reading.</div>
                         )}
                       </div>
                     </div>

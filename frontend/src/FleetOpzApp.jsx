@@ -895,8 +895,17 @@ export default function FleetOpzApp() {
   // and accepts the READING at customer handover — these two helpers convert
   // between that reading and the stored distance, so staffToCustomerKm's
   // meaning (and everything downstream of it) never has to change.
+  // Deliberately NOT clamped to 0 — typing a multi-digit reading passes
+  // through values below Starting Mileage one digit at a time (1, 10, 100...
+  // before reaching 10025), each of which would go negative before the real
+  // value is reached. Clamping here fed a rounded-up value straight back
+  // into the same controlled input on every keystroke, which overwrote
+  // whatever was being typed back to Starting Mileage — the field looked
+  // like it flatly refused any reading below it. The negative case is
+  // instead caught once, as a real validation error, in
+  // validateHandoverFields below.
   const handoverReadingToDistance = (reading, startingMileage) =>
-    reading === "" ? "" : String(Math.max(0, Number(reading) - (Number(startingMileage) || 0)));
+    reading === "" ? "" : String(Number(reading) - (Number(startingMileage) || 0));
   const distanceToHandoverReading = (distanceKm, startingMileage) =>
     distanceKm === "" ? "" : (Number(startingMileage) || 0) + Number(distanceKm);
 
@@ -913,8 +922,10 @@ export default function FleetOpzApp() {
       errors.startingMileage = "Enter a valid Kilometer Out (Starting Mileage) to complete the handover";
     }
     const staffKm = Number(newBookingData.staffToCustomerKm);
-    if (newBookingData.staffToCustomerKm === "" || staffKm < 0) {
+    if (newBookingData.staffToCustomerKm === "") {
       errors.staffToCustomerKm = "Enter the odometer reading when the car reached the customer (equal to Starting Mileage if the customer collected it themselves)";
+    } else if (staffKm < 0) {
+      errors.staffToCustomerKm = `Odometer at Customer Handover can't be less than Starting Mileage (${newBookingData.startingMileage} km) — enter the actual reading.`;
     } else if (staffKm > MAX_SANE_STAFF_KM) {
       errors.staffToCustomerKm = `That works out to a ${staffKm.toLocaleString()} km delivery leg — please check the odometer reading you entered.`;
     }
@@ -3201,7 +3212,7 @@ export default function FleetOpzApp() {
                                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
                                   Reading on the odometer when the car reaches the customer — the app works out the distance by subtracting Starting Mileage. Company/internal mileage, not charged to the customer.
                                 </div>
-                                {newBookingData.staffToCustomerKm !== "" && (
+                                {newBookingData.staffToCustomerKm !== "" && Number(newBookingData.staffToCustomerKm) >= 0 && (
                                   <div style={{ fontSize: 10.5, color: C.teal, fontWeight: 600, marginTop: 2 }}>= {newBookingData.staffToCustomerKm} km driven by staff</div>
                                 )}
                                 <FieldErr msg={fieldErrors.staffToCustomerKm} />
