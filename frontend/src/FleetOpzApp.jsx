@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Car, CalendarCheck, CalendarDays, Users, ClipboardList,
-  BookOpen, Briefcase, Coins, Receipt, TrendingUp, ArrowLeftRight,
+  BookOpen, Briefcase, TrendingUp, ArrowLeftRight,
   UserCog, Settings as SettingsIcon, Bell,
 } from "lucide-react";
 import { C } from "./theme";
@@ -24,11 +24,9 @@ import { computeMileageSplit, MAX_ODOMETER_KM } from "./mileage";
 import Customers from "./Customers";
 import TodayOperations from "./TodayOperations";
 import UserManagement from "./UserManagement";
-import Earning from "./Earning";
-import Expenses from "./Expenses";
+import PLModule from "./PLModule";
 import Ledger from "./Ledger";
 import CashFlow from "./CashFlow";
-import PlReport from "./pl report";
 import Alert from "./Alert";
 import Settings from "./Settings";
 
@@ -434,6 +432,10 @@ export default function FleetOpzApp() {
   // Optional deep-link target tab for the P&L page (e.g. Dashboard → Vehicle
   // Performance opens the Utilization tab). Reset to "fleet" once consumed.
   const [plInitialView, setPlInitialView] = useState("fleet");
+  // Which Level 1 tab the consolidated P&L module opens on — a plain sidebar
+  // click defaults to Earnings; a Dashboard quick-link into "earnings" or
+  // "expenses" (now folded into this one module) opens straight to that tab.
+  const [plModuleInitialTab, setPlModuleInitialTab] = useState("earnings");
   const { isMobile } = useViewport();
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile sidebar drawer
   const [showNewBooking, setShowNewBooking] = useState(false);
@@ -1199,9 +1201,11 @@ export default function FleetOpzApp() {
   }, [extendMode, extendBaseline, newBookingData.start, newBookingData.end]);
 
   // Order matters: the sidebar groups by index — Operations = slice(0,6),
-  // Finance = slice(6,12), System = slice(12).
+  // Finance = slice(6,10), System = slice(10).
   // Nav icons are lucide-react components (rendered as <n.icon />), giving the
   // sidebar a clean, consistent line-icon set instead of mixed emoji.
+  // Earnings and Expenses no longer have their own sidebar item — both are
+  // now Level 1 tabs inside the consolidated P&L module (see PLModule.jsx).
   const NAV = [
     // Operations
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -1213,8 +1217,6 @@ export default function FleetOpzApp() {
     // Finance
     { id: "ledger", label: "Ledger", icon: BookOpen },
     { id: "investors", label: "Investors", icon: Briefcase },
-    { id: "earnings", label: "Earnings", icon: Coins },
-    { id: "expenses", label: "Expenses", icon: Receipt },
     { id: "pl", label: "P&L", icon: TrendingUp },
     { id: "cash-flow", label: "Cash Flow", icon: ArrowLeftRight },
     // System
@@ -1248,7 +1250,15 @@ export default function FleetOpzApp() {
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}
         getExpensesByCategory={fleetData.getExpensesByCategory}
         onNewBooking={openNewBookingModal}
-        onNavigate={(page, view) => { if (page === "pl") setPlInitialView(view || "fleet"); setActive(page); }}
+        onNavigate={(page, view) => {
+          // Earnings and Expenses are now Level 1 tabs of the consolidated P&L
+          // module rather than their own pages, so a dashboard link into
+          // either one opens that module on the matching tab.
+          if (page === "earnings") { setPlModuleInitialTab("earnings"); setActive("pl"); return; }
+          if (page === "expenses") { setPlModuleInitialTab("expenses"); setActive("pl"); return; }
+          if (page === "pl") { setPlModuleInitialTab("pl"); setPlInitialView(view || "fleet"); setActive("pl"); return; }
+          setActive(page);
+        }}
       />
     ),
     fleet: (
@@ -1317,26 +1327,6 @@ export default function FleetOpzApp() {
         onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
       />
     ),
-    earnings: (
-      <Earning
-        earnings={fleetData.earnings}
-        fleet={fleetData.fleet}
-        bookings={fleetData.bookings}
-        onAddEarning={fleetData.addEarning}
-        onUpdateEarning={fleetData.updateEarning}
-        onDeleteEarning={fleetData.deleteEarning}
-        onLockEarning={fleetData.lockEarning}
-      />
-    ),
-    expenses: (
-      <Expenses
-        expenses={fleetData.expenses}
-        fleet={fleetData.fleet}
-        onAddExpense={fleetData.addExpense}
-        onUpdateExpense={fleetData.updateExpense}
-        onDeleteExpense={fleetData.deleteExpense}
-      />
-    ),
     ledger: (
       <Ledger
         earnings={fleetData.earnings}
@@ -1386,16 +1376,25 @@ export default function FleetOpzApp() {
       />
     ),
     pl: (
-      <PlReport
+      <PLModule
+        initialTab={plModuleInitialTab}
+        onInitialTabConsumed={() => setPlModuleInitialTab("earnings")}
+        earnings={fleetData.earnings}
         fleet={fleetData.fleet}
         bookings={fleetData.bookings}
-        earnings={fleetData.earnings}
+        onAddEarning={fleetData.addEarning}
+        onUpdateEarning={fleetData.updateEarning}
+        onDeleteEarning={fleetData.deleteEarning}
+        onLockEarning={fleetData.lockEarning}
         expenses={fleetData.expenses}
+        onAddExpense={fleetData.addExpense}
+        onUpdateExpense={fleetData.updateExpense}
+        onDeleteExpense={fleetData.deleteExpense}
         calculateMetrics={fleetData.calculateMetrics}
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
-        initialView={plInitialView}
-        onInitialViewConsumed={() => setPlInitialView("fleet")}
+        plInitialView={plInitialView}
+        onPlInitialViewConsumed={() => setPlInitialView("fleet")}
       />
     ),
     alerts: (
@@ -1923,7 +1922,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(6, 12).map(n => (
+          {NAV.slice(6, 10).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
@@ -1932,7 +1931,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>System</div>
-          {NAV.slice(12).map(n => (
+          {NAV.slice(10).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>

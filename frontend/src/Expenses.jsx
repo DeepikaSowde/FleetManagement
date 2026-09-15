@@ -96,6 +96,10 @@ function ExpKpi({ label, value, sub, subColor, icon, iconBg, bar, barColor }) {
 }
 
 const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, onDeleteExpense }) => {
+  // Level 2 tab: "all" = Expense Management dashboard, "acquisition" = Fleet
+  // Acquisition dashboard. Both dashboards below are otherwise unchanged —
+  // this only decides which one is currently shown.
+  const [section, setSection] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [catFilter, setCatFilter] = useState("all");
   const [newExpense, setNewExpense] = useState({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false, paidTo: "" });
@@ -271,6 +275,20 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Level 2 tabs — All Expenses / Fleet Acquisition */}
+      <div style={{ display: "flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10, width: "fit-content" }}>
+        {[["all", "All Expenses"], ["acquisition", "Fleet Acquisition"]].map(([key, label]) => (
+          <button key={key} onClick={() => setSection(key)} style={{
+            padding: "8px 16px", fontSize: 12.5, fontWeight: 700, borderRadius: 7, border: "none", cursor: "pointer",
+            background: section === key ? C.teal : "transparent", color: section === key ? "#fff" : C.textSec,
+          }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {section === "all" && (
+      <>
       {/* ══ EXPENSE MANAGEMENT ══════════════════════════════════════════════ */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
@@ -523,7 +541,11 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
           </table>
         </div>
       </Card>
+      </>
+      )}
 
+      {section === "acquisition" && (
+      <>
       {/* ══ FLEET ACQUISITION ═══════════════════════════════════════════════ */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
         <div>
@@ -639,7 +661,11 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
           )}
         </div>
       </Card>
+      </>
+      )}
 
+      {section === "all" && (
+      <>
       {/* Expense Records */}
       <Card>
         <CardHeader
@@ -699,6 +725,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
           <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>{expenses.length === 0 ? "No expenses recorded" : "No expenses in this category"}</div>
         )}
       </Card>
+      </>
+      )}
     </div>
   );
 };
