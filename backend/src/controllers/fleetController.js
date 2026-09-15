@@ -46,8 +46,12 @@ async function create(req, res, next) {
     if (!plate || !make || !model) {
       return res.status(400).json({ message: "plate, make and model are required" });
     }
-    if (!/^[A-Za-z0-9]+$/.test(plate)) {
-      return res.status(400).json({ message: "Car Plate can only contain letters and numbers" });
+    // Singapore plates aren't a fixed digit count — 1-3 letters, 1-4 digits,
+    // and an optional trailing check letter (e.g. SKR 2847 A, SGP 1234 X),
+    // with or without the spaces shown on the physical plate. Kept in sync
+    // with AddCarWizard.jsx's copy of this same check.
+    if (!/^[A-Za-z]{1,3}\s?\d{1,4}\s?[A-Za-z]?$/.test(String(plate).trim())) {
+      return res.status(400).json({ message: "Enter a valid Singapore plate — 1-3 letters, 1-4 digits, and an optional trailing letter (e.g. SKR 2847 A)" });
     }
     const negativeFieldError = findNegativeFieldError(req.body);
     if (negativeFieldError) {

@@ -250,7 +250,13 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const validateStep0 = () => {
     const e = {};
     if (!String(car.plate).trim()) e.plate = "Car Plate is required";
-    else if (!/^[A-Za-z0-9]+$/.test(car.plate)) e.plate = "Car Plate can only contain letters and numbers";
+    // Singapore plates aren't a fixed digit count — the real format is
+    // 1-3 letters, 1-4 digits, and an optional trailing check letter (e.g.
+    // SKR 2847 A, SGP 1234 X), with or without the spaces shown on the
+    // physical plate. Kept in sync with fleetController.js's copy.
+    else if (!/^[A-Za-z]{1,3}\s?\d{1,4}\s?[A-Za-z]?$/.test(String(car.plate).trim())) {
+      e.plate = "Enter a valid Singapore plate — 1-3 letters, 1-4 digits, and an optional trailing letter (e.g. SKR 2847 A)";
+    }
     else if (fleet.some(c => normalizePlate(c.plate) === normalizePlate(car.plate))) e.plate = "Car Plate already exists";
     // Any past year or the current year is allowed; only a future year is
     // rejected. currentYr is read fresh on every validation call, so the
