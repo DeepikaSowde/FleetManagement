@@ -149,20 +149,26 @@ export const computeBookingInvoice = (b) => {
     ? [{ id: "seed", amount: Number(b.amountCollected), method: b.paymentMethod || "Cash", reference: b.referenceCode || "", addedAt: b.createdAt || null }]
     : []);
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  // Balance Due = the pre-extension balance (floored at 0 on its own) plus
-  // every extension's own Grand Total, added in full. Kept in sync with
-  // Booking.jsx's copy of this same formula.
-  const preExtensionBalance = Math.max(0, preExtensionInvoiceTotal - totalPaid);
-  const balanceDue = preExtensionBalance + extensionGrandTotal;
+  // Every extension is its own mini-ledger — its own Total, its own Paid, its
+  // own Balance. A payment counts toward an extension ONLY when it's
+  // explicitly tagged origin: "extension" at the point it's recorded (the
+  // Extend Booking wizard's own Payment step). Kept in sync with Booking.jsx's
+  // copy of this same formula.
+  const extensionPaid = payments.filter(p => p.origin === "extension").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const originalPaid = totalPaid - extensionPaid;
+  const extensionBalance = Math.max(0, extensionGrandTotal - extensionPaid);
+  const preExtensionBalance = Math.max(0, preExtensionInvoiceTotal - originalPaid);
+  const balanceDue = preExtensionBalance + extensionBalance;
 
   return {
     days, rateCharge, deliveryCharge, collectionCharge, additionalDriverCharge, otherCharges, deposit, vatPct,
     agreementSubtotal, agreementVatAmount, agreementTotal,
     charges, bookingCharges, postCharges,
     taxableChargesTotal, nonTaxableChargesTotal, taxableSubtotal, finalVatAmount, finalInvoiceTotal,
-    payments, totalPaid, balanceDue,
+    payments, totalPaid, balanceDue, originalPaid,
     // Kept in sync with Booking.jsx's copy — see that file for why these are exposed.
     extensionCharges, otherPostCharges, extensionGrandTotal, preExtensionInvoiceTotal, preExtensionBalance,
+    extensionPaid, extensionBalance,
   };
 };
 

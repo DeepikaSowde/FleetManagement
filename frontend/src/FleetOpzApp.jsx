@@ -1629,7 +1629,11 @@ export default function FleetOpzApp() {
             : new Date().toISOString();
           extendUpdates.payments = [
             ...(original?.payments || []),
-            { id: `pay-${Date.now()}`, amount: extRentCollected, method: newBookingData.paymentMethod || "Cash", reference: newBookingData.referenceCode || "", addedAt, by: actorName },
+            // origin: "extension" is what lets computeBookingInvoice credit
+            // this against the extension's own Balance specifically, instead
+            // of the original booking's — see extensionPaid/extensionBalance
+            // there.
+            { id: `pay-${Date.now()}`, amount: extRentCollected, method: newBookingData.paymentMethod || "Cash", reference: newBookingData.referenceCode || "", addedAt, by: actorName, origin: "extension" },
           ];
           historyEntries.push(auditEntry("payment", `${formatSGD(extRentCollected)} · ${newBookingData.paymentMethod || "Cash"}${newBookingData.referenceCode ? ` · ${newBookingData.referenceCode}` : ""} (extension rent)`));
         }
@@ -3156,7 +3160,41 @@ export default function FleetOpzApp() {
                           <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>{bookingUnits} {bookingUnitLabel === "hour" ? "Hour" : "Day"}{bookingUnits === 1 ? "" : "s"} · {bookingIsHourly ? "Hourly" : "Daily"}</div>
                         </div>
 
-                        {editingBookingId ? (
+                        {extendMode ? (
+                          // Extend mode: bookingTotal here is the EXTENSION's own
+                          // total only (rental + collection/other charges + VAT —
+                          // see bookingCollectionCharge/bookingOtherCharges above),
+                          // never the original Agreement Total. Shown as its own
+                          // Extended Rental Total, with Paid/Balance from whatever's
+                          // entered on the Payment step, so this stays a genuinely
+                          // separate mini-ledger, not a replacement for the
+                          // original booking's own figures.
+                          (() => {
+                            const extPaid = Math.min(Number(newBookingData.amountCollected) || 0, bookingTotal);
+                            const extBalance = Math.max(0, bookingTotal - extPaid);
+                            return (
+                              <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5, color: C.textSec }}>
+                                  <span>Extended Rental Total</span>
+                                  <span style={mono}>{formatSGD(bookingTotal)}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5, color: C.textSec }}>
+                                  <span>Extension Paid</span>
+                                  <span style={mono}>{formatSGD(extPaid)}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                                  <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Extension Balance Due</span>
+                                  <span style={{ fontSize: 13.5, fontWeight: 700, color: extBalance <= 0 ? C.teal : C.red, ...mono }}>
+                                    {formatSGD(extBalance)}{extBalance <= 0 ? " — Fully Collected" : ""}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 8 }}>
+                                  The original booking's Agreement Total, Grand Total and Balance Due stay unchanged — this is only the extension.
+                                </div>
+                              </div>
+                            );
+                          })()
+                        ) : editingBookingId ? (
                           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 18px", background: C.bg, display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 13.5, fontWeight: 700, color: C.navy }}>Agreement Total</span>
                             <span style={{ fontSize: 13.5, fontWeight: 700, color: C.teal, ...mono }}>{formatSGD(bookingTotal)}</span>

@@ -299,16 +299,27 @@ const computeBookingInvoice = (b) => {
     ? [{ id: "legacy-seed", amount: Number(b.amountCollected), method: b.paymentMethod || "Cash", reference: b.referenceCode || "", addedAt: b.amountCollectedAt || b.createdAt || null }]
     : []);
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  // Balance Due = the pre-extension balance (floored at 0 on its own) plus
-  // every extension's own Grand Total, added in full — see the comment above
-  // extensionGrandTotal. Equal to Math.max(0, finalInvoiceTotal - totalPaid)
-  // whenever there's no overpayment to protect (the ordinary case); differs
-  // only when payments already exceeded what was owed before the extension.
+  // Every extension is its own mini-ledger — its own Total (extensionGrandTotal,
+  // above), its own Paid, its own Balance — never merged into the original
+  // booking's own figures. A payment counts toward an extension ONLY when
+  // it's explicitly tagged origin: "extension" at the point it's recorded
+  // (the Extend Booking wizard's own Payment step) — nothing here infers it,
+  // so a payment collected any other way can never accidentally get credited
+  // against an extension it wasn't meant for.
+  const extensionPaid = payments.filter(p => p.origin === "extension").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const originalPaid = totalPaid - extensionPaid;
+  const extensionBalance = Math.max(0, extensionGrandTotal - extensionPaid);
+  // Balance Due = the pre-extension balance (floored at 0 on its own, using
+  // ONLY the original booking's own payments — originalPaid, not totalPaid)
+  // plus whatever's still unpaid on the extension specifically. Using
+  // originalPaid here is what stops an extension payment from silently
+  // vanishing into a floor of 0 when the original was already fully paid —
+  // extensionBalance above is what actually absorbs that payment instead.
   // Security Deposit (`deposit`, above) is intentionally never added into
   // totalPaid or balanceDue — it's refundable and tracked as its own figure,
   // never part of what's "owed" on the rental invoice.
-  const preExtensionBalance = Math.max(0, preExtensionInvoiceTotal - totalPaid);
-  const balanceDue = preExtensionBalance + extensionGrandTotal;
+  const preExtensionBalance = Math.max(0, preExtensionInvoiceTotal - originalPaid);
+  const balanceDue = preExtensionBalance + extensionBalance;
 
   // Deposit collected so far (partial allowed). Fallback for older bookings:
   // the depositCollected flag being true → full deposit was taken; else 0.
@@ -321,6 +332,13 @@ const computeBookingInvoice = (b) => {
   // (The deposit is still returned at vehicle return via the refund flow.)
   const grandTotal = deposit + finalInvoiceTotal;
   const grandTotalPaid = depositPaid + totalPaid;
+  // Original-only Grand Total — deposit + the PRE-extension invoice, i.e.
+  // exactly what "Total Rental"/"Grand Total" must show in Payment Summary/
+  // Booking Overview so an extension is never silently folded into either.
+  // grandTotal above (deposit + finalInvoiceTotal, which DOES include
+  // extension charges) stays as the true combined figure for anything that
+  // genuinely wants everything together — the Invoice PDF's Total Rental Due.
+  const preExtensionGrandTotal = deposit + preExtensionInvoiceTotal;
   // Built from the corrected balanceDue (already floored pre-extension, then
   // extension Grand Totals added in full) plus any deposit still owed — not
   // from grandTotal - grandTotalPaid directly, for the same reason balanceDue
@@ -329,15 +347,16 @@ const computeBookingInvoice = (b) => {
 
   return {
     days, rateCharge, deliveryCharge, collectionCharge, additionalDriverCharge, otherCharges, deposit, vatPct,
-    depositPaid, grandTotal, grandTotalPaid, grandBalanceDue,
+    depositPaid, grandTotal, grandTotalPaid, grandBalanceDue, preExtensionGrandTotal,
     agreementSubtotal, agreementVatAmount, agreementTotal,
     charges, bookingCharges, postCharges,
     taxableChargesTotal, nonTaxableChargesTotal, taxableSubtotal, finalVatAmount, finalInvoiceTotal,
-    payments, totalPaid, balanceDue,
+    payments, totalPaid, balanceDue, originalPaid,
     // Exposed so a consumer (the Invoice PDF) can show the extension as its
     // own clearly separated block — its own rental amount, its own VAT, its
     // own total — instead of re-deriving this same split a second time.
     extensionCharges, otherPostCharges, extensionGrandTotal, preExtensionInvoiceTotal, preExtensionBalance,
+    extensionPaid, extensionBalance,
   };
 };
 
@@ -1765,27 +1784,49 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     rent paid; Balance = the two combined. The deposit is still
                     returned at vehicle return (refund flow). */}
                 {(() => {
-                  // Extended Rental = the sum of every "Extension Rental" charge
-                  // line added by the Extend action. It's already inside
-                  // inv.finalInvoiceTotal (and therefore Grand Total / Balance Due),
-                  // so we surface it as its own line without changing those totals.
-                  const extensionTotal = (booking.charges || [])
-                    .filter(c => c.origin === "extension" || c.type === "extension_rental")
-                    .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+                  // Total Rental / Grand Total / Total Paid here are all
+                  // ORIGINAL-booking-only (preExtensionInvoiceTotal-based) —
+                  // an extension is never folded into any of these three, it's
+                  // shown as its own separate block below Security Deposit
+                  // instead. Balance Due stays the one combined figure
+                  // (grandBalanceDue = original balance + extension balance +
+                  // any deposit shortfall) since that's genuinely what's owed
+                  // overall, in total, right now.
+                  const hasExtension = inv.extensionGrandTotal > 0;
                   const rows = [
-                    { label: "Total Rental", value: inv.finalInvoiceTotal, color: C.navy },
-                    ...(extensionTotal > 0 ? [{ label: "↳ incl. Extended Rental", value: extensionTotal, color: C.teal, sub: true }] : []),
+                    { label: "Total Rental", value: inv.preExtensionInvoiceTotal, color: C.navy },
                     { label: "Security Deposit", value: inv.deposit, color: C.navy },
-                    { label: "Grand Total", value: inv.grandTotal, color: C.navy },
-                    { label: "Total Paid", value: inv.grandTotalPaid, color: C.teal },
+                    { label: "Grand Total", value: inv.preExtensionGrandTotal, color: C.navy },
+                    { label: "Total Paid", value: inv.depositPaid + inv.originalPaid, color: C.teal },
                     { label: "Balance Due", value: inv.grandBalanceDue, color: grandBalanceColor },
                   ];
-                  return rows.map(row => (
-                    <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: row.sub ? 11.5 : 12.5 }}>
-                      <span style={{ color: row.sub ? C.textMuted : C.textSec, paddingLeft: row.sub ? 12 : 0 }}>{row.label}</span>
-                      <span style={{ fontWeight: row.sub ? 600 : 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
-                    </div>
-                  ));
+                  return (
+                    <>
+                      {rows.map(row => (
+                        <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
+                          <span style={{ color: C.textSec }}>{row.label}</span>
+                          <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>{fmt(row.value)}</span>
+                        </div>
+                      ))}
+                      {hasExtension && (
+                        <div style={{ marginTop: 6, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>Extension</div>
+                          {[
+                            { label: "Extended Rental", value: inv.extensionGrandTotal, color: C.navy },
+                            { label: "Extension Paid", value: inv.extensionPaid, color: C.teal },
+                            { label: "Extension Balance", value: inv.extensionBalance, color: inv.extensionBalance <= 0 ? C.teal : C.red },
+                          ].map(row => (
+                            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12.5 }}>
+                              <span style={{ color: C.textSec }}>{row.label}</span>
+                              <span style={{ fontWeight: 700, color: row.color, textAlign: "right", ...mono }}>
+                                {fmt(row.value)}{row.label === "Extension Balance" && row.value <= 0 ? " — Fully Collected" : ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
                 })()}
                 {inv.deposit > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", marginTop: 4, paddingTop: 6, borderTop: `1px dashed ${C.border}`, fontSize: 11, color: C.textMuted }}>
@@ -2261,9 +2302,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   <SectionHeading size="sm">Payment Summary</SectionHeading>
 
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", background: C.bg, marginBottom: 14 }}>
+                    {/* Total Rental / Grand Total / Total Paid are the ORIGINAL
+                        booking only (preExtensionInvoiceTotal-based) — an
+                        extension never changes any of these three. It shows as
+                        its own block below instead. Balance Due stays the one
+                        combined figure — original balance + extension balance
+                        + any deposit shortfall — since that's genuinely what's
+                        owed overall right now. */}
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: C.textSec }}>
                       <span>Total Rental</span>
-                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.finalInvoiceTotal)}</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.preExtensionInvoiceTotal)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: C.textSec }}>
                       <span>Security Deposit</span>
@@ -2271,11 +2319,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, fontWeight: 600, color: C.navy, borderTop: `1px dashed ${C.border}`, marginTop: 4, paddingTop: 8 }}>
                       <span>Grand Total</span>
-                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.grandTotal)}</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.preExtensionGrandTotal)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, color: C.textSec }}>
                       <span>Total Paid</span>
-                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.grandTotalPaid)}</span>
+                      <span style={{ textAlign: "right", ...mono }}>{fmt(inv.depositPaid + inv.originalPaid)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>Balance Due</span>
@@ -2288,6 +2336,28 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <span>Deposit {booking.depositRefunded ? "returned" : "held"} (refundable)</span>
                       <span style={{ textAlign: "right", ...mono }}>{fmt(inv.depositPaid)} of {fmt(inv.deposit)} collected</span>
                     </div>
+                    {/* Extension shown separately, never folded into Total
+                        Rental/Grand Total above — only the remaining Extension
+                        Balance ever feeds into the combined Balance Due. */}
+                    {inv.extensionGrandTotal > 0 && (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>Extension</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12, color: C.textSec }}>
+                          <span>Extended Rental</span>
+                          <span style={{ textAlign: "right", ...mono }}>{fmt(inv.extensionGrandTotal)}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12, color: C.textSec }}>
+                          <span>Extension Paid</span>
+                          <span style={{ textAlign: "right", ...mono }}>{fmt(inv.extensionPaid)}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 12 }}>
+                          <span style={{ color: C.textSec }}>Extension Balance</span>
+                          <span style={{ fontWeight: 700, color: inv.extensionBalance <= 0 ? C.teal : C.red, textAlign: "right", ...mono }}>
+                            {fmt(inv.extensionBalance)}{inv.extensionBalance <= 0 ? " — Fully Collected" : ""}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                 </div>
