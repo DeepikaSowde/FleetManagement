@@ -452,6 +452,13 @@ export default function FleetOpzApp() {
   // New Rental = Original Rental + (extra days × daily rate) — preserving the
   // originally agreed price and adding only the extension at the daily rate.
   const [extendBaseline, setExtendBaseline] = useState(null);
+  // In-app replacement for window.alert() on the few New/Edit/Extend Booking
+  // submit-time checks that don't map to one on-screen field (car no longer
+  // exists, a date conflict, a missing Transaction ID/deposit date-time) — a
+  // dialog styled like the rest of the app, not the browser's own
+  // "<site> says" chrome. Most field errors already render inline via
+  // FieldErr; this covers only the handful that can't.
+  const [wizardNotice, setWizardNotice] = useState("");
   // Set to a booking id right after Create Booking succeeds, so the
   // Bookings screen auto-opens that booking's Detail view (Overview tab).
   // Booking.jsx consumes it once and calls back to clear it — see
@@ -1164,6 +1171,7 @@ export default function FleetOpzApp() {
   const closeNewBookingModal = () => {
     setExtendMode(false);
     setExtendBaseline(null);
+    setWizardNotice("");
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
@@ -1512,7 +1520,7 @@ export default function FleetOpzApp() {
     // for whether this specific range is actually free.
     const selectedCar = fleetData.fleet.find(c => c.plate === newBookingData.plate);
     if (!selectedCar) {
-      alert(`${newBookingData.plate} could not be found in the fleet. Please pick another car.`);
+      setWizardNotice(`${newBookingData.plate} could not be found in the fleet. Please pick another car.`);
       return;
     }
 
@@ -1531,7 +1539,7 @@ export default function FleetOpzApp() {
       if (carOrDatesChanged) {
         const conflict = fleetData.checkBookingConflict(newBookingData.plate, newBookingData.start, newBookingData.end, editingBookingId);
         if (conflict) {
-          alert(buildAvailabilityConflictMessage(conflict, newBookingData.start));
+          setWizardNotice(buildAvailabilityConflictMessage(conflict, newBookingData.start));
           return;
         }
       }
@@ -1612,7 +1620,7 @@ export default function FleetOpzApp() {
         // Transaction ID is mandatory for non-cash extension payments.
         if (extRentCollected > 0 && (newBookingData.paymentMethod || "").trim().toLowerCase() !== "cash"
           && !(newBookingData.referenceCode || "").trim()) {
-          alert("Enter the Transaction ID (required unless the payment method is Cash).");
+          setWizardNotice("Enter the Transaction ID (required unless the payment method is Cash).");
           return;
         }
         if (extRentCollected > 0) {
@@ -1656,7 +1664,7 @@ export default function FleetOpzApp() {
     let depositPaid = 0;
     if (newBookingData.depositCollected && depositAmount > 0) {
       if (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime) {
-        alert("Enter the Deposit Date & Time (or untick “Security deposit received”).");
+        setWizardNotice("Enter the Deposit Date & Time (or untick “Security deposit received”).");
         return;
       }
       depositPaid = String(newBookingData.depositPaid).trim() === ""
@@ -1997,6 +2005,19 @@ export default function FleetOpzApp() {
             boxShadow: "0 24px 60px rgba(15, 23, 42, 0.25)", animation: "bookingWizardPop 0.18s cubic-bezier(.2,.8,.2,1)",
             overflow: "hidden",
           }}>
+            {/* Submit-time notice — replaces window.alert() with a dialog
+                styled like the rest of the app, not the browser's own
+                "<site> says" chrome. */}
+            {wizardNotice && (
+              <>
+                <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+                <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(420px, 92vw)", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", padding: 24, textAlign: "center", boxSizing: "border-box" }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: C.amberFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, margin: "0 auto 14px" }}>⚠️</div>
+                  <div style={{ fontSize: 13.5, color: C.textPri, lineHeight: 1.5, marginBottom: 20 }}>{wizardNotice}</div>
+                  <Btn primary onClick={() => setWizardNotice("")} style={{ minWidth: 100 }}>OK</Btn>
+                </div>
+              </>
+            )}
             {/* Header */}
             <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
