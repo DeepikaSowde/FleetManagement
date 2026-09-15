@@ -17,7 +17,7 @@ import api from "./services/api";
    percentage, with who agreed and why.
    ===================================================================================== */
 
-const fmtINR = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
+const fmtSGD = (n) => "SGD " + Math.abs(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPct = (n) => (Number(n) || 0).toFixed(2) + "%";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -91,7 +91,7 @@ function ApprovalRequest({ event, meId, colorOf, priorTable, onDecide, busy }) {
         )}
         {event.newMoneyAmount ? (
           <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6 }}>
-            {fmtINR(event.newMoneyAmount)} coming into the business with this change.
+            {fmtSGD(event.newMoneyAmount)} coming into the business with this change.
           </div>
         ) : null}
         {/* The basis, not just the outcome — this is what makes the proposal
@@ -99,9 +99,9 @@ function ApprovalRequest({ event, meId, colorOf, priorTable, onDecide, busy }) {
         {event.preMoneyValuation ? (
           <div style={{ fontSize: 12, color: C.textSec, marginTop: 6 }}>
             Priced on an agreed valuation of{" "}
-            <b style={{ color: C.navy }}>{fmtINR(event.preMoneyValuation)}</b> before the money
+            <b style={{ color: C.navy }}>{fmtSGD(event.preMoneyValuation)}</b> before the money
             {event.newMoneyAmount
-              ? <>, <b style={{ color: C.navy }}>{fmtINR(event.preMoneyValuation + event.newMoneyAmount)}</b> after</>
+              ? <>, <b style={{ color: C.navy }}>{fmtSGD(event.preMoneyValuation + event.newMoneyAmount)}</b> after</>
               : null}.
           </div>
         ) : null}
@@ -175,7 +175,7 @@ function HistoryCard({ event, meId, colorOf, priorTable }) {
         {event.reason && <div style={{ fontSize: 12, color: C.textSec, marginTop: 5 }}>{event.reason}</div>}
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 5 }}>
           {event.id}
-          {event.newMoneyAmount ? ` · ${fmtINR(event.newMoneyAmount)} in` : ""}
+          {event.newMoneyAmount ? ` · ${fmtSGD(event.newMoneyAmount)} in` : ""}
         </div>
         {event.attestation && (
           <div style={{ fontSize: 11.5, color: C.textSec, marginTop: 5, fontStyle: "italic" }}>Agreed: {event.attestation}</div>
@@ -343,9 +343,9 @@ export default function InvestorPortal() {
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>Your stake is worth</div>
           {data.currentValue !== null && data.currentValue !== undefined ? (
             <>
-              <div style={{ fontSize: 22, fontWeight: 800, color: C.navy, marginTop: 8 }}>{fmtINR(data.currentValue)}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: C.navy, marginTop: 8 }}>{fmtSGD(data.currentValue)}</div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-                {fmtPct(data.currentPct)} of {fmtINR(data.valuation.amount)}, agreed as at {fmtDate(data.valuation.asOf)}
+                {fmtPct(data.currentPct)} of {fmtSGD(data.valuation.amount)}, agreed as at {fmtDate(data.valuation.asOf)}
               </div>
             </>
           ) : (
@@ -356,12 +356,12 @@ export default function InvestorPortal() {
         </div>
         <div style={{ ...card }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>You have invested</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: C.navy, marginTop: 8 }}>{fmtINR(totalIn)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: C.navy, marginTop: 8 }}>{fmtSGD(totalIn)}</div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>across {(data.transactions || []).filter((t) => t.flow === "IN").length} payment(s)</div>
         </div>
         <div style={{ ...card }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, letterSpacing: 0.4, textTransform: "uppercase" }}>Dividends received</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: C.green, marginTop: 8 }}>{fmtINR(dividends)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: C.green, marginTop: 8 }}>{fmtSGD(dividends)}</div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>never affects your holding %</div>
         </div>
       </div>
@@ -454,7 +454,7 @@ export default function InvestorPortal() {
                     <td style={td}>{t.type}</td>
                     <td style={{ ...td, color: C.textMuted }}>{t.description || "—"}</td>
                     <td style={{ ...td, textAlign: "right", fontWeight: 700, color: t.flow === "IN" ? C.navy : C.green }}>
-                      {t.flow === "IN" ? "" : "+"}{fmtINR(t.amount)}
+                      {t.flow === "IN" ? "" : "+"}{fmtSGD(t.amount)}
                     </td>
                   </tr>
                 ))}

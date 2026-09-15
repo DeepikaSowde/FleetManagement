@@ -1,32 +1,29 @@
 import { useState, useMemo } from "react";
 import { C } from "./theme";
-import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
-import InvestorNavLedger from "./InvestorNavLedger";
+import { Btn, Badge, Modal, Input, Select, StatusTag, Pagination } from "./components";
 import Ownership, { holdingsAsOf } from "./Ownership";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
    -------------------------------------------------------------------------------------
-   Every screen in this module (Overview Dashboard, Investor List, Investor Detail ->
-   Overview/Investments/Transactions/Dividends/Exit-Withdrawals/Calculations) reads
-   numbers from the SAME set of functions below. Nothing is hardcoded - every figure is
-   derived from the investor's actual transaction log, so if the formulas below are
-   correct, every screen that uses them is automatically consistent.
+   Every screen in this module (Overview, All Investors, Investor Detail ->
+   Overview/Investments/Transactions/Dividends/Exit-Withdrawals) reads numbers from the
+   SAME set of functions below. Nothing is hardcoded - every figure is derived from the
+   investor's actual transaction log, so if the formulas below are correct, every screen
+   that uses them is automatically consistent.
 
    RULES (as specified):
    - Total Invested        = First Investment + all Reinvestments            (IN)
    - Total Dividends       = sum of all Dividend transactions                (OUT)
    - Total Exit/Withdrawal = sum of all Exit/Withdrawal transactions         (OUT)
-   - Current Value         = Total Invested - Total Dividends - Total Exit
    - Net Cash Flow         = Total Cash IN - Total Cash OUT
-   - Holding %             = Investor Current Value / Total Current Value (all
-                             investors) x 100
-   - XIRR                  = solved from every actual transaction's date & signed cash
-                             flow (Investment/Reinvestment = negative, Dividend/Exit =
-                             positive). No estimated or current-day value is added - only
-                             real cash flows that have actually occurred, so the rate
-                             reflects the real timing of returns rather than collapsing
-                             to ~0% off the cost-basis Current Value.
+   - Holding %             = read from the published cap table (Ownership tab), not
+                             derived from cash - see computeHoldingPercents below.
+   - Current Value         = Holding % x the one agreed company valuation (Ownership
+                             tab). Unpriced (shown as "-") until a valuation is agreed.
+
+   No Portfolio XIRR, NAV Ledger or Calculations tab - this module deliberately does
+   not offer an internal rate of return or a FleetOpz-computed valuation opinion.
 
    PERSISTENCE: this component is prop-driven. `investors` (each with an embedded
    `transactions` array) comes from useFleetData, backed by the /api/investors and
@@ -141,105 +138,6 @@ export function computeHoldingPercents(investors, capTable = null, companyValue 
   };
 }
 
-// ---- XIRR solver: Excel-XIRR-equivalent, solves for r such that
-//      sum( CF_i / (1+r)^((date_i - date0)/365) ) = 0 ----
-function xnpv(rate, cashflows) {
-  const t0 = cashflows[0].date;
-  return cashflows.reduce((sum, cf) => {
-    const days = (cf.date - t0) / (1000 * 60 * 60 * 24);
-    return sum + cf.amount / Math.pow(1 + rate, days / 365);
-  }, 0);
-}
-
-export function computeXIRR(rawCashflows) {
-  if (!rawCashflows || rawCashflows.length < 2) return null;
-  const cashflows = [...rawCashflows].sort((a, b) => a.date - b.date);
-  const hasPositive = cashflows.some((c) => c.amount > 0);
-  const hasNegative = cashflows.some((c) => c.amount < 0);
-  if (!hasPositive || !hasNegative) return null; // undefined without both a cash-in and cash-out
-
-  // If every cash flow falls on the same calendar day there's no elapsed time to
-  // annualize over, so the discount factor collapses to 1 for every r and the search
-  // would "converge" on an artifact of the bracket. Reporting undefined is honest.
-  const t0 = cashflows[0].date;
-  const spanDays = (cashflows[cashflows.length - 1].date - t0) / (1000 * 60 * 60 * 24);
-  if (spanDays < 1) return null;
-
-  // Tolerance scaled to the money actually moving, rather than a fixed absolute epsilon.
-  const totalAbs = cashflows.reduce((s, c) => s + Math.abs(c.amount), 0);
-  const tol = Math.max(1e-6, totalAbs * 1e-9);
-
-  let low = -0.9999;
-  let high = 10;
-  let fLow = xnpv(low, cashflows);
-  let fHigh = xnpv(high, cashflows);
-  let tries = 0;
-  while (fLow * fHigh > 0 && tries < 60) {
-    high *= 2;
-    fHigh = xnpv(high, cashflows);
-    tries++;
-  }
-  if (fLow * fHigh > 0) return null; // no bracket found - not solvable
-
-  let mid = 0;
-  for (let i = 0; i < 200; i++) {
-    mid = (low + high) / 2;
-    const fMid = xnpv(mid, cashflows);
-    if (Math.abs(fMid) < tol) break;
-    if (fLow * fMid < 0) {
-      high = mid;
-      fHigh = fMid;
-    } else {
-      low = mid;
-      fLow = fMid;
-    }
-  }
-  return mid * 100; // as a percentage
-}
-
-// Every actual transaction, real date, signed by direction - Investment/Reinvestment as
-// a negative cash flow (money leaving the investor), Dividend/Exit-Withdrawal as a
-// positive cash flow (money returning to the investor). No synthetic "current value
-// today" leg is added: Current Value is defined as the remaining cost basis (Total
-// Invested minus Dividends minus Exit), so adding it as a final positive cash flow
-// always makes the whole set sum to exactly zero - at which point r = 0 is always an
-// exact root of the XIRR equation regardless of amounts or dates, making XIRR trivially
-// collapse toward 0% every time rather than reflect real timing-driven return. Using
-// only actual, already-occurred cash flows keeps XIRR meaningful.
-export function buildInvestorXIRRCashflows(investor) {
-  const txns = investor?.transactions || [];
-  return txns.map((t) => ({
-    date: new Date(t.date + "T00:00:00"),
-    amount: flowForType(t.type) === "IN" ? -Number(t.amount || 0) : Number(t.amount || 0),
-    label: t.type,
-  }));
-}
-
-export function getInvestorXIRR(investor) {
-  return computeXIRR(buildInvestorXIRRCashflows(investor));
-}
-
-// Portfolio-level XIRR: every transaction from every investor, actual dates and signed
-// amounts - the same solver and the same rule (real transactions only, no synthetic
-// current-value leg) as the per-investor XIRR above.
-export function buildPortfolioXIRRCashflows(investors) {
-  const flows = [];
-  (investors || []).forEach((inv) => {
-    (inv.transactions || []).forEach((t) => {
-      flows.push({
-        date: new Date(t.date + "T00:00:00"),
-        amount: flowForType(t.type) === "IN" ? -Number(t.amount || 0) : Number(t.amount || 0),
-        label: `${inv.name} - ${t.type}`,
-      });
-    });
-  });
-  return flows;
-}
-
-export function computePortfolioXIRR(investors) {
-  return computeXIRR(buildPortfolioXIRRCashflows(investors));
-}
-
 // Period-bucketed IN-event series (First Investment + Reinvestment, across ALL
 // investors) used to drive the "Value Progress" chart. Before/After are running totals
 // of Total Invested. Periods with no activity are skipped.
@@ -284,12 +182,12 @@ export function buildValueProgressSeries(investors, granularity = "monthly") {
 
 /* =========================================================== formatting helpers === */
 // null/undefined reads as "not known yet" — a stake nobody has valued shows as
-// unpriced, never as ₹0.
-const fmtINR = (n) => {
+// unpriced, never as SGD 0.00.
+const fmtSGD = (n) => {
   if (n === null || n === undefined || (typeof n === "number" && isNaN(n))) return "—";
   const num = Number(n || 0);
   const sign = num < 0 ? "-" : "";
-  return `${sign}₹${Math.abs(num).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  return `${sign}SGD ${Math.abs(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 const fmtPct = (n, digits = 2) => (n === null || n === undefined || isNaN(n) ? "—" : `${Number(n).toFixed(digits)}%`);
 const fmtDate = (iso) => {
@@ -427,7 +325,7 @@ function TxnTable({ rows, emptyMessage }) {
               <td style={{ ...td, fontWeight: 600 }}>{t.type}</td>
               <td style={td}><FlowPill flow={flowForType(t.type)} /></td>
               <td style={{ ...td, textAlign: "right", fontWeight: 700, color: TYPE_COLOR[t.type] }}>
-                {flowForType(t.type) === "OUT" ? "-" : "+"}{fmtINR(t.amount)}
+                {flowForType(t.type) === "OUT" ? "-" : "+"}{fmtSGD(t.amount)}
               </td>
               <td style={{ ...td, color: C.textMuted }}>{t.description || "—"}</td>
             </tr>
@@ -482,15 +380,14 @@ function niceAxisMax(v) {
   return niceNorm * base;
 }
 
-// Compact rupee formatter for axis labels: K / L (Lakh) / Cr (Crore).
-function fmtINRCompact(n) {
+// Compact SGD formatter for axis labels: K (thousand) / M (million).
+function fmtSGDCompact(n) {
   const num = Number(n || 0);
   const sign = num < 0 ? "-" : "";
   const abs = Math.abs(num);
-  if (abs >= 1e7) return `${sign}₹${(abs / 1e7).toFixed(2)}Cr`;
-  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)}L`;
-  if (abs >= 1e3) return `${sign}₹${(abs / 1e3).toFixed(1)}K`;
-  return `${sign}₹${abs.toFixed(0)}`;
+  if (abs >= 1e6) return `${sign}SGD ${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${sign}SGD ${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}SGD ${abs.toFixed(0)}`;
 }
 
 // Grouped bar chart - three bars per event (Value Before / Investment-Reinvestment /
@@ -572,7 +469,7 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
             <g key={i}>
               <line x1={padL} x2={width - padR} y1={y} y2={y} stroke={C.border} strokeDasharray="4 4" />
               <text x={padL - 8} y={y + 3} textAnchor="end" style={{ fontSize: 10, fill: C.textMuted }}>
-                {fmtINRCompact(maxVal * f)}
+                {fmtSGDCompact(maxVal * f)}
               </text>
             </g>
           );
@@ -594,7 +491,7 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
                 const bh = padT + plotH - by;
                 return (
                   <path key={b.key} d={roundedTopBarPath(bx, by, barW, bh, 5)} fill={b.color} opacity={0.88}>
-                    <title>{`${b.label} - ${d.label}\n${fmtINR(b.value)}${b.key === "injected" ? ` (${d.count} txn${d.count === 1 ? "" : "s"})` : ""}`}</title>
+                    <title>{`${b.label} - ${d.label}\n${fmtSGD(b.value)}${b.key === "injected" ? ` (${d.count} txn${d.count === 1 ? "" : "s"})` : ""}`}</title>
                   </path>
                 );
               })}
@@ -650,7 +547,14 @@ function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinv
   };
 
   return (
-    <Modal open={open} title={investor ? "Edit Investor" : "Add Investor"} onClose={onClose} onSubmit={submit} submitText={investor ? "Save Changes" : "Add Investor"}>
+    <Modal open={open} title={investor ? "Edit Investor" : "Add Investor"} onClose={onClose} onSubmit={submit} submitText={investor ? "Save Changes" : "Continue to Ownership →"}>
+      {!isEdit && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, fontSize: 11.5, color: C.textMuted }}>
+          <span style={{ fontWeight: 800, color: IC.primary }}>Step 1 — Investor Details</span>
+          <span style={{ color: C.border }}>→</span>
+          <span>Step 2 — Initial Ownership</span>
+        </div>
+      )}
       <Input label="Investor Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g., Investor A" />
       {duplicateMatch && (
         <div style={{ fontSize: 11.5, color: C.textSec, background: IC.amberLight, border: `1px solid ${IC.amber}33`, borderRadius: 8, padding: "10px 12px", marginTop: -8, marginBottom: 14, lineHeight: 1.6 }}>
@@ -663,7 +567,7 @@ function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinv
       <Input label="Investor ID" value={form.investorId} onChange={(e) => setForm({ ...form, investorId: e.target.value })} placeholder="e.g., INV-001" />
       {!isEdit && (
         <>
-          <Input label="First Investment Amount (₹)" type="number" value={form.firstAmount} onChange={(e) => setForm({ ...form, firstAmount: e.target.value })} placeholder="e.g., 100000" />
+          <Input label="First Investment Amount (SGD)" type="number" value={form.firstAmount} onChange={(e) => setForm({ ...form, firstAmount: e.target.value })} placeholder="e.g., 100000" />
           <Input label="First Investment Date" type="date" value={form.firstDate} onChange={(e) => setForm({ ...form, firstDate: e.target.value })} />
         </>
       )}
@@ -703,18 +607,41 @@ function TransactionFormModal({ open, investorName, presetType, editingTxn, onCl
         options={Object.values(TXN_TYPES).map((t) => ({ value: t, label: `${t} (${flowForType(t)})` }))}
       />
       <Input label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-      <Input label="Amount (₹)" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g., 100000" />
+      <Input label="Amount (SGD)" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g., 100000" />
       <Input label="Description / Reason" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g., Dividend FY 2025-26, Partial Exit, Reinvested returns" />
     </Modal>
   );
 }
 
 /* ================================================================ INVESTOR DETAIL === */
+// Every per-tab transaction table on the Investor Detail page pages the same
+// way: a slice of `rows` plus the shared Pagination footer below it. Resets
+// to page 1 whenever the row count changes (a new transaction, a tab/filter
+// switch) so a stale page number never renders blank.
+function PaginatedTxnTable({ rows, emptyMessage, pageSize = 10, pageSizeOptions = [10, 25, 50] }) {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(pageSize);
+  const totalPages = Math.max(1, Math.ceil(rows.length / size));
+  const curPage = Math.min(page, totalPages);
+  const pageRows = rows.slice((curPage - 1) * size, curPage * size);
+  return (
+    <>
+      <TxnTable rows={pageRows} emptyMessage={emptyMessage} />
+      {rows.length > 0 && (
+        <Pagination
+          page={curPage} pageSize={size} totalCount={rows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(n) => { setSize(n); setPage(1); }}
+          pageSizeOptions={pageSizeOptions}
+        />
+      )}
+    </>
+  );
+}
+
 function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue, onBack, onEditInvestor, onAddTransaction }) {
   const [tab, setTab] = useState("overview");
   const m = metricsById[investor.id];
-  const xirr = getInvestorXIRR(investor);
-  const xirrFlows = buildInvestorXIRRCashflows(investor);
   const txns = [...(investor.transactions || [])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   const invTxns = txns.filter((t) => IN_TYPES.includes(t.type));
@@ -761,27 +688,25 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           { key: "transactions", label: "Transactions" },
           { key: "dividends", label: "Dividends" },
           { key: "exits", label: "Exit / Withdrawals" },
-          { key: "calculations", label: "Calculations" },
         ]}
       />
 
       {tab === "overview" && (
         <>
           <StatRow>
-            <StatCard label="Total Invested" value={fmtINR(m.totalInvested)} />
-            <StatCard label="Current Value" value={fmtINR(m.currentValue)} valueColor={IC.primary} />
+            <StatCard label="Total Invested" value={fmtSGD(m.totalInvested)} />
+            <StatCard label="Current Value" value={fmtSGD(m.currentValue)} valueColor={IC.primary} />
             <StatCard label="Holding %" value={fmtPct(m.holdingPct)} />
-            <StatCard label="XIRR (Investor)" value={fmtPct(xirr)} valueColor={IC.purple} />
-            <StatCard label="Total Dividends (OUT)" value={fmtINR(m.totalDividends)} valueColor={IC.red} />
-            <StatCard label="Total Exit Paid (OUT)" value={fmtINR(m.totalExit)} valueColor={IC.red} />
+            <StatCard label="Total Dividends (OUT)" value={fmtSGD(m.totalDividends)} valueColor={IC.red} />
+            <StatCard label="Total Exit Paid (OUT)" value={fmtSGD(m.totalExit)} valueColor={IC.red} />
           </StatRow>
 
           <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, marginBottom: 16 }}>
             <div style={cardStyle}>
               <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Investment Summary</div>
-              <SummaryLine label="First Investment" value={fmtINR(m.firstInvestment)} />
-              <SummaryLine label="Total Re-investments" value={fmtINR(m.reinvestment)} />
-              <SummaryLine label="Total Invested (IN)" value={fmtINR(m.totalInvested)} bold />
+              <SummaryLine label="First Investment" value={fmtSGD(m.firstInvestment)} />
+              <SummaryLine label="Total Re-investments" value={fmtSGD(m.reinvestment)} />
+              <SummaryLine label="Total Invested (IN)" value={fmtSGD(m.totalInvested)} bold />
             </div>
             <div style={cardStyle}>
               <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Holding Summary</div>
@@ -801,8 +726,8 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
                 <div style={{ fontSize: 11.5, color: C.textMuted, lineHeight: 1.6 }}>
                   Holding <b style={{ color: C.navy }}>{fmtPct(m.holdingPct)}</b>, from the published cap table.<br />
                   {totalCurrentValue
-                    ? <>Worth {fmtPct(m.holdingPct)} × {fmtINR(totalCurrentValue)}<br />
-                        <b style={{ color: C.navy }}>= {fmtINR(m.currentValue)}</b></>
+                    ? <>Worth {fmtPct(m.holdingPct)} × {fmtSGD(totalCurrentValue)}<br />
+                        <b style={{ color: C.navy }}>= {fmtSGD(m.currentValue)}</b></>
                     : <span>Record an agreed company valuation to price this stake.</span>}
                 </div>
               </div>
@@ -815,13 +740,13 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Recent Transactions</div>
                 <span style={{ fontSize: 11.5, color: IC.primary, fontWeight: 700, cursor: "pointer" }} onClick={() => setTab("transactions")}>View All Transactions</span>
               </div>
-              <TxnTable rows={txns.slice(0, 5)} emptyMessage="No transactions recorded yet." />
+              <PaginatedTxnTable rows={txns} emptyMessage="No transactions recorded yet." pageSize={5} pageSizeOptions={[5, 10, 20, 50]} />
             </div>
             <div style={cardStyle}>
               <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Cash Flow Summary (All Time)</div>
-              <SummaryLine label="Total Cash In (IN)" value={fmtINR(m.totalCashIn)} valueColor={IC.green} />
-              <SummaryLine label="Total Cash Out (OUT)" value={fmtINR(m.totalCashOut)} valueColor={IC.red} />
-              <SummaryLine label="Net Cash Flow (IN - OUT)" value={fmtINR(m.netCashFlow)} bold />
+              <SummaryLine label="Total Cash In (IN)" value={fmtSGD(m.totalCashIn)} valueColor={IC.green} />
+              <SummaryLine label="Total Cash Out (OUT)" value={fmtSGD(m.totalCashOut)} valueColor={IC.red} />
+              <SummaryLine label="Net Cash Flow (IN - OUT)" value={fmtSGD(m.netCashFlow)} bold />
             </div>
           </div>
         </>
@@ -833,11 +758,11 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Investment History</div>
             <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.REINVESTMENT)}>+ Add Investment</Btn>
           </div>
-          <TxnTable rows={invTxns} emptyMessage="No investments recorded yet. Add the First Investment to get started." />
+          <PaginatedTxnTable rows={invTxns} emptyMessage="No investments recorded yet. Add the First Investment to get started." />
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", gap: 32, flexWrap: "wrap" }}>
-            <SummaryLine label="First Investment" value={fmtINR(m.firstInvestment)} />
-            <SummaryLine label="Total Re-investment" value={fmtINR(m.reinvestment)} />
-            <SummaryLine label="Total Invested (IN)" value={fmtINR(m.totalInvested)} bold />
+            <SummaryLine label="First Investment" value={fmtSGD(m.firstInvestment)} />
+            <SummaryLine label="Total Re-investment" value={fmtSGD(m.reinvestment)} />
+            <SummaryLine label="Total Invested (IN)" value={fmtSGD(m.totalInvested)} bold />
           </div>
         </div>
       )}
@@ -848,9 +773,9 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>All Transactions</div>
             <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.FIRST_INVESTMENT)}>+ Add Transaction</Btn>
           </div>
-          <TxnTable rows={txns} emptyMessage="No transactions recorded yet." />
+          <PaginatedTxnTable rows={txns} emptyMessage="No transactions recorded yet." />
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-            <SummaryLine label="Net Cash Flow (IN - OUT)" value={fmtINR(m.netCashFlow)} bold />
+            <SummaryLine label="Net Cash Flow (IN - OUT)" value={fmtSGD(m.netCashFlow)} bold />
           </div>
         </div>
       )}
@@ -861,12 +786,12 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Dividends</div>
             <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.DIVIDEND)}>+ Add Dividend</Btn>
           </div>
-          <TxnTable rows={dividendTxns} emptyMessage="No dividends recorded yet." />
+          <PaginatedTxnTable rows={dividendTxns} emptyMessage="No dividends recorded yet." />
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <SummaryLine label="Total Dividends" value={fmtINR(m.totalDividends)} bold valueColor={IC.red} />
+            <SummaryLine label="Total Dividends" value={fmtSGD(m.totalDividends)} bold valueColor={IC.red} />
           </div>
           <div style={{ marginTop: 12, fontSize: 11, color: C.textMuted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
-            Dividends are OUT transactions. They are deducted from Total Invested to calculate Current Value, so they reduce both Current Value and Holding %.
+            Dividends are a return on this investment, kept separate from investment capital — they never change Holding %, which comes only from the Ownership tab's cap table.
           </div>
         </div>
       )}
@@ -877,81 +802,16 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Exit / Withdrawals</div>
             <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.EXIT)}>+ Add Exit</Btn>
           </div>
-          <TxnTable rows={exitTxns} emptyMessage="No exits or withdrawals recorded yet." />
+          <PaginatedTxnTable rows={exitTxns} emptyMessage="No exits or withdrawals recorded yet." />
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <SummaryLine label="Total Exit Paid" value={fmtINR(m.totalExit)} bold valueColor={IC.red} />
+            <SummaryLine label="Total Exit Paid" value={fmtSGD(m.totalExit)} bold valueColor={IC.red} />
           </div>
           <div style={{ marginTop: 12, fontSize: 11, color: C.textMuted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
-            Exit / withdrawal amounts are OUT transactions and are deducted from Total Invested to calculate Current Value, reducing Holding % accordingly.
+            Exit / withdrawal amounts are kept separate from investment capital and dividends — they never change Holding %, which comes only from the Ownership tab's cap table.
           </div>
         </div>
       )}
 
-      {tab === "calculations" && (
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={cardStyle}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Current Value Calculation</div>
-            <SummaryLine label="First Investment" value={fmtINR(m.firstInvestment)} />
-            <SummaryLine label="Reinvestment" value={fmtINR(m.reinvestment)} />
-            <SummaryLine label="Total Invested (First Investment + Reinvestment)" value={fmtINR(m.totalInvested)} bold />
-            <div style={{ height: 1, background: C.border, margin: "10px 0" }} />
-            <SummaryLine label="Dividends received (OUT)" value={fmtINR(m.totalDividends)} valueColor={IC.green} />
-            <SummaryLine label="Exit / Withdrawal paid (OUT)" value={fmtINR(m.totalExit)} valueColor={IC.red} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 8, lineHeight: 1.5 }}>
-              Dividends are a return <i>on</i> this investment, not a return <i>of</i> it — they are
-              money already earned, and they do not reduce the stake still held.
-            </div>
-          </div>
-
-          <div style={cardStyle}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>What the stake is worth</div>
-            <SummaryLine label="Holding % (from the cap table)" value={fmtPct(m.holdingPct)} />
-            <SummaryLine label="Company value, as agreed" value={fmtINR(totalCurrentValue)} />
-            <div style={{ height: 1, background: C.border, margin: "10px 0" }} />
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}>
-              {totalCurrentValue
-                ? <>Value = Holding % × company value = {fmtPct(m.holdingPct)} × {fmtINR(totalCurrentValue)}</>
-                : <>No company valuation has been agreed yet, so this stake is unpriced. Record one on the Ownership tab.</>}
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: IC.primary }}>{fmtINR(m.currentValue)}</div>
-          </div>
-
-          <div style={cardStyle}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 4 }}>XIRR Calculation (Since First Investment)</div>
-            <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 12 }}>
-              Uses every actual transaction's date and signed cash flow (investment = outflow, dividend/exit = inflow to the investor). No estimated or current-day value is added - only real cash flows that have actually occurred.
-            </div>
-            {xirrFlows.length < 2 ? (
-              <div style={{ fontSize: 12.5, color: C.textMuted }}>Add at least two transactions (an investment and a dividend or exit) to calculate XIRR.</div>
-            ) : (
-              <>
-                <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
-                  <thead>
-                    <tr>
-                      <th style={th}>Date</th>
-                      <th style={th}>Particulars</th>
-                      <th style={{ ...th, textAlign: "right" }}>Cash Flow</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {xirrFlows.map((f, i) => (
-                      <tr key={i}>
-                        <td style={td}>{f.date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td>
-                        <td style={td}>{f.label}</td>
-                        <td style={{ ...td, textAlign: "right", fontWeight: 700, color: f.amount < 0 ? IC.red : IC.green }}>
-                          {f.amount < 0 ? "-" : "+"}{fmtINR(Math.abs(f.amount))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 4 }}>XIRR (Since First Investment)</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: IC.purple }}>{fmtPct(xirr)}</div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -966,23 +826,23 @@ function SummaryLine({ label, value, bold, valueColor }) {
 }
 
 /* ================================================================= INVESTOR LIST === */
-function InvestorList({ investors, metricsById, totalCurrentValue, portfolioXIRR, onView, onAddInvestor, onReinvest, onExport }) {
+function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAddInvestor, onReinvest, onExport }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortKey, setSortKey] = useState("currentValueDesc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const totals = useMemo(() => {
     return investors.reduce(
       (acc, inv) => {
         const m = metricsById[inv.id];
-        acc.first += m.firstInvestment;
-        acc.reinv += m.reinvestment;
-        acc.current += m.currentValue || 0;
+        acc.invested += m.totalInvested;
         acc.dividends += m.totalDividends;
         acc.exit += m.totalExit;
         return acc;
       },
-      { first: 0, reinv: 0, current: 0, dividends: 0, exit: 0 }
+      { invested: 0, dividends: 0, exit: 0 }
     );
   }, [investors, metricsById]);
 
@@ -994,17 +854,22 @@ function InvestorList({ investors, metricsById, totalCurrentValue, portfolioXIRR
       if (sortKey === "currentValueDesc") return (mb.currentValue || 0) - (ma.currentValue || 0);
       if (sortKey === "currentValueAsc") return (ma.currentValue || 0) - (mb.currentValue || 0);
       if (sortKey === "nameAsc") return a.name.localeCompare(b.name);
+      if (sortKey === "recentFirst") return (b.since || "").localeCompare(a.since || "");
       return 0;
     });
     return sorted;
   }, [investors, search, statusFilter, sortKey, metricsById]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const curPage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((curPage - 1) * pageSize, curPage * pageSize);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>Investors - Main List</div>
-          <div style={{ fontSize: 12, color: C.textMuted }}>Quick summary of all investors</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>All Investors</div>
+          <div style={{ fontSize: 12, color: C.textMuted }}>Manage your investors and their investment details</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={onExport}>Export</Btn>
@@ -1013,94 +878,89 @@ function InvestorList({ investors, metricsById, totalCurrentValue, portfolioXIRR
       </div>
 
       <StatRow>
-        <StatCard label="Total Investors" value={investors.length} icon="👥" />
-        <StatCard label="Company Value" value={fmtINR(totalCurrentValue)} sub="Whole business, as agreed" icon="💰" />
-        <StatCard label="Total Dividends (OUT)" value={fmtINR(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
-        <StatCard label="Total Exit Paid (OUT)" value={fmtINR(totals.exit)} sub="All Time" icon="↩️" valueColor={IC.red} />
-        <StatCard label="Portfolio XIRR" value={fmtPct(portfolioXIRR)} sub="All Investor (XIRR)" icon="🥧" valueColor={IC.purple} />
+        <StatCard label="Total Investors (Active)" value={investors.filter((i) => i.status === "Active").length} icon="👥" />
+        <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub="Capital in" icon="💰" />
+        <StatCard label="Total Dividends (OUT)" value={fmtSGD(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
+        <StatCard label="Total Exit Paid (OUT)" value={fmtSGD(totals.exit)} sub="All Time" icon="↩️" valueColor={IC.red} />
       </StatRow>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input style={{ ...inputStyle, maxWidth: 220 }} placeholder="Search investor..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={{ ...inputStyle, maxWidth: 160 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+        <input style={{ ...inputStyle, maxWidth: 220 }} placeholder="Search investor..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <select style={{ ...inputStyle, maxWidth: 160 }} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
           <option value="All">Status: All</option>
           <option value="Active">Status: Active</option>
           <option value="Inactive">Status: Inactive</option>
         </select>
-        <select style={{ ...inputStyle, maxWidth: 220 }} value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
+        <select style={{ ...inputStyle, maxWidth: 220 }} value={sortKey} onChange={(e) => { setSortKey(e.target.value); setPage(1); }}>
           <option value="currentValueDesc">Sort: Current Value (High to Low)</option>
           <option value="currentValueAsc">Sort: Current Value (Low to High)</option>
           <option value="nameAsc">Sort: Name (A-Z)</option>
+          <option value="recentFirst">Sort: Recent First</option>
         </select>
       </div>
 
       <div style={cardStyle}>
         {investors.length === 0 ? (
-          <EmptyState title="No investors yet" message="Add your first investor to start tracking investments, dividends, exits and XIRR." />
+          <EmptyState title="No investors yet" message="Add your first investor to start tracking investments, dividends and exits." />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
                   <th style={th}>Investor</th>
-                  <th style={{ ...th, textAlign: "right" }}>First Investment (₹)</th>
-                  <th style={{ ...th, textAlign: "right" }}>Reinvestment (₹)</th>
-                  <th style={{ ...th, textAlign: "right" }}>Current Value (₹)</th>
+                  <th style={th}>Investor ID</th>
+                  <th style={{ ...th, textAlign: "right" }}>First Investment</th>
+                  <th style={th}>First Investment Date</th>
+                  <th style={{ ...th, textAlign: "right" }}>Current Value</th>
                   <th style={{ ...th, textAlign: "right" }}>Holding %</th>
-                  <th style={{ ...th, textAlign: "right" }}>XIRR %</th>
                   <th style={th}>Status</th>
                   <th style={th}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inv) => {
+                {pageRows.map((inv) => {
                   const m = metricsById[inv.id];
-                  const xirr = getInvestorXIRR(inv);
                   return (
                     <tr key={inv.id} data-testid="investor-row" data-investor-id={inv.id}>
                       <td style={{ ...td, fontWeight: 700, color: C.navy }}>{inv.name}</td>
-                      <td style={{ ...td, textAlign: "right" }}>{fmtINR(m.firstInvestment)}</td>
-                      <td style={{ ...td, textAlign: "right" }}>{fmtINR(m.reinvestment)}</td>
-                      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: IC.primary }}>{fmtINR(m.currentValue)}</td>
+                      <td style={{ ...td, color: C.textMuted }}>{inv.investorId || "—"}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{fmtSGD(m.firstInvestment)}</td>
+                      <td style={{ ...td, color: C.textMuted }}>{fmtDate(inv.since)}</td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: IC.primary }}>{fmtSGD(m.currentValue)}</td>
                       <td style={{ ...td, textAlign: "right" }}>{fmtPct(m.holdingPct)}</td>
-                      <td style={{ ...td, textAlign: "right", color: IC.purple, fontWeight: 700 }}>{fmtPct(xirr)}</td>
                       <td style={td}><StatusTag status={inv.status} /></td>
                       <td style={td}>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <Btn onClick={() => onReinvest(inv.id)}>+ Reinvest</Btn>
                           <Btn primary data-testid="investor-row-view" onClick={() => onView(inv.id)}>View</Btn>
+                          <Btn onClick={() => onReinvest(inv.id)}>+ Reinvest</Btn>
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                <tr>
-                  <td style={{ ...td, fontWeight: 800, color: C.navy, borderBottom: "none" }}>TOTAL</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtINR(totals.first)}</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtINR(totals.reinv)}</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtINR(totals.current)}</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>100.00%</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtPct(portfolioXIRR)}</td>
-                  <td style={{ ...td, borderBottom: "none" }}>—</td>
-                  <td style={{ ...td, borderBottom: "none" }}>—</td>
-                </tr>
               </tbody>
             </table>
           </div>
         )}
       </div>
-      {investors.length > 0 && (
-        <div style={{ fontSize: 11, color: C.textMuted, background: C.bg, borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-          Current Value = (First Investment + Reinvestment) - Total Dividends - Total Exit / Withdrawal.
-        </div>
+      {filtered.length > 0 && (
+        <Pagination
+          page={curPage} pageSize={pageSize} totalCount={filtered.length}
+          onPageChange={setPage}
+          onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+        />
       )}
     </div>
   );
 }
 
 /* ============================================================== OVERVIEW DASHBOARD === */
-function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfolioXIRR, onAddInvestor, onView, onReinvest }) {
+function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInvestor, onView, onReinvest }) {
   const [progressGranularity, setProgressGranularity] = useState("monthly");
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState("nameAsc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const totals = useMemo(
     () =>
@@ -1109,13 +969,14 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
           const m = metricsById[inv.id];
           acc.first += m.firstInvestment;
           acc.reinv += m.reinvestment;
+          acc.invested += m.totalInvested;
           acc.dividends += m.totalDividends;
           acc.exit += m.totalExit;
           acc.cashIn += m.totalCashIn;
           acc.cashOut += m.totalCashOut;
           return acc;
         },
-        { first: 0, reinv: 0, dividends: 0, exit: 0, cashIn: 0, cashOut: 0 }
+        { first: 0, reinv: 0, invested: 0, dividends: 0, exit: 0, cashIn: 0, cashOut: 0 }
       ),
     [investors, metricsById]
   );
@@ -1128,16 +989,25 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
     color: [IC.primary, IC.green, IC.purple, "#F97316", "#0EA5E9", "#DB2777"][i % 6],
   }));
 
-  const exampleInvestor = investors.find((inv) => getInvestorXIRR(inv) !== null);
-  const exampleFlows = exampleInvestor ? buildInvestorXIRRCashflows(exampleInvestor) : [];
-  const exampleXIRR = exampleInvestor ? getInvestorXIRR(exampleInvestor) : null;
+  const filtered = useMemo(() => {
+    const list = investors.filter((inv) => inv.name.toLowerCase().includes(search.toLowerCase()));
+    return [...list].sort((a, b) => {
+      const ma = metricsById[a.id], mb = metricsById[b.id];
+      if (sortKey === "currentValueDesc") return (mb.currentValue || 0) - (ma.currentValue || 0);
+      if (sortKey === "totalInvestedDesc") return mb.totalInvested - ma.totalInvested;
+      return a.name.localeCompare(b.name);
+    });
+  }, [investors, search, sortKey, metricsById]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const curPage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((curPage - 1) * pageSize, curPage * pageSize);
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>Investors Overview</div>
-          <div style={{ fontSize: 12, color: C.textMuted }}>Quick overview of investors, their investments, reinvestments, and current position.</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>Investors</div>
+          <div style={{ fontSize: 12, color: C.textMuted }}>Track ownership, invested capital and investor returns</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ ...inputStyle, width: "auto", padding: "8px 12px", color: C.textMuted, background: C.bg }}>All Time</span>
@@ -1147,29 +1017,30 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
 
       <StatRow>
         <StatCard label="Total Investors" value={investors.length} sub="Active Investors" icon="👥" />
-        <StatCard label="Company Value" value={fmtINR(totalCurrentValue)} sub="Whole business, as agreed" icon="💰" />
-        <StatCard label="Total Dividends" value={fmtINR(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
-        <StatCard label="Total Exit Paid" value={fmtINR(totals.exit)} sub="All Time" icon="↩️" valueColor={IC.red} />
-        <StatCard label="Portfolio XIRR" value={fmtPct(portfolioXIRR)} sub="All Investor XIRR" icon="🥧" valueColor={IC.purple} />
+        <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub="Capital in" icon="💰" />
+        <StatCard label="Current Value" value={fmtSGD(totalCurrentValue)} sub="Portfolio Value" icon="📈" valueColor={IC.primary} />
+        <StatCard label="Total Dividends" value={fmtSGD(totals.dividends)} sub="Paid to date" icon="🎁" valueColor={IC.red} />
+        <StatCard label="Total Exit Paid" value={fmtSGD(totals.exit)} sub="Paid to date" icon="↩️" valueColor={IC.red} />
       </StatRow>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 16 }}>
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Value Progress ({progressGranularity === "yearly" ? "Yearly" : "Monthly"})</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Capital &amp; Value Trend</div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Track the growth of invested capital and current value over time</div>
+            </div>
           </div>
           <ValueProgressChart data={progressSeries} granularity={progressGranularity} onGranularityChange={setProgressGranularity} />
-          <div style={{ fontSize: 11, color: C.textMuted, background: C.bg, borderRadius: 8, padding: "8px 12px", marginTop: 10 }}>
-            Current Total Value includes all investments &amp; reinvestments, and excludes dividends &amp; exits paid out. Hover any bar for full details.
-          </div>
         </div>
         <div style={cardStyle}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Investment Composition (By Current Value)</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Portfolio Allocation</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, marginBottom: 12 }}>Ownership distribution among investors</div>
           {investors.length === 0 ? (
             <div style={{ padding: "24px 0", textAlign: "center", color: C.textMuted, fontSize: 12.5 }}>No investors yet.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-              <DonutChart size={170} thickness={26} segments={donutSegments} centerTitle="Company" centerValue={fmtINR(totalCurrentValue)} />
+              <DonutChart size={170} thickness={26} segments={donutSegments} centerTitle="Total Ownership" centerValue={fmtPct(donutSegments.reduce((s, d) => s + d.value, 0), 0)} />
               <div style={{ width: "100%" }}>
                 {investors.map((inv, i) => (
                   <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "4px 0" }}>
@@ -1177,7 +1048,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
                       <span style={{ width: 8, height: 8, borderRadius: 4, background: donutSegments[i].color, display: "inline-block" }} />
                       {inv.name}
                     </span>
-                    <span style={{ fontWeight: 700, color: C.navy }}>{fmtINR(metricsById[inv.id].currentValue)} ({fmtPct(metricsById[inv.id].holdingPct, 1)})</span>
+                    <span style={{ fontWeight: 700, color: C.navy }}>{fmtPct(metricsById[inv.id].holdingPct, 1)}</span>
                   </div>
                 ))}
               </div>
@@ -1187,7 +1058,20 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
       </div>
 
       <div style={{ ...cardStyle, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 12 }}>Investor Summary</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Investors</div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>View and manage all investors and their investment details</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input style={{ ...inputStyle, width: 180 }} placeholder="Search investor..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            <select style={{ ...inputStyle, width: "auto" }} value={sortKey} onChange={(e) => { setSortKey(e.target.value); setPage(1); }}>
+              <option value="nameAsc">Sort: Name (A-Z)</option>
+              <option value="currentValueDesc">Sort: Current Value</option>
+              <option value="totalInvestedDesc">Sort: Total Invested</option>
+            </select>
+          </div>
+        </div>
         {investors.length === 0 ? (
           <EmptyState title="No investors yet" message="Add your first investor to see the summary here." />
         ) : (
@@ -1196,83 +1080,50 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, portfoli
               <thead>
                 <tr>
                   <th style={th}>Investor</th>
-                  <th style={{ ...th, textAlign: "right" }}>First Investment (₹)</th>
-                  <th style={{ ...th, textAlign: "right" }}>Reinvestment (₹)</th>
-                  <th style={{ ...th, textAlign: "right" }}>Current Value (₹)</th>
+                  <th style={th}>Investor ID</th>
+                  <th style={{ ...th, textAlign: "right" }}>Initial Investment</th>
+                  <th style={{ ...th, textAlign: "right" }}>Reinvestment</th>
+                  <th style={{ ...th, textAlign: "right" }}>Total Invested</th>
+                  <th style={{ ...th, textAlign: "right" }}>Current Value</th>
                   <th style={{ ...th, textAlign: "right" }}>Holding %</th>
-                  <th style={{ ...th, textAlign: "right" }}>XIRR (Since 1st Inv.)</th>
                   <th style={th}>Status</th>
-                  <th style={th}>Action</th>
+                  <th style={th}>View</th>
                 </tr>
               </thead>
               <tbody>
-                {investors.map((inv) => {
+                {pageRows.map((inv) => {
                   const m = metricsById[inv.id];
-                  const xirr = getInvestorXIRR(inv);
                   return (
                     <tr key={inv.id} data-testid="investor-row" data-investor-id={inv.id}>
                       <td style={{ ...td, fontWeight: 700, color: C.navy }}>{inv.name}</td>
-                      <td style={{ ...td, textAlign: "right" }}>{fmtINR(m.firstInvestment)}</td>
-                      <td style={{ ...td, textAlign: "right" }}>{fmtINR(m.reinvestment)}</td>
-                      <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtINR(m.currentValue)}</td>
+                      <td style={{ ...td, color: C.textMuted }}>{inv.investorId || "—"}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{fmtSGD(m.firstInvestment)}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{fmtSGD(m.reinvestment)}</td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtSGD(m.totalInvested)}</td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: IC.primary }}>{fmtSGD(m.currentValue)}</td>
                       <td style={{ ...td, textAlign: "right" }}>{fmtPct(m.holdingPct)}</td>
-                      <td style={{ ...td, textAlign: "right", color: IC.purple, fontWeight: 700 }}>{fmtPct(xirr)}</td>
                       <td style={td}><StatusTag status={inv.status} /></td>
                       <td style={td}>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <Btn onClick={() => onReinvest(inv.id)}>+ Reinvest</Btn>
                           <Btn primary data-testid="investor-row-view" onClick={() => onView(inv.id)}>View</Btn>
+                          <Btn onClick={() => onReinvest(inv.id)}>+ Reinvest</Btn>
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                <tr>
-                  <td style={{ ...td, fontWeight: 800, color: C.navy, borderBottom: "none" }}>TOTAL</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtINR(totals.first)}</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtINR(totals.reinv)}</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtINR(totalCurrentValue)}</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>100.00%</td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none" }}>{fmtPct(portfolioXIRR)}</td>
-                  <td style={{ ...td, borderBottom: "none" }}>—</td>
-                  <td style={{ ...td, borderBottom: "none" }}>—</td>
-                </tr>
               </tbody>
             </table>
           </div>
         )}
+        {filtered.length > 0 && (
+          <Pagination
+            page={curPage} pageSize={pageSize} totalCount={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+          />
+        )}
       </div>
-
-      {exampleInvestor && (
-        <div style={{ ...cardStyle, marginTop: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, marginBottom: 4 }}>XIRR Calculation (Example - {exampleInvestor.name})</div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Live example computed from {exampleInvestor.name}'s actual transaction dates and amounts - Investment/Reinvestment as negative, Dividend/Exit-Withdrawal as positive - using the same formula as every other XIRR figure on this page. No estimated or current-day value is added.</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
-              <thead>
-                <tr>
-                  <th style={th}>Date</th>
-                  <th style={th}>Particulars</th>
-                  <th style={{ ...th, textAlign: "right" }}>Cash Flow</th>
-                </tr>
-              </thead>
-              <tbody>
-                {exampleFlows.map((f, i) => (
-                  <tr key={i}>
-                    <td style={td}>{f.date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td>
-                    <td style={td}>{f.label}</td>
-                    <td style={{ ...td, textAlign: "right", fontWeight: 700, color: f.amount < 0 ? IC.red : IC.green }}>
-                      {f.amount < 0 ? "-" : "+"}{fmtINR(Math.abs(f.amount))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ fontSize: 12, color: C.textMuted }}>XIRR (Since 1st Investment)</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: IC.purple }}>{fmtPct(exampleXIRR)}</div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1323,7 +1174,6 @@ export default function Investors({
     () => computeHoldingPercents(investors, capTableToday, companyValuation?.amount ?? null),
     [investors, capTableToday, companyValuation]
   );
-  const portfolioXIRR = useMemo(() => computePortfolioXIRR(investors), [investors]);
   const selectedInvestor = investors.find((i) => i.id === selectedId) || null;
 
   // Adding an investor puts their profile and their money in — it does NOT move
@@ -1357,12 +1207,15 @@ export default function Investors({
     setDraftInvestor(data);
     setOwnershipPrefill({
       // The very first entry is the opening table; after that, a new investor
-      // joining an existing one.
+      // joining an existing one. `context` is what lets Step 2's form show the
+      // "Step 2 — Initial Ownership" framing and the "Add Investor & Record
+      // Ownership" action, instead of its generic standalone wording.
+      context: "add-investor",
       type: ownershipEvents.length === 0 ? "Opening" : "New Investor",
       effectiveDate: data.since,
       newMoneyAmount: data.transactions?.[0]?.amount || null,
       newMoneyInvestorId: DRAFT_INVESTOR_ID,
-      note: `${data.name} will be added with ${data.transactions?.[0]?.amount ? "₹" + Math.round(data.transactions[0].amount).toLocaleString("en-IN") : "no opening amount"} once this change is saved. Set what everyone holds now, and have it agreed.`,
+      note: `${data.name} will be added with ${data.transactions?.[0]?.amount ? fmtSGD(data.transactions[0].amount) : "no opening amount"} once this change is saved. Set what everyone holds now, and have it agreed.`,
     });
     setView("ownership");
   };
@@ -1424,11 +1277,12 @@ export default function Investors({
     if (data.type === TXN_TYPES.REINVESTMENT) {
       const who = investors.find((i) => i.id === txnTargetId);
       setOwnershipPrefill({
+        context: "reinvestment",
         type: "Reinvestment",
         effectiveDate: data.date,
         newMoneyAmount: Number(data.amount) || null,
         newMoneyInvestorId: txnTargetId,
-        note: `${who?.name || "This investor"} reinvested ₹${Math.round(Number(data.amount) || 0).toLocaleString("en-IN")}. If the group agreed this changes the split, set the new percentages here — if it was at their existing share, close this and nothing changes.`,
+        note: `${who?.name || "This investor"} reinvested ${fmtSGD(Number(data.amount) || 0)}. If the group agreed this changes the split, set the new percentages here — if it was at their existing share, close this and nothing changes.`,
       });
       setView("ownership");
     }
@@ -1438,11 +1292,10 @@ export default function Investors({
   const backToList = () => { setView("list"); setSelectedId(null); };
 
   const exportCSV = () => {
-    const header = ["Investor", "First Investment", "Reinvestment", "Total Invested", "Total Dividends", "Total Exit", "Current Value", "Holding %", "XIRR %", "Status"];
+    const header = ["Investor", "Investor ID", "First Investment", "Reinvestment", "Total Invested", "Total Dividends", "Total Exit", "Current Value", "Holding %", "Status"];
     const rows = investors.map((inv) => {
       const m = metricsById[inv.id];
-      const xirr = getInvestorXIRR(inv);
-      return [inv.name, m.firstInvestment, m.reinvestment, m.totalInvested, m.totalDividends, m.totalExit, m.currentValue, m.holdingPct.toFixed(2), xirr === null ? "" : xirr.toFixed(2), inv.status];
+      return [inv.name, inv.investorId || "", m.firstInvestment, m.reinvestment, m.totalInvested, m.totalDividends, m.totalExit, m.currentValue, m.holdingPct.toFixed(2), inv.status];
     });
     const csv = [header, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -1458,10 +1311,10 @@ export default function Investors({
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      {view !== "detail" && view !== "nav" && (
+      {view !== "detail" && (
         <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${C.border}`, alignItems: "center" }}>
           {[
-            { key: "dashboard", label: "Overview Dashboard" },
+            { key: "dashboard", label: "Overview" },
             { key: "list", label: "All Investors" },
             { key: "ownership", label: "Ownership" },
           ].map((t) => (
@@ -1482,53 +1335,13 @@ export default function Investors({
               {t.label}
             </button>
           ))}
-          {/* Separate NAV Ledger button — opens the equity/cap-table simulator. */}
-          <button
-            onClick={() => setView("nav")}
-            style={{
-              marginLeft: "auto",
-              marginBottom: 6,
-              padding: "7px 14px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: IC.primary,
-              background: "none",
-              border: `1px solid ${IC.primary}`,
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
-            📊 NAV Ledger
-          </button>
-        </div>
-      )}
-
-      {view === "nav" && (
-        <div>
-          <button
-            onClick={() => setView("dashboard")}
-            style={{
-              padding: "8px 14px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: IC.primary,
-              background: "none",
-              border: `1px solid ${IC.primary}`,
-              borderRadius: 8,
-              cursor: "pointer",
-              marginBottom: 12,
-            }}
-          >
-            ← Back to Investors
-          </button>
-          <InvestorNavLedger />
         </div>
       )}
 
       {/* Until an opening cap table is published, holding % here is only the
           capital ratio. Say so, rather than letting a provisional number pass
           for an agreed one. */}
-      {view !== "nav" && investors.length > 0 && !pricedFromCapTable && (
+      {investors.length > 0 && !pricedFromCapTable && (
         <div style={{ background: C.amberFaint, borderLeft: `3px solid ${C.amber}`, borderRadius: "0 8px 8px 0", padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.textSec }}>
           No cap table published yet, so these holding percentages are just the ratio of capital put
           in. Record the opening table on{" "}
@@ -1542,7 +1355,6 @@ export default function Investors({
           investors={investors}
           metricsById={metricsById}
           totalCurrentValue={totalCurrentValue}
-          portfolioXIRR={portfolioXIRR}
           onAddInvestor={openAddInvestor}
           onView={viewInvestor}
           onReinvest={openReinvest}
@@ -1554,7 +1366,6 @@ export default function Investors({
           investors={investors}
           metricsById={metricsById}
           totalCurrentValue={totalCurrentValue}
-          portfolioXIRR={portfolioXIRR}
           onView={viewInvestor}
           onAddInvestor={openAddInvestor}
           onReinvest={openReinvest}

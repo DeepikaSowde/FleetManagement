@@ -159,6 +159,66 @@ export const Input = ({ label, value, onChange, type = "text", placeholder, styl
   </div>
 );
 
+// One pagination footer reused by every paginated table/list in the app:
+// "Showing X-Y of N entries", Previous/page-numbers/Next, and an optional
+// "Rows per page" selector (omit onPageSizeChange to hide it, e.g. for a
+// fixed page size). `page` is clamped internally so a stale page number
+// (after a filter shrinks the result set) never renders a blank page.
+export const Pagination = ({ page, pageSize, totalCount, onPageChange, onPageSizeChange, pageSizeOptions = [10, 25, 50] }) => {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const curPage = Math.min(Math.max(1, page), totalPages);
+  const start = totalCount === 0 ? 0 : (curPage - 1) * pageSize + 1;
+  const end = Math.min(curPage * pageSize, totalCount);
+
+  const pageNumbers = (() => {
+    const nums = [1];
+    if (curPage > 3) nums.push("…");
+    for (let p = Math.max(2, curPage - 1); p <= Math.min(totalPages - 1, curPage + 1); p++) nums.push(p);
+    if (curPage < totalPages - 2) nums.push("…");
+    if (totalPages > 1) nums.push(totalPages);
+    return nums;
+  })();
+
+  const pageBtnStyle = (active, disabled) => ({
+    minWidth: 28, height: 28, padding: "0 8px", borderRadius: 6,
+    border: `1px solid ${active ? C.teal : C.border}`,
+    background: active ? C.teal : C.surface,
+    color: active ? "#fff" : disabled ? C.textMuted : C.textSec,
+    fontSize: 11.5, fontWeight: 700, cursor: disabled ? "default" : "pointer",
+  });
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 11.5, color: C.textMuted }}>
+        Showing {start}–{end} of {totalCount} {totalCount === 1 ? "entry" : "entries"}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        {onPageSizeChange && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.textMuted }}>
+            Rows per page
+            <select
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11.5, fontFamily: "inherit", background: C.surface, color: C.textPri, outline: "none", cursor: "pointer" }}
+            >
+              {pageSizeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button style={pageBtnStyle(false, curPage === 1)} disabled={curPage === 1} onClick={() => onPageChange(curPage - 1)}>‹ Previous</button>
+          {pageNumbers.map((p, i) => p === "…" ? (
+            <span key={`e${i}`} style={{ fontSize: 11.5, color: C.textMuted, padding: "0 3px" }}>…</span>
+          ) : (
+            <button key={p} style={pageBtnStyle(p === curPage)} onClick={() => onPageChange(p)}>{p}</button>
+          ))}
+          <button style={pageBtnStyle(false, curPage === totalPages)} disabled={curPage === totalPages} onClick={() => onPageChange(curPage + 1)}>Next ›</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const Select = ({ label, value, onChange, options, ...p }) => (
   <div style={{ marginBottom: 16 }}>
     {label && <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>{label}</label>}

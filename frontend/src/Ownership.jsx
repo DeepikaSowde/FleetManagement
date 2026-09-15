@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
-import { Btn, Input, Select } from "./components";
+import { Btn, Input, Select, Pagination } from "./components";
 import { splitFromValuation } from "./capTableMath";
 
 /* =====================================================================================
@@ -51,9 +51,9 @@ const STATE_STYLE = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const fmtINR = (n) =>
+const fmtSGD = (n) =>
   n === null || n === undefined || n === "" ? "—"
-    : "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
+    : "SGD " + Math.abs(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmtPct = (n) => (Number(n) || 0).toFixed(2) + "%";
 
@@ -64,13 +64,13 @@ const fmtDate = (iso) => {
   return `${d} ${MON[Number(m) - 1]} ${y}`;
 };
 
-// Indian short form, for the implied-valuation readout where the exact rupee
-// is less useful than the order of magnitude.
-const fmtCrLakh = (n) => {
+// Compact short form, for the implied-valuation readout where the exact
+// figure is less useful than the order of magnitude.
+const fmtSGDCompact = (n) => {
   const v = Math.abs(Number(n) || 0);
-  if (v >= 1e7) return "₹" + (v / 1e7).toFixed(2) + " Cr";
-  if (v >= 1e5) return "₹" + (v / 1e5).toFixed(2) + " L";
-  return fmtINR(v);
+  if (v >= 1e6) return "SGD " + (v / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return "SGD " + (v / 1e3).toFixed(1) + "K";
+  return fmtSGD(v);
 };
 
 /* ---- Holdings in force on a date = the latest Effective event on or before it ---- */
@@ -238,10 +238,10 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 /* =============================================================== EVENT FORM MODAL === */
 // Wider than the shared Modal because the whole holdings table is entered here.
 //
-// Two ways in, because groups negotiate in two different currencies:
+// Two ways in, because groups negotiate the same change two different ways:
 //
 //   From an agreed valuation — the usual one. "We all agree the business is
-//   worth ₹1.2 Cr and Divya is putting in ₹30 L." The percentages follow:
+//   worth SGD 1.2M and Divya is putting in SGD 300K." The percentages follow:
 //
 //       new % = (old % × pre-money + what they put in now) ÷ post-money
 //
@@ -409,10 +409,26 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", borderBottom: `1px solid ${C.border}` }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Record an ownership change</div>
-            <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 2 }}>
-              It saves as a draft first — nothing moves until it is published.
-            </div>
+            {prefill?.context === "add-investor" ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11.5, color: C.textMuted, marginBottom: 4 }}>
+                  <span>Step 1 — Investor Details</span>
+                  <span style={{ color: C.border }}>→</span>
+                  <span style={{ fontWeight: 800, color: IC_VALUE }}>Step 2 — Initial Ownership</span>
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Initial Ownership</div>
+                <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 2 }}>
+                  Set what everyone holds now that this investor is joining — it saves as a draft first, nothing moves until it is published.
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>Record an ownership change</div>
+                <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 2 }}>
+                  It saves as a draft first — nothing moves until it is published.
+                </div>
+              </>
+            )}
           </div>
           <div onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: C.textMuted }}>✕</div>
         </div>
@@ -448,7 +464,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
             <>
               {valuationNeeded ? (
                 <Input
-                  label="Agreed valuation before this money goes in (₹)"
+                  label="Agreed valuation before this money goes in (SGD)"
                   type="number" value={preMoney} onChange={(e) => setPreMoney(e.target.value)}
                   placeholder="e.g., 12000000"
                 />
@@ -468,7 +484,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
                     <tr>
                       <th style={th}>Investor</th>
                       <th style={{ ...th, textAlign: "right" }}>Now</th>
-                      <th style={{ ...th, textAlign: "right", width: 160 }}>Putting in (₹)</th>
+                      <th style={{ ...th, textAlign: "right", width: 160 }}>Putting in (SGD)</th>
                       <th style={{ ...th, textAlign: "right" }}>After</th>
                       <th style={{ ...th, textAlign: "right" }}>Change</th>
                     </tr>
@@ -506,7 +522,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
                       <td style={{ ...td, fontWeight: 700, borderBottom: "none", background: C.linen }}>Total</td>
                       <td style={{ ...td, borderBottom: "none", background: C.linen }} />
                       <td style={{ ...td, textAlign: "right", fontWeight: 700, borderBottom: "none", background: C.linen }}>
-                        {moneyIn > 0 ? fmtINR(moneyIn) : "—"}
+                        {moneyIn > 0 ? fmtSGD(moneyIn) : "—"}
                       </td>
                       <td style={{ ...td, textAlign: "right", fontWeight: 800, borderBottom: "none", background: C.linen, color: balanced ? C.green : C.textMuted }}>
                         {computed ? total.toFixed(2) + "%" : "—"}
@@ -521,15 +537,15 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
                 <div style={{ background: C.greenFaint, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 14px", marginBottom: 6, fontSize: 12, color: C.textSec }}>
                   {valuationNeeded ? (
                     <>
-                      <b style={{ color: C.navy }}>{fmtCrLakh(V)}</b> before the money, plus{" "}
-                      <b style={{ color: C.navy }}>{fmtCrLakh(moneyIn)}</b> going in, values the
-                      business at <b style={{ color: C.navy }}>{fmtCrLakh(postMoney)}</b> after.
+                      <b style={{ color: C.navy }}>{fmtSGDCompact(V)}</b> before the money, plus{" "}
+                      <b style={{ color: C.navy }}>{fmtSGDCompact(moneyIn)}</b> going in, values the
+                      business at <b style={{ color: C.navy }}>{fmtSGDCompact(postMoney)}</b> after.
                       Everyone who is not putting money in keeps{" "}
                       <b style={{ color: C.navy }}>{((V / postMoney) * 100).toFixed(2)}%</b> of the
                       share they held.
                     </>
                   ) : (
-                    <>Split in the ratio of the <b style={{ color: C.navy }}>{fmtCrLakh(moneyIn)}</b> being put in.</>
+                    <>Split in the ratio of the <b style={{ color: C.navy }}>{fmtSGDCompact(moneyIn)}</b> being put in.</>
                   )}
                   <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
                     These percentages are worked out from the figures you entered — the valuation is
@@ -607,7 +623,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "20px 24px", borderTop: `1px solid ${C.border}` }}>
           <Btn secondary onClick={onClose}>Cancel</Btn>
           <Btn primary onClick={submit} disabled={saving || !balanced}>
-            {saving ? "Saving…" : "Save as draft"}
+            {saving ? "Saving…" : prefill?.context === "add-investor" ? "Add Investor & Record Ownership" : "Save as draft"}
           </Btn>
         </div>
       </div>
@@ -656,11 +672,11 @@ function ValuationModal({ suggested, onClose, onSave }) {
           </div>
         </div>
         <div style={{ padding: 24 }}>
-          <Input label="Agreed value of the whole business (₹)" type="number" value={amount}
+          <Input label="Agreed value of the whole business (SGD)" type="number" value={amount}
             onChange={(e) => setAmount(e.target.value)} placeholder="e.g., 18000000" />
           {value > 0 && (
             <div style={{ fontSize: 12, color: C.textSec, marginTop: -8, marginBottom: 16 }}>
-              That is <b style={{ color: C.navy }}>{fmtCrLakh(value)}</b>.
+              That is <b style={{ color: C.navy }}>{fmtSGDCompact(value)}</b>.
             </div>
           )}
           <Input label="Applies from" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
@@ -750,7 +766,7 @@ function EventCard({ event, investors, colorOf, prevHoldings, mode, onSubmitForA
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 5 }}>
             {event.id}
             {event.newMoneyAmount
-              ? ` · ${fmtINR(event.newMoneyAmount)} in${event.newMoneyInvestorId ? ` from ${nameOf(event.newMoneyInvestorId)}` : ""}`
+              ? ` · ${fmtSGD(event.newMoneyAmount)} in${event.newMoneyInvestorId ? ` from ${nameOf(event.newMoneyInvestorId)}` : ""}`
               : ""}
             {event.createdBy ? ` · drafted by ${event.createdBy}` : ""}
           </div>
@@ -758,9 +774,9 @@ function EventCard({ event, investors, colorOf, prevHoldings, mode, onSubmitForA
               is the number an investor will want to see years later. */}
           {event.preMoneyValuation ? (
             <div style={{ fontSize: 11.5, color: C.textSec, marginTop: 5 }}>
-              Agreed valuation <b style={{ color: C.navy }}>{fmtCrLakh(event.preMoneyValuation)}</b> before the money
+              Agreed valuation <b style={{ color: C.navy }}>{fmtSGDCompact(event.preMoneyValuation)}</b> before the money
               {event.newMoneyAmount
-                ? <> · <b style={{ color: C.navy }}>{fmtCrLakh(event.preMoneyValuation + event.newMoneyAmount)}</b> after</>
+                ? <> · <b style={{ color: C.navy }}>{fmtSGDCompact(event.preMoneyValuation + event.newMoneyAmount)}</b> after</>
                 : null}
             </div>
           ) : null}
@@ -890,6 +906,17 @@ export default function Ownership({
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
 
+  // Pagination for the three lists below that can grow without bound: the cap
+  // table's own investor rows, the recorded valuations, and the event history.
+  // The History cards keep a fixed page of 5 with no rows-per-page selector
+  // (item 17); the other two use the standard 10/25/50 selector.
+  const [capTablePage, setCapTablePage] = useState(1);
+  const [capTablePageSize, setCapTablePageSize] = useState(10);
+  const [valuationPage, setValuationPage] = useState(1);
+  const [valuationPageSize, setValuationPageSize] = useState(10);
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 5;
+
   const colorOf = useMemo(() => {
     const map = {};
     investors.forEach((inv, i) => { map[inv.id] = SERIES_COLORS[i % SERIES_COLORS.length]; });
@@ -898,12 +925,22 @@ export default function Ownership({
 
   const today = todayIso();
   const current = useMemo(() => holdingsAsOf(events, today), [events, today]);
+  const capTableTotalPages = Math.max(1, Math.ceil(current.length / capTablePageSize));
+  const capTableCurPage = Math.min(capTablePage, capTableTotalPages);
+  const capTablePageRows = current.slice((capTableCurPage - 1) * capTablePageSize, capTableCurPage * capTablePageSize);
+
+  const valuationTotalPages = Math.max(1, Math.ceil(valuationHistory.length / valuationPageSize));
+  const valuationCurPage = Math.min(valuationPage, valuationTotalPages);
+  const valuationPageRows = valuationHistory.slice((valuationCurPage - 1) * valuationPageSize, valuationCurPage * valuationPageSize);
 
   // Newest first for reading; the chart re-sorts ascending for the axis.
   const ordered = useMemo(
     () => [...events].sort((a, b) => (a.effectiveDate < b.effectiveDate ? 1 : a.effectiveDate > b.effectiveDate ? -1 : 0)),
     [events]
   );
+  const historyTotalPages = Math.max(1, Math.ceil(ordered.length / HISTORY_PAGE_SIZE));
+  const historyCurPage = Math.min(historyPage, historyTotalPages);
+  const historyPageRows = ordered.slice((historyCurPage - 1) * HISTORY_PAGE_SIZE, historyCurPage * HISTORY_PAGE_SIZE);
 
   // The table each event was measured against — the one in force the day before it.
   const holdingsBefore = (event) => {
@@ -971,10 +1008,10 @@ export default function Ownership({
               {companyValuation ? (
                 <>
                   <div style={{ fontSize: 26, fontWeight: 800, color: C.navy, marginTop: 6, lineHeight: 1.15 }}>
-                    {fmtINR(companyValuation.amount)}
+                    {fmtSGD(companyValuation.amount)}
                   </div>
                   <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>
-                    {fmtCrLakh(companyValuation.amount)} · as at {fmtDate(companyValuation.asOf)} · {companyValuation.source}
+                    {fmtSGDCompact(companyValuation.amount)} · as at {fmtDate(companyValuation.asOf)} · {companyValuation.source}
                   </div>
                 </>
               ) : (
@@ -1009,10 +1046,10 @@ export default function Ownership({
                     </tr>
                   </thead>
                   <tbody>
-                    {valuationHistory.map((v) => (
+                    {valuationPageRows.map((v) => (
                       <tr key={v.id}>
                         <td style={td}>{fmtDate(v.asOf)}</td>
-                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtINR(v.amount)}</td>
+                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtSGD(v.amount)}</td>
                         <td style={{ ...td, color: C.textMuted }}>{v.basis || "—"}</td>
                         <td style={{ ...td, color: C.textMuted }}>{v.agreedBy || "—"}</td>
                         <td style={{ ...td, textAlign: "right" }}>
@@ -1028,6 +1065,11 @@ export default function Ownership({
                   </tbody>
                 </table>
               </div>
+              <Pagination
+                page={valuationCurPage} pageSize={valuationPageSize} totalCount={valuationHistory.length}
+                onPageChange={setValuationPage}
+                onPageSizeChange={(n) => { setValuationPageSize(n); setValuationPage(1); }}
+              />
             </div>
           )}
 
@@ -1053,7 +1095,7 @@ export default function Ownership({
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                {current.map((h) => (
+                {capTablePageRows.map((h) => (
                   <div key={h.investorId} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 170px) 1fr 68px 116px", alignItems: "center", gap: 12 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.textPri }}>
                       <Swatch color={colorOf(h.investorId)} />
@@ -1064,7 +1106,7 @@ export default function Ownership({
                     </span>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmtPct(h.pct)}</span>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: companyValuation ? IC_VALUE : C.textMuted, textAlign: "right" }}>
-                      {companyValuation ? fmtINR((h.pct / 100) * companyValuation.amount) : "—"}
+                      {companyValuation ? fmtSGD((h.pct / 100) * companyValuation.amount) : "—"}
                     </span>
                   </div>
                 ))}
@@ -1074,9 +1116,16 @@ export default function Ownership({
                     <span />
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, textAlign: "right" }}>100.00%</span>
                     <span style={{ fontSize: 12.5, fontWeight: 800, color: C.navy, textAlign: "right" }}>
-                      {fmtINR(companyValuation.amount)}
+                      {fmtSGD(companyValuation.amount)}
                     </span>
                   </div>
+                )}
+                {current.length > 0 && (
+                  <Pagination
+                    page={capTableCurPage} pageSize={capTablePageSize} totalCount={current.length}
+                    onPageChange={setCapTablePage}
+                    onPageSizeChange={(n) => { setCapTablePageSize(n); setCapTablePage(1); }}
+                  />
                 )}
               </div>
             )}
@@ -1090,7 +1139,7 @@ export default function Ownership({
               Newest first. This is what an investor reads when they question their percentage.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {ordered.map((e) => (
+              {historyPageRows.map((e) => (
                 <EventCard
                   key={e.id}
                   event={e}
@@ -1107,6 +1156,14 @@ export default function Ownership({
                 />
               ))}
             </div>
+            {/* Only the cards page — 5 per page, no rows-per-page selector — and
+                the whole footer stays hidden until there's more than one page. */}
+            {ordered.length > HISTORY_PAGE_SIZE && (
+              <Pagination
+                page={historyCurPage} pageSize={HISTORY_PAGE_SIZE} totalCount={ordered.length}
+                onPageChange={setHistoryPage}
+              />
+            )}
           </div>
 
             </>
