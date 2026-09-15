@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell,
 } from "recharts";
 import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
@@ -24,10 +24,6 @@ const tint = (hex) => `${hex}1A`;
 const monthLabelOf = (ym) => {
   const [y, m] = ym.split("-");
   return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
-};
-const monthShort = (ym) => {
-  const [y, m] = ym.split("-");
-  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short" });
 };
 const prevMonthOf = (ym) => {
   const [y, m] = ym.split("-").map(Number);
@@ -94,16 +90,6 @@ const LedgerDashboard = ({
   const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
   const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
 
-  // ── Financial Ledger — Transactions (compact, paginated view of `rows`) ────
-  // Newest first, same convention as the Ledger tab's full table.
-  const txRows = useMemo(() => rows.slice().reverse(), [rows]);
-  const [txPageSize, setTxPageSize] = useState(10);
-  const [txPage, setTxPage] = useState(1);
-  const txTotalPages = Math.max(1, Math.ceil(txRows.length / txPageSize));
-  const txCurPage = Math.min(txPage, txTotalPages);
-  const txPageRows = txRows.slice((txCurPage - 1) * txPageSize, txCurPage * txPageSize);
-  useEffect(() => { setTxPage(1); }, [txPageSize, txRows.length]);
-
   // ── Balance sheet (assets & net worth) ─────────────────────────────────────
   // The full car cost is booked as a "Vehicle Purchase" expense, which pulls the
   // cash balance down — but the car is still an asset you own. We value each car
@@ -141,52 +127,57 @@ const LedgerDashboard = ({
   const totalDepreciation = assetRows.reduce((s, r) => s + (r.depreciation ?? 0), 0);
   const netWorth = currentBalance + fleetValue;
 
-  // ── Per-vehicle asset table pagination ──────────────────────────────────
-  const [assetPageSize, setAssetPageSize] = useState(10);
+  // ── Per-vehicle asset table pagination — fixed at 5 per page ──────────────
+  const ASSET_PAGE_SIZE = 5;
   const [assetPage, setAssetPage] = useState(1);
-  const assetTotalPages = Math.max(1, Math.ceil(assetRows.length / assetPageSize));
+  const assetTotalPages = Math.max(1, Math.ceil(assetRows.length / ASSET_PAGE_SIZE));
   const assetCurPage = Math.min(assetPage, assetTotalPages);
-  const assetPageRows = assetRows.slice((assetCurPage - 1) * assetPageSize, assetCurPage * assetPageSize);
-  useEffect(() => { setAssetPage(1); }, [assetPageSize, assetRows.length]);
+  const assetPageRows = assetRows.slice((assetCurPage - 1) * ASSET_PAGE_SIZE, assetCurPage * ASSET_PAGE_SIZE);
+  useEffect(() => { setAssetPage(1); }, [assetRows.length]);
 
   const kpis = [
-    { label: "Current Balance", value: currentBalance, sub: "Investment + Income − Expenses", color: VIZ.aqua, icon: "💵", delta: null },
+    { label: "Current Balance", value: currentBalance, sub: "", color: VIZ.aqua, icon: "💵", delta: null },
     { label: "Total Income", value: income, sub: isAll ? "All time" : "Selected month", color: VIZ.blue, icon: "💲", delta: prevP ? pct(income, earnMonth(prevP)) : null },
     { label: "Total Expense", value: expenseTotal, sub: isAll ? "All time" : "Selected month", color: VIZ.red, icon: "📉", delta: prevP ? pct(expenseTotal, expMonth(prevP)) : null },
     { label: "Net Profit", value: profit, sub: isAll ? "All time" : "Selected month", color: VIZ.violet, icon: "📊", delta: prevP ? pct(profit, earnMonth(prevP) - expMonth(prevP)) : null },
   ];
 
-  // ── Revenue chart ─────────────────────────────────────────────────────────
-  // All-time  → Income vs Expense by month (shows disjoint months clearly).
-  // A month   → daily income, this month vs last.
-  const revenue = useMemo(() => {
-    if (isAll) {
-      return {
-        mode: "monthly",
-        xKey: "label",
-        series: [{ key: "Income", color: VIZ.blue }, { key: "Expense", color: VIZ.red }],
-        data: monthsPresent.map((m) => ({ label: monthShort(m), Income: earnMonth(m), Expense: expMonth(m) })),
-      };
-    }
-    const [y, m] = period.split("-").map(Number);
-    const daysIn = new Date(y, m, 0).getDate();
-    const dayMap = (ym) => {
-      const map = {};
-      earnings.forEach((e) => {
-        const dt = (e.end || e.start || "").slice(0, 10);
-        if (dt.slice(0, 7) === ym) map[Number(dt.slice(8, 10))] = (map[Number(dt.slice(8, 10))] || 0) + (e.total || 0);
-      });
-      return map;
-    };
-    const thisM = dayMap(period), lastM = dayMap(prevMonthOf(period));
-    return {
-      mode: "daily",
-      xKey: "day",
-      series: [{ key: "This Month", color: VIZ.blue }, { key: "Last Month", color: "#B7B7B7" }],
-      data: Array.from({ length: daysIn }, (_, i) => ({ day: i + 1, "This Month": thisM[i + 1] || 0, "Last Month": lastM[i + 1] || 0 })),
-    };
+  // ── Revenue & Expense chart — Monthly (12 months of one year) or Yearly
+  // (every year present, each shown separately, never combined) ─────────────
+  const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const yearsPresent = useMemo(() => {
+    const s = new Set(monthsPresent.map((m) => m.slice(0, 4)));
+    if (s.size === 0) s.add(String(new Date().getFullYear()));
+    return [...s].sort();
+  }, [monthsPresent]);
+  const [chartMode, setChartMode] = useState("monthly"); // "monthly" | "yearly"
+  const [chartYear, setChartYear] = useState(yearsPresent[yearsPresent.length - 1]);
+  useEffect(() => {
+    if (yearsPresent.length && !yearsPresent.includes(chartYear)) setChartYear(yearsPresent[yearsPresent.length - 1]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [earnings, expenses, period, monthsPresent]);
+  }, [yearsPresent]);
+
+  const chartSeries = [
+    { key: "Income", color: VIZ.aqua },
+    { key: "Expense", color: VIZ.red },
+    { key: "Net Result", color: VIZ.blue },
+  ];
+  const revenue = useMemo(() => {
+    if (chartMode === "monthly") {
+      const data = MONTH_NAMES.map((label, i) => {
+        const ym = `${chartYear}-${String(i + 1).padStart(2, "0")}`;
+        const inc = earnMonth(ym), exp = expMonth(ym);
+        return { label, Income: inc, Expense: exp, "Net Result": inc - exp };
+      });
+      return { xKey: "label", series: chartSeries, data };
+    }
+    const data = yearsPresent.map((y) => {
+      const inc = earnMonth(y), exp = expMonth(y);
+      return { label: y, Income: inc, Expense: exp, "Net Result": inc - exp };
+    });
+    return { xKey: "label", series: chartSeries, data };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earnings, expenses, bookings, chartMode, chartYear, yearsPresent]);
 
   // ── Expense breakdown donut (computed straight from expenses) ──────────────
   const donut = useMemo(() => {
@@ -220,14 +211,6 @@ const LedgerDashboard = ({
   const th = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: `1px solid #EFEFEF`, whiteSpace: "nowrap" };
   const rank = ["#EAB308", "#94A3B8", "#B45309"];
   const selectStyle = { padding: "6px 10px", borderRadius: 8, border: "1px solid #E0E0E0", background: "#fff", fontSize: 12, fontFamily: "inherit", color: C.textPri, outline: "none", cursor: "pointer" };
-  const fmtTxDate = (d) => {
-    const dt = new Date(d);
-    return isNaN(dt) ? d : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-  };
-  const catStyle = {
-    Investment: VIZ.violet, "Rental Income": VIZ.green, "Deposit Income": VIZ.green,
-    "Deposit IN": VIZ.aqua, Expense: VIZ.red, "Deposit OUT": VIZ.orange,
-  };
   const pageBtn = (active, disabled) => ({
     minWidth: 26, height: 26, padding: "0 7px", borderRadius: 6,
     border: `1px solid ${active ? VIZ.blue : "#E0E0E0"}`,
@@ -244,15 +227,12 @@ const LedgerDashboard = ({
     if (total > 1) nums.push(total);
     return nums;
   };
-  // Reusable "Show N entries" + ‹ 1 … n › pagination footer.
-  const PaginationBar = ({ pageSize, setPageSize, curPage, setPage, totalPages, totalCount }) => (
+  // Reusable "Showing X–Y of N entries" + ‹ 1 … n › pagination footer (fixed
+  // page size, no per-page selector).
+  const PaginationBar = ({ pageSize, curPage, setPage, totalPages, totalCount }) => (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.textMuted }}>
-        Show
-        <select style={{ ...selectStyle, padding: "4px 8px" }} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-          {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        entries — {totalCount} total
+      <div style={{ fontSize: 11, color: C.textMuted }}>
+        Showing {totalCount === 0 ? 0 : (curPage - 1) * pageSize + 1}–{Math.min(curPage * pageSize, totalCount)} of {totalCount} entries
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <button style={pageBtn(false, curPage === 1)} disabled={curPage === 1} onClick={() => setPage(curPage - 1)}>‹</button>
@@ -299,6 +279,166 @@ const LedgerDashboard = ({
         ))}
       </div>
 
+      {/* Revenue & Expense Analysis */}
+      <Card style={cardStyle}>
+        <div style={{ padding: "16px 16px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Revenue &amp; Expense Analysis</div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>
+                {chartMode === "monthly" ? `Income vs expense by month · ${chartYear}` : "Income vs expense by year"}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", gap: 2, background: C.bg, padding: 3, borderRadius: 8 }}>
+                {["monthly", "yearly"].map((m) => (
+                  <button key={m} onClick={() => setChartMode(m)}
+                    style={{
+                      padding: "5px 12px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: "none", cursor: "pointer",
+                      background: chartMode === m ? VIZ.blue : "transparent", color: chartMode === m ? "#fff" : C.textSec,
+                    }}>
+                    {m === "monthly" ? "Monthly" : "Yearly"}
+                  </button>
+                ))}
+              </div>
+              {chartMode === "monthly" && (
+                <select style={selectStyle} value={chartYear} onChange={(e) => setChartYear(e.target.value)}>
+                  {yearsPresent.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 8, padding: "4px 12px 16px" }}>
+          {/* Revenue Overview */}
+          <div style={{ borderRight: "1px solid #F0F0F0", paddingRight: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px 2px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri }}>Revenue Overview</div>
+              <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: C.textMuted }}>
+                {revenue.series.map((s) => (
+                  <span key={s.key}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: s.color, marginRight: 4 }} />{s.key}</span>
+                ))}
+              </div>
+            </div>
+            <div style={{ height: 250 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={revenue.data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#EFEFEF" vertical={false} />
+                  <XAxis dataKey={revenue.xKey} tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} />
+                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
+                  <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                  <Bar dataKey="Income" fill={VIZ.aqua} radius={[3, 3, 0, 0]} barSize={chartMode === "monthly" ? 12 : 28} />
+                  <Bar dataKey="Expense" fill={VIZ.red} radius={[3, 3, 0, 0]} barSize={chartMode === "monthly" ? 12 : 28} />
+                  <Line type="monotone" dataKey="Net Result" stroke={VIZ.blue} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Expense Breakdown */}
+          <div style={{ paddingLeft: 4 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri, padding: "6px 4px 2px" }}>Expense Breakdown</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ width: 150, height: 180, position: "relative" }}>
+                {donut.length === 0 ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 12, color: C.textMuted, textAlign: "center" }}>No expenses<br />in this period</div>
+                ) : (
+                  <>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={donut} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={74} paddingAngle={2} stroke="#fff" strokeWidth={2}>
+                          {donut.map((d, i) => <Cell key={d.name} fill={DONUT[i % DONUT.length]} />)}
+                        </Pie>
+                        <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                      <div style={{ ...mono, fontSize: 13, fontWeight: 800, color: C.textPri }}>{fmt(Math.round(donutTotal))}</div>
+                      <div style={{ fontSize: 8.5, color: C.textMuted }}>Total Expense</div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 150 }}>
+                {donut.map((d, i) => (
+                  <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, fontSize: 10.5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: DONUT[i % DONUT.length], flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
+                    <span style={{ ...mono, fontWeight: 700, color: C.textPri }}>{fmt(Math.round(d.value))}</span>
+                    <span style={{ color: C.textMuted, width: 38, textAlign: "right" }}>{donutTotal ? ((d.value / donutTotal) * 100).toFixed(1) : 0}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Vehicle Profitability + Top Performing */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card style={cardStyle}>
+          <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car"
+            right={rankedVehicles.length > 5 && (
+              <button onClick={() => setShowAllVehicles((s) => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: VIZ.blue }}>
+                {showAllVehicles ? "Show less" : `View all (${rankedVehicles.length})`}
+              </button>
+            )} />
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>
+                {[
+                  { h: "Vehicle", align: "left" }, { h: "Revenue", align: "right" }, { h: "Expense", align: "right" },
+                  { h: "Profit", align: "right" }, { h: "Profit %", align: "right" },
+                ].map((c) => <th key={c.h} style={{ ...th, textAlign: c.align }}>{c.h}</th>)}
+              </tr></thead>
+              <tbody>
+                {visibleVehicles.map((v) => (
+                  <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                    <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.green, textAlign: "right" }}>{fmt(Math.round(v.revenue))}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.red, textAlign: "right" }}>{fmt(Math.round(v.expense))}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: v.profit >= 0 ? C.navy : VIZ.red, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
+                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                      <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: v.profitPct >= 0 ? UP : DOWN, background: v.profitPct >= 0 ? tint(VIZ.green) : tint(VIZ.red), padding: "2px 7px", borderRadius: 20 }}>{v.profitPct.toFixed(1)}%</span>
+                    </td>
+                  </tr>
+                ))}
+                {vehicleRows.length === 0 && <tr><td colSpan="5" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card style={cardStyle}>
+          <CardHeader title="Top Performing Vehicles" subtitle="By lifetime profit" />
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>
+                {[
+                  { h: "#", align: "left" }, { h: "Vehicle", align: "left" }, { h: "Model", align: "left" },
+                  { h: "Profit", align: "right" }, { h: "Days", align: "center" }, { h: "Type", align: "left" },
+                ].map((c) => <th key={c.h} style={{ ...th, textAlign: c.align }}>{c.h}</th>)}
+              </tr></thead>
+              <tbody>
+                {topVehicles.map((v, i) => (
+                  <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
+                    <td style={{ padding: "9px 12px" }}>
+                      <span style={{ display: "inline-flex", width: 20, height: 20, borderRadius: "50%", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", background: rank[i] || "#CBD5E1" }}>{i + 1}</span>
+                    </td>
+                    <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
+                    <td style={{ padding: "9px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{v.model}</td>
+                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
+                    <td style={{ padding: "9px 12px", fontSize: 11, textAlign: "center" }}>{daysRentedByPlate[v.plate] || 0}</td>
+                    <td style={{ padding: "9px 12px" }}><span style={{ fontSize: 9.5, fontWeight: 600, color: UP, background: tint(VIZ.green), padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>Rental Income</span></td>
+                  </tr>
+                ))}
+                {topVehicles.length === 0 && <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+
       {/* Balance Sheet — Assets & Net Worth */}
       <Card style={cardStyle}>
         <CardHeader title="Balance Sheet — Assets & Net Worth"
@@ -321,12 +461,12 @@ const LedgerDashboard = ({
             </div>
           } />
         <div style={{ padding: "0 16px 16px" }}>
-          {/* Summary row: Cash + Fleet Asset Value = Net Worth */}
+          {/* Summary row: Current Balance + Fleet Asset Value = Net Worth */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
             {[
-              { label: "Cash Balance", value: currentBalance, color: VIZ.aqua, sub: "Income − Expenses" },
+              { label: "Current Balance", value: currentBalance, color: VIZ.aqua, sub: "" },
               { label: "Fleet Asset Value", value: fleetValue, color: VIZ.blue, sub: `Now worth of ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` },
-              { label: "Net Worth", value: netWorth, color: netWorth >= 0 ? UP : DOWN, sub: "Cash + Fleet Value", strong: true },
+              { label: "Net Worth", value: netWorth, color: netWorth >= 0 ? UP : DOWN, sub: "Current Balance + Fleet Value", strong: true },
             ].map((t) => (
               <div key={t.label} style={{ padding: "12px 14px", borderRadius: 10, border: `1px solid ${t.strong ? tint(t.color) : "#EFEFEF"}`, background: t.strong ? tint(t.color) : "#FBFBFC" }}>
                 <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{t.label}</div>
@@ -383,7 +523,7 @@ const LedgerDashboard = ({
 
           {assetRows.length > 0 && (
             <PaginationBar
-              pageSize={assetPageSize} setPageSize={setAssetPageSize}
+              pageSize={ASSET_PAGE_SIZE}
               curPage={assetCurPage} setPage={setAssetPage}
               totalPages={assetTotalPages} totalCount={assetRows.length}
             />
@@ -398,186 +538,6 @@ const LedgerDashboard = ({
           </div>
         </div>
       </Card>
-
-      {/* Financial Ledger — Transactions */}
-      <Card style={cardStyle}>
-        <CardHeader title="Financial Ledger — Transactions" subtitle="Every money movement, newest first" />
-        <div style={{ padding: "0 16px 16px" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  {["Date", "Description", "Category", "Income", "Expense", "Balance"].map((h, i) => (
-                    <th key={h} style={i >= 3 ? { ...th, textAlign: "right" } : th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {txPageRows.map((r) => (
-                  <tr key={r.key} style={{ borderBottom: "1px solid #F3F3F3" }}>
-                    <td style={{ padding: "9px 12px", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{fmtTxDate(r.date)}</td>
-                    <td style={{ padding: "9px 12px", fontSize: 11.5, color: C.textPri }}>{r.description}</td>
-                    <td style={{ padding: "9px 12px" }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: catStyle[r.type] || C.textMuted, background: tint(catStyle[r.type] || C.textMuted), padding: "2px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{r.type}</span>
-                    </td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11.5, fontWeight: 700, color: VIZ.green, textAlign: "right", whiteSpace: "nowrap" }}>{r.credit ? fmt(Math.round(r.credit)) : "–"}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11.5, fontWeight: 700, color: VIZ.red, textAlign: "right", whiteSpace: "nowrap" }}>{r.debit ? fmt(Math.round(r.debit)) : "–"}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11.5, fontWeight: 800, color: C.navy, textAlign: "right", whiteSpace: "nowrap" }}>{fmt(Math.round(r.balance))}</td>
-                  </tr>
-                ))}
-                {txRows.length === 0 && (
-                  <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No transactions yet.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {txRows.length > 0 && (
-            <PaginationBar
-              pageSize={txPageSize} setPageSize={setTxPageSize}
-              curPage={txCurPage} setPage={setTxPage}
-              totalPages={txTotalPages} totalCount={txRows.length}
-            />
-          )}
-        </div>
-      </Card>
-
-      {/* Revenue & Expense Analysis */}
-      <Card style={cardStyle}>
-        <div style={{ padding: "16px 16px 0" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Revenue &amp; Expense Analysis</div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>
-            {isAll ? "Income vs expense by month" : `Daily income · ${monthLabelOf(period)} vs ${monthLabelOf(prevMonthOf(period))}`}
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 8, padding: "4px 12px 16px" }}>
-          {/* Revenue Overview */}
-          <div style={{ borderRight: "1px solid #F0F0F0", paddingRight: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px 2px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri }}>Revenue Overview</div>
-              <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: C.textMuted }}>
-                {revenue.series.map((s) => (
-                  <span key={s.key}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: s.color, marginRight: 4 }} />{s.key}</span>
-                ))}
-              </div>
-            </div>
-            <div style={{ height: 250 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={revenue.data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={VIZ.blue} stopOpacity={0.22} />
-                      <stop offset="95%" stopColor={VIZ.blue} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#EFEFEF" vertical={false} />
-                  <XAxis dataKey={revenue.xKey} tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={{ stroke: "#E5E5E5" }} interval={revenue.mode === "daily" ? 4 : 0} />
-                  <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v)} />
-                  <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
-                  {revenue.series.slice().reverse().map((s) => (
-                    <Area key={s.key} type="monotone" dataKey={s.key} stroke={s.color}
-                      strokeWidth={s.key === "Last Month" ? 1.5 : 2.5}
-                      strokeDasharray={s.key === "Last Month" ? "5 4" : undefined}
-                      fill={s.key === "Income" || s.key === "This Month" ? "url(#revFill)" : "none"} dot={false} />
-                  ))}
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Expense Breakdown */}
-          <div style={{ paddingLeft: 4 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.textPri, padding: "6px 4px 2px" }}>Expense Breakdown</div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ width: 150, height: 180, position: "relative" }}>
-                {donut.length === 0 ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 12, color: C.textMuted, textAlign: "center" }}>No expenses<br />in this period</div>
-                ) : (
-                  <>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={donut} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={74} paddingAngle={2} stroke="#fff" strokeWidth={2}>
-                          {donut.map((d, i) => <Cell key={d.name} fill={DONUT[i % DONUT.length]} />)}
-                        </Pie>
-                        <Tooltip formatter={(v) => fmt(Math.round(v))} contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #E5E5E5" }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                      <div style={{ ...mono, fontSize: 13, fontWeight: 800, color: C.textPri }}>{fmt(Math.round(donutTotal))}</div>
-                      <div style={{ fontSize: 8.5, color: C.textMuted }}>Total Expense</div>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div style={{ flex: 1, minWidth: 150 }}>
-                {donut.map((d, i) => (
-                  <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, fontSize: 10.5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: DONUT[i % DONUT.length], flexShrink: 0 }} />
-                    <span style={{ flex: 1, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</span>
-                    <span style={{ ...mono, fontWeight: 700, color: C.textPri }}>{fmt(Math.round(d.value))}</span>
-                    <span style={{ color: C.textMuted, width: 38, textAlign: "right" }}>{donutTotal ? ((d.value / donutTotal) * 100).toFixed(1) : 0}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Vehicle Profitability + Top Performing */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Card style={cardStyle}>
-          <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car"
-            right={rankedVehicles.length > 5 && (
-              <button onClick={() => setShowAllVehicles((s) => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: VIZ.blue }}>
-                {showAllVehicles ? "Show less" : `View all (${rankedVehicles.length})`}
-              </button>
-            )} />
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr>{["Vehicle", "Revenue", "Expense", "Profit", "Profit %"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {visibleVehicles.map((v) => (
-                  <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
-                    <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.green, textAlign: "right" }}>{fmt(Math.round(v.revenue))}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, color: VIZ.red, textAlign: "right" }}>{fmt(Math.round(v.expense))}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: v.profit >= 0 ? C.navy : VIZ.red, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
-                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                      <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: v.profitPct >= 0 ? UP : DOWN, background: v.profitPct >= 0 ? tint(VIZ.green) : tint(VIZ.red), padding: "2px 7px", borderRadius: 20 }}>{v.profitPct.toFixed(1)}%</span>
-                    </td>
-                  </tr>
-                ))}
-                {vehicleRows.length === 0 && <tr><td colSpan="5" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card style={cardStyle}>
-          <CardHeader title="Top Performing Vehicles" subtitle="By lifetime profit" />
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr>{["#", "Vehicle", "Model", "Profit", "Days", "Type"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {topVehicles.map((v, i) => (
-                  <tr key={v.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
-                    <td style={{ padding: "9px 12px" }}>
-                      <span style={{ display: "inline-flex", width: 20, height: 20, borderRadius: "50%", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#fff", background: rank[i] || "#CBD5E1" }}>{i + 1}</span>
-                    </td>
-                    <td style={{ padding: "9px 12px" }}><PlateBadge plate={v.plate} small /></td>
-                    <td style={{ padding: "9px 12px", fontSize: 11, color: C.textSec, whiteSpace: "nowrap" }}>{v.model}</td>
-                    <td style={{ padding: "9px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navy, textAlign: "right" }}>{fmt(Math.round(v.profit))}</td>
-                    <td style={{ padding: "9px 12px", fontSize: 11, textAlign: "center" }}>{daysRentedByPlate[v.plate] || 0}</td>
-                    <td style={{ padding: "9px 12px" }}><span style={{ fontSize: 9.5, fontWeight: 600, color: UP, background: tint(VIZ.green), padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>Rental Income</span></td>
-                  </tr>
-                ))}
-                {topVehicles.length === 0 && <tr><td colSpan="6" style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No vehicles</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
 
     </div>
   );

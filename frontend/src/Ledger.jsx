@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Badge, PlateBadge } from "./components";
 import { buildLedgerRows } from "./ledgerUtils";
@@ -115,6 +115,31 @@ const Ledger = ({
     background: activeState ? C.teal : "transparent", color: activeState ? "#fff" : C.textSec,
   });
 
+  // ── Transactions table pagination — fixed at 10 per page ──────────────────
+  const TX_PAGE_SIZE = 10;
+  const [txPage, setTxPage] = useState(1);
+  const txTotalPages = Math.max(1, Math.ceil(rows.length / TX_PAGE_SIZE));
+  const txCurPage = Math.min(txPage, txTotalPages);
+  const txPageRows = rows.slice((txCurPage - 1) * TX_PAGE_SIZE, txCurPage * TX_PAGE_SIZE);
+  useEffect(() => { setTxPage(1); }, [rows.length]);
+
+  const pageBtn = (active, disabled) => ({
+    minWidth: 26, height: 26, padding: "0 7px", borderRadius: 6,
+    border: `1px solid ${active ? C.teal : C.border}`,
+    background: active ? C.teal : C.surface,
+    color: active ? "#fff" : disabled ? C.textMuted : C.textSec,
+    fontSize: 11, fontWeight: 700, cursor: disabled ? "default" : "pointer",
+  });
+  // 1 … cur-1 cur cur+1 … total, collapsing to plain runs when the gap is small.
+  const pageNumbersFor = (cur, total) => {
+    const nums = [1];
+    if (cur > 3) nums.push("…");
+    for (let p = Math.max(2, cur - 1); p <= Math.min(total - 1, cur + 1); p++) nums.push(p);
+    if (cur < total - 2) nums.push("…");
+    if (total > 1) nums.push(total);
+    return nums;
+  };
+
   return (
     <div>
       {/* Header: title + Dashboard / Ledger toggle */}
@@ -220,7 +245,7 @@ const Ledger = ({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {txPageRows.map((r) => (
                 <tr key={r.key} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: "10px 12px", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
                   <td style={{ padding: "10px 12px" }}>{r.plate ? <PlateBadge plate={r.plate} small /> : <span style={{ fontSize: 11, color: C.textMuted }}>—</span>}</td>
@@ -241,6 +266,24 @@ const Ledger = ({
         {rows.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>
             No transactions yet. They appear here automatically as you record earnings and expenses.
+          </div>
+        )}
+        {rows.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, padding: "12px 16px" }}>
+            <div style={{ fontSize: 11, color: C.textMuted }}>
+              Showing {(txCurPage - 1) * TX_PAGE_SIZE + 1}–{Math.min(txCurPage * TX_PAGE_SIZE, rows.length)} of {rows.length} entries
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <button style={pageBtn(false, txCurPage === 1)} disabled={txCurPage === 1} onClick={() => setTxPage(txCurPage - 1)}>‹</button>
+              {pageNumbersFor(txCurPage, txTotalPages).map((p, i) =>
+                p === "…" ? (
+                  <span key={`e${i}`} style={{ fontSize: 11, color: C.textMuted, padding: "0 2px" }}>…</span>
+                ) : (
+                  <button key={p} style={pageBtn(p === txCurPage)} onClick={() => setTxPage(p)}>{p}</button>
+                )
+              )}
+              <button style={pageBtn(false, txCurPage === txTotalPages)} disabled={txCurPage === txTotalPages} onClick={() => setTxPage(txCurPage + 1)}>›</button>
+            </div>
           </div>
         )}
       </Card>
