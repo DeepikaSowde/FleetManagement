@@ -680,14 +680,15 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       return;
     }
     if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
+    // staffToCustomerKm already holds the DISTANCE — the input above converts
+    // the odometer reading staff actually types into this by subtracting
+    // Starting Mileage, so everything from here down is unchanged.
     const staffKmEntered = Number(staffToCustomerKm);
-    if (staffToCustomerKm === "" || staffKmEntered < 0) { alert("Enter the Staff -> Customer Mileage (km) — enter 0 if the customer collected the car themselves."); return; }
-    // Staff → Customer Mileage is a DISTANCE, not an odometer reading — a
-    // value this large almost always means someone typed what the odometer
-    // showed instead of the delivery leg's own distance, which quietly sets
-    // an impossible floor for Customer Return ODO at Vehicle Return later.
-    // Kept in sync with FleetOpzApp.jsx's MAX_SANE_STAFF_KM.
-    if (staffKmEntered > 500) { alert(`${staffKmEntered.toLocaleString()} km looks like an odometer reading, not a distance — enter how far staff actually drove (e.g., 25), not the odometer value.`); return; }
+    if (staffToCustomerKm === "" || staffKmEntered < 0) { alert("Enter the odometer reading when the car reached the customer — equal to Starting Mileage if the customer collected it themselves."); return; }
+    // A converted distance this large means the odometer reading typed above
+    // doesn't add up — most likely a typo (an extra digit, or Starting
+    // Mileage itself is off). Kept in sync with FleetOpzApp.jsx's MAX_SANE_STAFF_KM.
+    if (staffKmEntered > 500) { alert(`That works out to a ${staffKmEntered.toLocaleString()} km delivery leg — please check the odometer reading you entered.`); return; }
     if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
 
     // The full security deposit must be held before the vehicle goes out — a
@@ -1391,13 +1392,28 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           {FUEL_LEVELS.map((f) => <option key={f} value={f}>{f}</option>)}
                         </select>
                       </div>
-                      {/* Staff -> Customer delivery leg (S). Captured here, at
-                          handover, so the customer's own distance can be measured
-                          from where their leg actually starts (A + S). */}
+                      {/* Staff -> Customer delivery leg (S), captured here at
+                          handover so the customer's own distance can be measured
+                          from where their leg actually starts (A + S). Staff type
+                          what the odometer actually shows right now — not a
+                          distance they'd have to work out in their head — and
+                          staffToCustomerKm (the distance) is derived from it by
+                          subtracting Starting Mileage. Typing the reading straight
+                          in was exactly the mistake that corrupted BK-111. */}
                       <div style={{ flex: "1 1 200px" }}>
-                        <div style={detailFieldLabelStyle}>🚗 Staff → Customer Mileage (km) <span style={{ color: C.red }}>*</span></div>
-                        <input type="number" min="0" value={staffToCustomerKm} onChange={(e) => setStaffToCustomerKm(e.target.value)} placeholder="e.g., 25" style={detailInputStyle} />
-                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Mileage driven by staff from company/shed to customer.</div>
+                        <div style={detailFieldLabelStyle}>🚗 Odometer at Customer Handover (km) <span style={{ color: C.red }}>*</span></div>
+                        <input type="number" min={Number(startingMileage) || 0}
+                          value={staffToCustomerKm === "" ? "" : (Number(startingMileage) || 0) + Number(staffToCustomerKm)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v !== "" && Number(v) < 0) return;
+                            setStaffToCustomerKm(v === "" ? "" : String(Math.max(0, Number(v) - (Number(startingMileage) || 0))));
+                          }}
+                          placeholder="e.g., 10025" style={detailInputStyle} />
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Reading on the odometer when the car reaches the customer — the app works out the distance by subtracting Starting Mileage.</div>
+                        {staffToCustomerKm !== "" && (
+                          <div style={{ fontSize: 10.5, color: C.teal, fontWeight: 600, marginTop: 2 }}>= {staffToCustomerKm} km driven by staff</div>
+                        )}
                       </div>
                     </div>
                     <div style={{ marginTop: 10 }}>

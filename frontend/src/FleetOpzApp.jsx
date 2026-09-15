@@ -887,14 +887,22 @@ export default function FleetOpzApp() {
     return errors;
   };
 
-  // Staff → Customer Mileage is a DISTANCE (the shed-to-customer delivery
-  // leg), never an odometer reading — but it's easy for someone filling the
-  // form to just type what the odometer shows instead of subtracting
-  // Starting Mileage themselves. That mistake doesn't look wrong at entry
-  // time, it just quietly sets an impossible floor for Customer Return ODO
-  // later (Starting Mileage + this value), blocking Vehicle Return days
-  // afterward with a confusing error. Capped well above any real intra-city/
-  // cross-emirate delivery leg so a genuine long trip still goes through.
+  // staffToCustomerKm is stored (and read everywhere else in the app — see
+  // mileage.js) as a DISTANCE, never an odometer reading. But asking staff to
+  // do that subtraction in their head is exactly what corrupted BK-111: they
+  // typed what the odometer showed (10025) straight into a field meant to
+  // hold the delivery leg's own distance (25). So the input itself now shows
+  // and accepts the READING at customer handover — these two helpers convert
+  // between that reading and the stored distance, so staffToCustomerKm's
+  // meaning (and everything downstream of it) never has to change.
+  const handoverReadingToDistance = (reading, startingMileage) =>
+    reading === "" ? "" : String(Math.max(0, Number(reading) - (Number(startingMileage) || 0)));
+  const distanceToHandoverReading = (distanceKm, startingMileage) =>
+    distanceKm === "" ? "" : (Number(startingMileage) || 0) + Number(distanceKm);
+
+  // A converted distance this large means the reading typed above doesn't
+  // add up — most likely a typo (an extra digit, or Starting Mileage itself
+  // is off) rather than a genuine cross-emirate delivery leg.
   const MAX_SANE_STAFF_KM = 500;
 
   // Shared by the create-flow's Step 5 handover block and the Edit Booking
@@ -906,9 +914,9 @@ export default function FleetOpzApp() {
     }
     const staffKm = Number(newBookingData.staffToCustomerKm);
     if (newBookingData.staffToCustomerKm === "" || staffKm < 0) {
-      errors.staffToCustomerKm = "Enter the Staff → Customer Mileage (0 if the customer collected the car themselves)";
+      errors.staffToCustomerKm = "Enter the odometer reading when the car reached the customer (equal to Starting Mileage if the customer collected it themselves)";
     } else if (staffKm > MAX_SANE_STAFF_KM) {
-      errors.staffToCustomerKm = `${staffKm.toLocaleString()} km looks like an odometer reading, not a distance — enter how far staff actually drove (e.g., 25), not the odometer value.`;
+      errors.staffToCustomerKm = `That works out to a ${staffKm.toLocaleString()} km delivery leg — please check the odometer reading you entered.`;
     }
     if (!newBookingData.fuelLevel) errors.fuelLevel = "Select the Fuel Level to complete the handover";
     return errors;
@@ -3170,25 +3178,32 @@ export default function FleetOpzApp() {
                               {/* Staff to Customer delivery leg. Internal km: it
                                   moves the odometer but is never billed, so the
                                   customer's own distance is measured from
-                                  Starting Mileage + this. */}
+                                  Starting Mileage + this. Staff type the reading
+                                  they actually see on the odometer — not a
+                                  distance they'd have to work out themselves —
+                                  and handoverReadingToDistance derives the
+                                  distance staffToCustomerKm actually stores. */}
                               <div style={{ marginBottom: 14 }}>
-                                <label style={bookingFieldLabelStyle}>Staff → Customer Mileage (km) <span style={{ color: C.red }}>*</span></label>
+                                <label style={bookingFieldLabelStyle}>Odometer at Customer Handover (km) <span style={{ color: C.red }}>*</span></label>
                                 <input
                                   type="number"
-                                  min="0"
-                                  value={newBookingData.staffToCustomerKm}
+                                  min={Number(newBookingData.startingMileage) || 0}
+                                  value={distanceToHandoverReading(newBookingData.staffToCustomerKm, newBookingData.startingMileage)}
                                   onChange={(e) => {
                                     const v = e.target.value;
                                     if (v !== "" && Number(v) < 0) return;
                                     clearFieldError("staffToCustomerKm");
-                                    setNewBookingData({ ...newBookingData, staffToCustomerKm: v });
+                                    setNewBookingData({ ...newBookingData, staffToCustomerKm: handoverReadingToDistance(v, newBookingData.startingMileage) });
                                   }}
-                                  placeholder="25"
+                                  placeholder="e.g., 10025"
                                   style={bookingFieldInputStyle(false, !!fieldErrors.staffToCustomerKm)}
                                 />
                                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-                                  Mileage driven by staff from company/shed to customer — company/internal mileage, not charged to the customer.
+                                  Reading on the odometer when the car reaches the customer — the app works out the distance by subtracting Starting Mileage. Company/internal mileage, not charged to the customer.
                                 </div>
+                                {newBookingData.staffToCustomerKm !== "" && (
+                                  <div style={{ fontSize: 10.5, color: C.teal, fontWeight: 600, marginTop: 2 }}>= {newBookingData.staffToCustomerKm} km driven by staff</div>
+                                )}
                                 <FieldErr msg={fieldErrors.staffToCustomerKm} />
                               </div>
                               <div style={{ marginBottom: 14 }}>
@@ -3253,10 +3268,11 @@ export default function FleetOpzApp() {
                                   placeholder="9210" style={bookingFieldInputStyle(false)} />
                               </div>
                               <div>
-                                <label style={bookingFieldLabelStyle}>Staff → Customer Mileage (km) · internal</label>
-                                <input type="number" min="0" value={newBookingData.staffToCustomerKm}
-                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, staffToCustomerKm: v }); }}
-                                  placeholder="25" style={bookingFieldInputStyle(false)} />
+                                <label style={bookingFieldLabelStyle}>Odometer at Handover (km) · internal</label>
+                                <input type="number" min={Number(newBookingData.startingMileage) || 0}
+                                  value={distanceToHandoverReading(newBookingData.staffToCustomerKm, newBookingData.startingMileage)}
+                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, staffToCustomerKm: handoverReadingToDistance(v, newBookingData.startingMileage) }); }}
+                                  placeholder="e.g., 9235" style={bookingFieldInputStyle(false)} />
                               </div>
                               <div>
                                 <label style={bookingFieldLabelStyle}>Fuel Level (at handover)</label>
