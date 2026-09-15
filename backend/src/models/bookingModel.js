@@ -94,11 +94,11 @@ function validateStaffToCustomerKm(patch) {
 }
 
 // Sane bounds for any single odometer READING (Starting Mileage, Customer
-// Return ODO, Final Odometer) — 0 to 9,999,999 km, a real 7-digit odometer
+// Return ODO, Final Odometer) — 0 to 999,999,999 km, a real 9-digit odometer
 // display. Mirrors mileage.js's MAX_ODOMETER_KM on the frontend; kept as a
 // separate literal here since the backend doesn't share ES module imports
 // with the frontend bundle.
-const MAX_ODOMETER_KM = 9999999;
+const MAX_ODOMETER_KM = 999999999;
 const ODOMETER_FIELDS = [
   ["startingMileage", "Starting Mileage"],
   ["customerReturnMileage", "Customer Return ODO"],
