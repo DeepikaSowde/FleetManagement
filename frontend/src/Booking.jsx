@@ -29,7 +29,7 @@ const BOOKING_STAT_META = {
 };
 import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
 import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
-import { computeMileageSplit } from "./mileage";
+import { computeMileageSplit, MAX_ODOMETER_KM } from "./mileage";
 import { generateRentalAgreementPdf } from "./rentalAgreement";
 
 
@@ -596,6 +596,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // here — it's always exactly the remaining shortfall — only how it's paid.
   const [depositTopUpMethod, setDepositTopUpMethod] = useState("Cash");
   const [depositTopUpReference, setDepositTopUpReference] = useState("");
+  // In-app replacement for window.alert() on Complete Handover's validation
+  // messages — a real dialog styled like the rest of the app (see
+  // NoticeModal below), not the browser's own "<site> says" chrome.
+  const [handoverNotice, setHandoverNotice] = useState("");
   // Daily / Monthly collection cards (Pricing & Payment). A collection is a
   // rental payment tagged with `kind` ("daily" | "monthly") so the two cards
   // can each list their own entries while still folding into the one Total
@@ -676,21 +680,22 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       !(!!b.mileageIn || isBookingClosedOut(b.status))
     );
     if (conflictingActiveBooking) {
-      alert(`This vehicle is still out on booking ${conflictingActiveBooking.id} (${conflictingActiveBooking.customer}) — it hasn't been returned yet. Record that return first before handing this car over again.`);
+      setHandoverNotice(`This vehicle is still out on booking ${conflictingActiveBooking.id} (${conflictingActiveBooking.customer}) — it hasn't been returned yet. Record that return first before handing this car over again.`);
       return;
     }
-    if (startingMileage === "" || Number(startingMileage) < 0) { alert("Enter a valid Starting Mileage"); return; }
+    if (startingMileage === "" || Number(startingMileage) < 0) { setHandoverNotice("Enter a valid Starting Mileage"); return; }
+    if (Number(startingMileage) > MAX_ODOMETER_KM) { setHandoverNotice(`Starting Mileage can't exceed ${MAX_ODOMETER_KM.toLocaleString()} km — check the reading.`); return; }
     // staffToCustomerKm already holds the DISTANCE — the input above converts
     // the odometer reading staff actually types into this by subtracting
     // Starting Mileage, so everything from here down is unchanged.
     const staffKmEntered = Number(staffToCustomerKm);
-    if (staffToCustomerKm === "") { alert("Enter the odometer reading when the car reached the customer — equal to Starting Mileage if the customer collected it themselves."); return; }
-    if (staffKmEntered < 0) { alert(`Odometer at Customer Handover can't be less than Starting Mileage (${startingMileage} km) — enter the actual reading.`); return; }
+    if (staffToCustomerKm === "") { setHandoverNotice("Enter the odometer reading when the car reached the customer — equal to Starting Mileage if the customer collected it themselves."); return; }
+    if (staffKmEntered < 0) { setHandoverNotice(`Odometer at Customer Handover can't be less than Starting Mileage (${startingMileage} km) — enter the actual reading.`); return; }
     // A converted distance this large means the odometer reading typed above
     // doesn't add up — most likely a typo (an extra digit, or Starting
     // Mileage itself is off). Kept in sync with FleetOpzApp.jsx's MAX_SANE_STAFF_KM.
-    if (staffKmEntered > 500) { alert(`That works out to a ${staffKmEntered.toLocaleString()} km delivery leg — please check the odometer reading you entered.`); return; }
-    if (!fuelLevel) { alert("Select the Fuel Level at pickup"); return; }
+    if (staffKmEntered > 500) { setHandoverNotice(`That works out to a ${staffKmEntered.toLocaleString()} km delivery leg — please check the odometer reading you entered.`); return; }
+    if (!fuelLevel) { setHandoverNotice("Select the Fuel Level at pickup"); return; }
 
     // The full security deposit must be held before the vehicle goes out — a
     // partial deposit collected at booking gets topped up right here, to 100%,
@@ -698,7 +703,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // no partial top-up, no skipping it.
     const depositShortfall = Math.max(0, inv.deposit - inv.depositPaid);
     if (depositShortfall > 0 && depositTopUpMethod !== "Cash" && !depositTopUpReference.trim()) {
-      alert("Enter the Transaction ID for the security deposit (required unless the payment method is Cash).");
+      setHandoverNotice("Enter the Transaction ID for the security deposit (required unless the payment method is Cash).");
       return;
     }
 
@@ -710,10 +715,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // Transaction ID is mandatory for every payment method EXCEPT Cash (for
     // Cash it's optional, since there's no transaction reference).
     if (rentAmt > 0 && rentMethod !== "Cash" && !rentReference.trim()) {
-      alert("Enter the Transaction ID (required unless the payment method is Cash).");
+      setHandoverNotice("Enter the Transaction ID (required unless the payment method is Cash).");
       return;
     }
-    if (rentAmt > 0 && (!rentDate || !rentTime)) { alert("Enter the rent payment date & time"); return; }
+    if (rentAmt > 0 && (!rentDate || !rentTime)) { setHandoverNotice("Enter the rent payment date & time"); return; }
 
     const rentPaymentEntry = rentAmt > 0
       ? [{
@@ -877,10 +882,18 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Enter a valid Final Odometer (shed) reading");
       return;
     }
+    if (Number(mileageIn) > MAX_ODOMETER_KM) {
+      alert(`Final Odometer can't exceed ${MAX_ODOMETER_KM.toLocaleString()} km — check the reading.`);
+      return;
+    }
     // Customer return reading (B) is now mandatory; it must sit between the
     // starting reading (A) and the final shed reading (C = mileageIn).
     if (customerReturnMileage === "" || Number(customerReturnMileage) < 0) {
       alert("Enter the Customer Return Odometer");
+      return;
+    }
+    if (Number(customerReturnMileage) > MAX_ODOMETER_KM) {
+      alert(`Customer Return ODO can't exceed ${MAX_ODOMETER_KM.toLocaleString()} km — check the reading.`);
       return;
     }
     {
@@ -1384,7 +1397,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
                       <div style={{ flex: "1 1 160px" }}>
                         <div style={detailFieldLabelStyle}>Starting Mileage (km) <span style={{ color: C.red }}>*</span></div>
-                        <input type="number" min="0" value={startingMileage} onChange={(e) => setStartingMileage(e.target.value)} placeholder="e.g., 9000" style={detailInputStyle} />
+                        <input type="number" min="0" max={MAX_ODOMETER_KM}
+                          value={startingMileage}
+                          onChange={(e) => { const v = e.target.value; if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return; setStartingMileage(v); }}
+                          placeholder="e.g., 9000" style={detailInputStyle} />
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Record the vehicle's odometer reading at the start.</div>
                       </div>
                       <div style={{ flex: "1 1 140px" }}>
@@ -1403,11 +1419,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           in was exactly the mistake that corrupted BK-111. */}
                       <div style={{ flex: "1 1 200px" }}>
                         <div style={detailFieldLabelStyle}>🚗 Odometer at Customer Handover (km) <span style={{ color: C.red }}>*</span></div>
-                        <input type="number" min={Number(startingMileage) || 0}
+                        <input type="number" min={Number(startingMileage) || 0} max={MAX_ODOMETER_KM}
                           value={staffToCustomerKm === "" ? "" : (Number(startingMileage) || 0) + Number(staffToCustomerKm)}
                           onChange={(e) => {
                             const v = e.target.value;
-                            if (v !== "" && Number(v) < 0) return;
+                            if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return;
                             // Deliberately NOT clamped to 0 here — typing "10025"
                             // digit by digit passes through readings below
                             // Starting Mileage (1, 10, 100...), each of which
@@ -1904,11 +1920,17 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     </div>
                     <div style={{ flex: "1 1 160px" }}>
                       <div style={detailFieldLabelStyle}>Customer Return Odo (km)</div>
-                      <input type="number" min="0" value={customerReturnMileage} onChange={(e) => setCustomerReturnMileage(e.target.value)} placeholder="e.g., 272321" style={detailInputStyle} />
+                      <input type="number" min="0" max={MAX_ODOMETER_KM}
+                        value={customerReturnMileage}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return; setCustomerReturnMileage(v); }}
+                        placeholder="e.g., 272321" style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "1 1 160px" }}>
                       <div style={detailFieldLabelStyle}>Final Odometer / Shed (km) <span style={{ color: C.red }}>*</span></div>
-                      <input type="number" min="0" value={mileageIn} onChange={(e) => setMileageIn(e.target.value)} placeholder="e.g., 9450" style={detailInputStyle} />
+                      <input type="number" min="0" max={MAX_ODOMETER_KM}
+                        value={mileageIn}
+                        onChange={(e) => { const v = e.target.value; if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return; setMileageIn(v); }}
+                        placeholder="e.g., 9450" style={detailInputStyle} />
                       <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Reading after staff returns the vehicle to the company.</div>
                     </div>
 
@@ -2314,6 +2336,20 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           )}
         </div>
       </div>
+
+      {/* Complete Handover's validation notice — replaces window.alert() with
+          a dialog styled like the rest of the app, not the browser's own
+          "<site> says" chrome. */}
+      {handoverNotice && (
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 300 }} />
+          <div role="dialog" aria-modal="true" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(420px, 92vw)", background: C.surface, borderRadius: 14, zIndex: 301, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", padding: 24, textAlign: "center", boxSizing: "border-box" }}>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: C.amberFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, margin: "0 auto 14px" }}>⚠️</div>
+            <div style={{ fontSize: 13.5, color: C.textPri, lineHeight: 1.5, marginBottom: 20 }}>{handoverNotice}</div>
+            <Btn primary onClick={() => setHandoverNotice("")} style={{ minWidth: 100 }}>OK</Btn>
+          </div>
+        </>
+      )}
 
       {/* Security Deposit refund modal — replaces the browser prompt. A refund
           below the deposit held reveals a required "reason" field. */}

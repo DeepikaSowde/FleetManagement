@@ -20,7 +20,7 @@ import Fleet from "./Fleet";
 import CarAvailability from "./CarAvailability";
 import Investors from "./Investors";
 import Booking, { CHARGE_TYPES } from "./Booking";
-import { computeMileageSplit } from "./mileage";
+import { computeMileageSplit, MAX_ODOMETER_KM } from "./mileage";
 import DepositRefunds from "./DepositRefunds";
 import Customers from "./Customers";
 import TodayOperations from "./TodayOperations";
@@ -920,6 +920,8 @@ export default function FleetOpzApp() {
     const errors = {};
     if (newBookingData.startingMileage === "" || Number(newBookingData.startingMileage) < 0) {
       errors.startingMileage = "Enter a valid Kilometer Out (Starting Mileage) to complete the handover";
+    } else if (Number(newBookingData.startingMileage) > MAX_ODOMETER_KM) {
+      errors.startingMileage = `Starting Mileage can't exceed ${MAX_ODOMETER_KM.toLocaleString()} km — check the reading.`;
     }
     const staffKm = Number(newBookingData.staffToCustomerKm);
     if (newBookingData.staffToCustomerKm === "") {
@@ -948,6 +950,8 @@ export default function FleetOpzApp() {
       const finalKm = Number(newBookingData.mileageIn);
       if (isNaN(finalKm) || finalKm < startKm) {
         errors.mileageIn = `Final Odometer must be at least the Starting Mileage (${startKm}).`;
+      } else if (finalKm > MAX_ODOMETER_KM) {
+        errors.mileageIn = `Final Odometer can't exceed ${MAX_ODOMETER_KM.toLocaleString()} km — check the reading.`;
       }
       if (newBookingData.customerReturnMileage !== "") {
         const b = Number(newBookingData.customerReturnMileage);
@@ -960,6 +964,8 @@ export default function FleetOpzApp() {
           errors.customerReturnMileage = `Customer Return ODO must be at least ${handoverOdo} km, which is the Customer Handover ODO (Starting Mileage ${startKm} km + Staff → Customer ${Number(newBookingData.staffToCustomerKm) || 0} km).`;
         } else if (!isNaN(finalKm) && b > finalKm) {
           errors.customerReturnMileage = `Customer Return ODO can't exceed the Final Odometer (${finalKm} km).`;
+        } else if (b > MAX_ODOMETER_KM) {
+          errors.customerReturnMileage = `Customer Return ODO can't exceed ${MAX_ODOMETER_KM.toLocaleString()} km — check the reading.`;
         }
       }
     }
@@ -1556,16 +1562,45 @@ export default function FleetOpzApp() {
           : (extendBaseline?.origDays || 0);
         const extraDays = Math.max(0, nDays - (extendBaseline?.origDays || 0));
         const extensionAmt = Number(newBookingData.rentalAmount) || 0;
-        const extensionCharge = extensionAmt > 0 ? [{
-          id: `ext-${Date.now()}`,
-          type: "extension_rental",
-          label: `Extension Rental (${extraDays} day${extraDays === 1 ? "" : "s"})`,
-          amount: extensionAmt,
-          taxable: true,
-          origin: "extension",
-          addedAt: new Date().toISOString(),
-          by: actorName,
-        }] : [];
+        // Collection Charge / Other Charges are real, new fees tied to THIS
+        // extension (not a re-charge of whatever the original booking already
+        // carries) — each becomes its own origin: "extension" line, same
+        // treatment as the extension rental itself, so both the live Grand
+        // Total preview above and the persisted Balance Due agree.
+        const extensionCollectionAmt = Number(newBookingData.collectionCharge) || 0;
+        const extensionOtherAmt = Number(newBookingData.otherCharges) || 0;
+        const extensionCharge = [
+          ...(extensionAmt > 0 ? [{
+            id: `ext-${Date.now()}`,
+            type: "extension_rental",
+            label: `Extension Rental (${extraDays} day${extraDays === 1 ? "" : "s"})`,
+            amount: extensionAmt,
+            taxable: true,
+            origin: "extension",
+            addedAt: new Date().toISOString(),
+            by: actorName,
+          }] : []),
+          ...(extensionCollectionAmt > 0 ? [{
+            id: `ext-coll-${Date.now()}`,
+            type: "collection_charge",
+            label: "Collection Charge (extension)",
+            amount: extensionCollectionAmt,
+            taxable: true,
+            origin: "extension",
+            addedAt: new Date().toISOString(),
+            by: actorName,
+          }] : []),
+          ...(extensionOtherAmt > 0 ? [{
+            id: `ext-other-${Date.now()}`,
+            type: "other_charge",
+            label: "Other Charges (extension)",
+            amount: extensionOtherAmt,
+            taxable: true,
+            origin: "extension",
+            addedAt: new Date().toISOString(),
+            by: actorName,
+          }] : []),
+        ];
         extendUpdates = {
           rentalAmount: original?.rentalAmount ?? newBookingData.rentalAmount,
           charges: [...(original?.charges || []), ...extensionCharge],
@@ -1806,13 +1841,17 @@ export default function FleetOpzApp() {
   // in extend mode (and its field is hidden below) — the car is already with the
   // customer, there's nothing to deliver.
   const bookingDeliveryCharge = extendMode ? 0 : (Number(newBookingData.deliveryCharge) || 0);
-  // In Extend mode every non-rental charge is forced to 0 for the pricing math:
-  // the original booking already carries its own collection / other / driver
-  // charges (they stay on the invoice), so the extension breakdown/Grand Total
-  // reflects ONLY the extension rental + VAT — nothing is re-charged.
-  const bookingCollectionCharge = extendMode ? 0 : (Number(newBookingData.collectionCharge) || 0);
+  // Collection Charge and Other Charges DO count while extending — a genuine
+  // new fee tied to this extension (e.g. a later collection, an extra
+  // service) flows into the extension's own Grand Total same as the rental
+  // does. Persisted as their own origin: "extension" charge lines (see
+  // handleNewBookingSubmit's extend branch), same treatment as the
+  // extension rental itself, so Balance Due picks them up correctly.
+  const bookingCollectionCharge = Number(newBookingData.collectionCharge) || 0;
+  const bookingOtherCharges = Number(newBookingData.otherCharges) || 0;
+  // Additional Driver Charge stays excluded — a driver added at booking is
+  // already priced into the original agreement; extending doesn't add one.
   const bookingAdditionalDriverCharge = extendMode ? 0 : (Number(newBookingData.additionalDriverCharge) || 0);
-  const bookingOtherCharges = extendMode ? 0 : (Number(newBookingData.otherCharges) || 0);
   // Security Deposit is refundable, not a rental charge — kept out of the
   // subtotal/VAT/total math and shown only as an informational figure
   // (Step 4 Payment, and later the Charges & Payment tab).
@@ -3174,10 +3213,11 @@ export default function FleetOpzApp() {
                                 <input
                                   type="number"
                                   min="0"
+                                  max={MAX_ODOMETER_KM}
                                   value={newBookingData.startingMileage}
                                   onChange={(e) => {
                                     const v = e.target.value;
-                                    if (v !== "" && Number(v) < 0) return;
+                                    if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return;
                                     clearFieldError("startingMileage");
                                     setNewBookingData({ ...newBookingData, startingMileage: v });
                                   }}
@@ -3199,10 +3239,11 @@ export default function FleetOpzApp() {
                                 <input
                                   type="number"
                                   min={Number(newBookingData.startingMileage) || 0}
+                                  max={MAX_ODOMETER_KM}
                                   value={distanceToHandoverReading(newBookingData.staffToCustomerKm, newBookingData.startingMileage)}
                                   onChange={(e) => {
                                     const v = e.target.value;
-                                    if (v !== "" && Number(v) < 0) return;
+                                    if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return;
                                     clearFieldError("staffToCustomerKm");
                                     setNewBookingData({ ...newBookingData, staffToCustomerKm: handoverReadingToDistance(v, newBookingData.startingMileage) });
                                   }}
@@ -3274,15 +3315,15 @@ export default function FleetOpzApp() {
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
                               <div>
                                 <label style={bookingFieldLabelStyle}>Kilometer Out (Starting Mileage, km)</label>
-                                <input type="number" min="0" value={newBookingData.startingMileage}
-                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, startingMileage: v }); }}
+                                <input type="number" min="0" max={MAX_ODOMETER_KM} value={newBookingData.startingMileage}
+                                  onChange={(e) => { const v = e.target.value; if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return; setNewBookingData({ ...newBookingData, startingMileage: v }); }}
                                   placeholder="9210" style={bookingFieldInputStyle(false)} />
                               </div>
                               <div>
                                 <label style={bookingFieldLabelStyle}>Odometer at Handover (km) · internal</label>
-                                <input type="number" min={Number(newBookingData.startingMileage) || 0}
+                                <input type="number" min={Number(newBookingData.startingMileage) || 0} max={MAX_ODOMETER_KM}
                                   value={distanceToHandoverReading(newBookingData.staffToCustomerKm, newBookingData.startingMileage)}
-                                  onChange={(e) => { const v = e.target.value; if (v !== "" && Number(v) < 0) return; setNewBookingData({ ...newBookingData, staffToCustomerKm: handoverReadingToDistance(v, newBookingData.startingMileage) }); }}
+                                  onChange={(e) => { const v = e.target.value; if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return; setNewBookingData({ ...newBookingData, staffToCustomerKm: handoverReadingToDistance(v, newBookingData.startingMileage) }); }}
                                   placeholder="e.g., 9235" style={bookingFieldInputStyle(false)} />
                               </div>
                               <div>
@@ -3301,10 +3342,10 @@ export default function FleetOpzApp() {
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 14 }}>
                                 <div>
                                   <label style={bookingFieldLabelStyle}>Customer Return Odo (km) · optional</label>
-                                  <input type="number" min="0" value={newBookingData.customerReturnMileage}
+                                  <input type="number" min="0" max={MAX_ODOMETER_KM} value={newBookingData.customerReturnMileage}
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      if (v !== "" && Number(v) < 0) return;
+                                      if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return;
                                       clearFieldError("customerReturnMileage");
                                       setNewBookingData({ ...newBookingData, customerReturnMileage: v });
                                     }}
@@ -3313,10 +3354,10 @@ export default function FleetOpzApp() {
                                 </div>
                                 <div>
                                   <label style={bookingFieldLabelStyle}>Final Odometer (km) · after staff returns it</label>
-                                  <input type="number" min="0" value={newBookingData.mileageIn}
+                                  <input type="number" min="0" max={MAX_ODOMETER_KM} value={newBookingData.mileageIn}
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      if (v !== "" && Number(v) < 0) return;
+                                      if (v !== "" && (Number(v) < 0 || Number(v) > MAX_ODOMETER_KM)) return;
                                       clearFieldError("mileageIn");
                                       setNewBookingData({ ...newBookingData, mileageIn: v });
                                     }}

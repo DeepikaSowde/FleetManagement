@@ -2,6 +2,13 @@
 // in Booking.jsx) so the booking views, the New Booking wizard and the invoice
 // PDF can all share it without importing each other.
 
+// Sane bounds for any single odometer READING in this app (Starting Mileage,
+// Customer Return ODO, Final Odometer, and the odometer-at-handover value
+// staff type in) — 0 to 9,999,999 km, i.e. a real 7-digit odometer display.
+// Shared by every input that captures one of these, plus the backend's own
+// copy of this same check, so the ceiling can't drift between them.
+export const MAX_ODOMETER_KM = 9999999;
+
 // ── MILEAGE SPLIT ────────────────────────────────────────────────────────────
 // Four readings tell a rental's whole odometer story:
 //   A · startingMileage        odometer at the company/shed when the key leaves

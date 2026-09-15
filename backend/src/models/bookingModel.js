@@ -93,6 +93,31 @@ function validateStaffToCustomerKm(patch) {
   throw err;
 }
 
+// Sane bounds for any single odometer READING (Starting Mileage, Customer
+// Return ODO, Final Odometer) — 0 to 9,999,999 km, a real 7-digit odometer
+// display. Mirrors mileage.js's MAX_ODOMETER_KM on the frontend; kept as a
+// separate literal here since the backend doesn't share ES module imports
+// with the frontend bundle.
+const MAX_ODOMETER_KM = 9999999;
+const ODOMETER_FIELDS = [
+  ["startingMileage", "Starting Mileage"],
+  ["customerReturnMileage", "Customer Return ODO"],
+  ["mileageIn", "Final Odometer"],
+];
+function validateOdometerBounds(patch) {
+  for (const [key, label] of ODOMETER_FIELDS) {
+    const v = patch[key];
+    if (v === undefined || v === null || v === "") continue;
+    const km = Number(v);
+    if (!Number.isFinite(km)) continue;
+    if (km < 0 || km > MAX_ODOMETER_KM) {
+      const err = new Error(`${label} must be between 0 and ${MAX_ODOMETER_KM.toLocaleString()} km.`);
+      err.status = 400;
+      throw err;
+    }
+  }
+}
+
 // Frontend object -> { core values, details bag }
 function split(booking) {
   const details = {};
@@ -135,6 +160,7 @@ async function getById(id) {
 async function create(b) {
   validateMileage(b);
   validateStaffToCustomerKm(b);
+  validateOdometerBounds(b);
   const { details } = split(b);
   const { rows } = await db.query(
     `INSERT INTO bookings (
@@ -164,6 +190,7 @@ async function update(id, updates) {
   // Checked on the incoming patch, not the merged record — see
   // validateStaffToCustomerKm's own comment for why.
   validateStaffToCustomerKm(updates);
+  validateOdometerBounds(updates);
   const merged = { ...current, ...updates, id };
   // Validated on the MERGED record, not just this patch — a request that
   // only sends customerReturnMileage is still floored against
