@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { CalendarDays, CreditCard, User, Car as CarIcon, Ban } from "lucide-react";
-import { C, mono, fmt } from "./theme";
+import { C, mono, fmt, TRANSACTION_METHODS } from "./theme";
 import { Card, Btn, StatusTag } from "./components";
 import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
 
@@ -1210,7 +1210,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const collectionsOf = (kind) => kind === "monthly"
     ? rawPayments.filter(p => p.kind === "monthly")
     : rawPayments.filter(p => p.kind !== "monthly");
-  const COLLECTION_METHODS = ["Cash", "Card", "Bank Transfer", "Online"];
+  const COLLECTION_METHODS = TRANSACTION_METHODS;
 
   // Summary-only collection card for the selected type — collection count +
   // total collected, with a "View full …" link that opens the detailed modal
@@ -1492,7 +1492,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           <div style={{ flex: "1 1 120px" }}>
                             <div style={detailFieldLabelStyle}>Method</div>
                             <select value={depositTopUpMethod} onChange={(e) => setDepositTopUpMethod(e.target.value)} style={detailInputStyle}>
-                              {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                              {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                             </select>
                           </div>
                           <div style={{ flex: "1 1 160px" }}>
@@ -1519,7 +1519,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           <div style={{ flex: "1 1 120px" }}>
                             <div style={detailFieldLabelStyle}>Method</div>
                             <select value={rentMethod} onChange={(e) => setRentMethod(e.target.value)} style={detailInputStyle}>
-                              {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                              {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                             </select>
                           </div>
                           <div style={{ flex: "1 1 120px" }}>
@@ -2220,7 +2220,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                               <div style={{ flex: "1 1 120px" }}>
                                 <div style={detailFieldLabelStyle}>Method</div>
                                 <select value={rentMethod} onChange={(e) => setRentMethod(e.target.value)} style={detailInputStyle}>
-                                  {["Cash", "Card", "Bank Transfer", "Online"].map((m) => <option key={m} value={m}>{m}</option>)}
+                                  {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                                 </select>
                               </div>
                               <div style={{ flex: "1 1 140px" }}>

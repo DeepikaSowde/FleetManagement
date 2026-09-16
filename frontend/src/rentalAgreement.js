@@ -2,6 +2,7 @@ import jsPDF from "jspdf";
 import { computeBookingInvoice } from "./useFleetData";
 import { INVOICE_LOGO_DATA_URI, INVOICE_LOGO_ASPECT } from "./invoiceLogo";
 import { appendTermsAndConditionsPages } from "./rentalTermsPdf";
+import { TRANSACTION_METHODS } from "./theme";
 
 // ---------- formatting helpers ----------
 const fmtDate = (v) => {
@@ -243,9 +244,11 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   y += feeRowH * feeRows.length;
 
   // Payment method row (checkboxes) + Total (bold). The method comes straight
-  // from the Payment stage (booking.paymentMethod) — never hardcoded. The Payment
-  // stage uses "Online" for online transfers, which maps to the "PayNow" box here.
-  const paymentOptions = ["Cash", "PayNow", "Bank Transfer", "Fully Paid"];
+  // from the Payment stage (booking.paymentMethod) — never hardcoded, and
+  // matches the same TRANSACTION_METHODS set the Payment stage offers. Older
+  // bookings recorded before PayNow replaced "Online" still tick the PayNow
+  // box, since that's what "Online" meant.
+  const paymentOptions = TRANSACTION_METHODS;
   const selectedMethod = (() => {
     const s = (booking.paymentMethod || "").trim().toLowerCase();
     return (s === "online" || s === "pay now") ? "paynow" : s;

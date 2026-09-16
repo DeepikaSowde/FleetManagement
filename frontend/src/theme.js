@@ -46,6 +46,12 @@ export const mono = { fontFamily: "'JetBrains Mono', 'Courier New', monospace" }
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 export const fmt = (n) => `SGD ${n.toLocaleString()}`;
+
+// The one supported set of payment/transaction methods across the whole
+// app — Booking Payment, Ledger/Transactions, and the Agreement PDF all
+// offer exactly these four, so a method recorded in one place always means
+// the same thing wherever it's shown or filtered.
+export const TRANSACTION_METHODS = ["Cash", "Card", "PayNow", "Bank Transfer"];
 // Total Investment for one car = Purchase + Purchase Advance + Insurance +
 // Registration + Other Charges. Every field is guarded so a null column from
 // the DB can't turn the whole sum into NaN.

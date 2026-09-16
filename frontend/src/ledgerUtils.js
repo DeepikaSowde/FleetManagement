@@ -9,7 +9,12 @@ export const forfeitedDepositIncome = (bookings = [], { prefix = "", plate = nul
   bookings.reduce((sum, b) => {
     if (!b.depositRefunded) return sum;
     if (plate && b.plate !== plate) return sum;
-    const deposit = Number(b.deductible) || 0;
+    // Forfeit against what was actually collected, not the full agreed
+    // deposit — same reasoning as buildLedgerRows' "Deposit IN" below.
+    const depositAgreed = Number(b.deductible) || 0;
+    const deposit = (b.depositPaid !== undefined && b.depositPaid !== null && String(b.depositPaid).trim() !== "")
+      ? Math.max(0, Math.min(Number(b.depositPaid) || 0, depositAgreed))
+      : depositAgreed;
     const back = b.depositRefundedAmount ?? deposit;
     const forfeited = Math.max(0, deposit - back);
     if (forfeited <= 0) return sum;
@@ -116,7 +121,17 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
       });
     }
 
-    const deposit = Number(b.deductible) || 0;
+    // "Deposit IN" — and everything derived from it below (refund/forfeit) —
+    // must reflect what was actually COLLECTED, not the full agreed deposit.
+    // A booking created with a partial deposit (e.g. SGD 100 of SGD 200 agreed)
+    // has SGD 100 in the till, not SGD 200 — booking the full figure would
+    // overstate cash on hand, and there'd be nothing to refund/forfeit beyond
+    // what was really held. Falls back to the full deposit only for legacy
+    // bookings that predate depositPaid.
+    const depositAgreed = Number(b.deductible) || 0;
+    const deposit = (b.depositPaid !== undefined && b.depositPaid !== null && String(b.depositPaid).trim() !== "")
+      ? Math.max(0, Math.min(Number(b.depositPaid) || 0, depositAgreed))
+      : depositAgreed;
     if (deposit > 0) {
       push({
         key: `DI-${b.id}`,

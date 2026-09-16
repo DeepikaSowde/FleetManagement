@@ -4,7 +4,7 @@ import {
   BookOpen, Briefcase, TrendingUp, ArrowLeftRight,
   UserCog, Settings as SettingsIcon, Bell,
 } from "lucide-react";
-import { C } from "./theme";
+import { C, TRANSACTION_METHODS } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
 import { useViewport } from "./useViewport";
@@ -50,6 +50,15 @@ const bookingFieldInputStyle = (readOnly, hasError) => ({
 // this same look so Step 1–5 stay visually consistent.
 const FieldErr = ({ msg }) =>
   msg ? <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>{msg}</div> : null;
+
+// A person's name: letters (incl. accented), spaces, and the handful of
+// punctuation marks real names actually use (O'Brien, Al-Amin, Mary Ann).
+// No digits and no other symbols — rejects "43433" and stray special
+// characters alike. Shared by Customer Name and every Additional Driver name.
+const NAME_REGEX = /^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ .'-]*$/;
+const isValidPersonName = (v) => NAME_REGEX.test((v || "").trim());
+const NAME_ERROR = "Please enter a valid customer name.";
+const DRIVER_NAME_ERROR = "Please enter a valid driver name.";
 
 // Contact / Phone Number country codes + validation helpers now live in the
 // shared contactCodes module so the New Booking wizard and the Add / Edit
@@ -755,6 +764,7 @@ export default function FleetOpzApp() {
   const validateStep1 = () => {
     const errors = {};
     if (!newBookingData.customer.trim()) errors.customer = "Customer Name is required";
+    else if (!isValidPersonName(newBookingData.customer)) errors.customer = NAME_ERROR;
     if (!isValidEmiratesIdOrPassport(newBookingData.ic)) {
       errors.ic = "Enter a valid Emirates ID (15 digits, e.g. 784-1990-1234567-1) or a passport number (6-9 characters)";
     }
@@ -789,6 +799,44 @@ export default function FleetOpzApp() {
     } else if (isNaN(Number(newBookingData.drivingExperience)) || Number(newBookingData.drivingExperience) < 0) {
       errors.drivingExperience = "Enter valid years of driving experience";
     }
+    // Additional Drivers — same rules as the main customer/license fields
+    // above, applied per driver. Keyed by driver id so each row's errors
+    // render under that row without colliding with any other driver's.
+    // Runs identically in New Booking, Edit Booking, and Extension (this is
+    // the one Step 1 shared by all three), so editing an existing driver's
+    // details is re-validated the same way before it can be saved.
+    newBookingData.additionalDrivers.forEach((d) => {
+      const dName = (d.name || "").trim();
+      if (!dName) {
+        errors[`driver_${d.id}_name`] = "Driver name is required.";
+      } else if (!isValidPersonName(dName)) {
+        errors[`driver_${d.id}_name`] = DRIVER_NAME_ERROR;
+      }
+
+      const dLicense = (d.license || "").trim();
+      if (!dLicense) {
+        errors[`driver_${d.id}_license`] = "Driving License No. is required.";
+      } else if (!isValidEmiratesIdOrPassport(dLicense)) {
+        errors[`driver_${d.id}_license`] = "Enter a valid Driving License Number.";
+      } else {
+        const restrictedMatch = restrictedLicenses.find(
+          r => normalizeLicense(r.licenseNumber) === normalizeLicense(dLicense)
+        );
+        if (restrictedMatch) errors[`driver_${d.id}_license`] = "This driving license has an active criminal case. Booking cannot be created.";
+      }
+
+      if (!d.licenseExpiry) {
+        errors[`driver_${d.id}_licenseExpiry`] = "License Expiry Date is required.";
+      } else if (d.licenseExpiry <= new Date().toLocaleDateString("en-CA")) {
+        errors[`driver_${d.id}_licenseExpiry`] = "License Expiry Date must be a valid future date.";
+      }
+
+      const dCode = d.contactCountryCode || "+65";
+      const dReqDigits = contactDigitsRequired(dCode);
+      if ((d.contact || "").trim().length !== dReqDigits) {
+        errors[`driver_${d.id}_contact`] = `Contact number must be exactly ${dReqDigits} digits.`;
+      }
+    });
     return errors;
   };
 
@@ -804,6 +852,16 @@ export default function FleetOpzApp() {
       const selectedCar = fleetData.fleet.find(c => c.plate === newBookingData.plate);
       if (selectedCar?.status === "Maintenance") {
         errors.plate = "This vehicle is currently under maintenance and unavailable for booking.";
+      } else if (selectedCar) {
+        // A car with an expired COE or Insurance can't legally be on the road,
+        // so it's blocked from new bookings the same way Maintenance is —
+        // date-string compare (both YYYY-MM-DD) avoids timezone drift.
+        const todayStr = new Date().toLocaleDateString("en-CA");
+        const coeExpired = !!selectedCar.coe && selectedCar.coe < todayStr;
+        const insuranceExpired = !!selectedCar.insuranceExpiry && selectedCar.insuranceExpiry < todayStr;
+        if (coeExpired || insuranceExpired) {
+          errors.plate = "Vehicle cannot be booked because COE/Insurance has expired.";
+        }
       }
     }
     if (!newBookingData.start || !newBookingData.end) {
@@ -871,23 +929,20 @@ export default function FleetOpzApp() {
       errors.amountCollectedDateTime = "Enter the Payment Date & Time for the Advance";
     }
     const depositAmount = Number(newBookingData.deductible) || 0;
-    // Security Deposit must actually be collected (checkbox ticked) before
-    // moving on — it can no longer be deferred to "record it later". Only
-    // enforced when there's a deposit amount to collect in the first place.
-    if (depositAmount > 0 && !newBookingData.depositCollected) {
-      errors.depositCollected = "Security Deposit must be paid before continuing. Check \u201CSecurity deposit received\u201D once payment is taken.";
+    // Deposit collection details are always required when there's a deposit
+    // to collect — the amount field itself allows a partial figure (or 0,
+    // deferring collection), but its date/time/method are still needed to
+    // record whatever was actually taken.
+    if (depositAmount > 0 && (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime)) {
+      errors.depositDateTime = "Enter the Deposit Date & Time.";
     }
-    if (newBookingData.depositCollected && depositAmount > 0
-      && (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime)) {
-      errors.depositDateTime = "Enter the Deposit Date & Time (or untick \u201CSecurity deposit received\u201D).";
-    }
-    // Transaction ID is mandatory for non-cash payments \u2014 the rental advance and
+    // Transaction ID is mandatory for non-cash payments — the rental advance and
     // the deposit are each only checked when money is actually being collected.
     if (amountCollectedNow > 0 && (newBookingData.paymentMethod || "").trim().toLowerCase() !== "cash"
       && !(newBookingData.referenceCode || "").trim()) {
       errors.referenceCode = "Transaction ID is required unless the payment method is Cash.";
     }
-    if (newBookingData.depositCollected && depositAmount > 0
+    if (depositAmount > 0
       && (newBookingData.depositCollectedMethod || "").trim().toLowerCase() !== "cash"
       && !(newBookingData.depositReference || "").trim()) {
       errors.depositReference = "Deposit Reference is required unless the deposit method is Cash.";
@@ -1008,7 +1063,7 @@ export default function FleetOpzApp() {
   // Step 4 → Step 5.
   const handleBookingStep4Next = () => {
     const errors = validateStep4();
-    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, depositCollected: undefined, referenceCode: undefined, depositReference: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, amountCollected: undefined, amountCollectedDateTime: undefined, depositDateTime: undefined, referenceCode: undefined, depositReference: undefined, ...errors }));
     if (Object.keys(errors).length) return;
     setBookingStep(5);
   };
@@ -1669,9 +1724,9 @@ export default function FleetOpzApp() {
     // → nothing held yet. Persisted as depositPaid so the Grand Total math and
     // the return/refund cap both use what was really received (partial allowed).
     let depositPaid = 0;
-    if (newBookingData.depositCollected && depositAmount > 0) {
+    if (depositAmount > 0) {
       if (!newBookingData.depositCollectedDate || !newBookingData.depositCollectedTime) {
-        setWizardNotice("Enter the Deposit Date & Time (or untick “Security deposit received”).");
+        setWizardNotice("Enter the Deposit Date & Time.");
         return;
       }
       depositPaid = String(newBookingData.depositPaid).trim() === ""
@@ -2314,6 +2369,15 @@ export default function FleetOpzApp() {
                             🔧 {car.plate} is currently under maintenance and unavailable for booking. Use Complete Maintenance in Fleet once it's ready.
                           </div>
                         )}
+                        {!editingBookingId && car.status !== "Maintenance" && (() => {
+                          const todayStr = new Date().toLocaleDateString("en-CA");
+                          const expired = (!!car.coe && car.coe < todayStr) || (!!car.insuranceExpiry && car.insuranceExpiry < todayStr);
+                          return expired && (
+                            <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, margin: "-4px 0 16px" }}>
+                              ⚠️ Vehicle cannot be booked because COE/Insurance has expired.
+                            </div>
+                          );
+                        })()}
                       </>
                     );
                   })()}
@@ -2534,46 +2598,50 @@ export default function FleetOpzApp() {
                             <input
                               type="text"
                               value={driver.name}
-                              onChange={(e) => setNewBookingData({
-                                ...newBookingData,
-                                additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, name: e.target.value } : d),
-                              })}
+                              onChange={(e) => {
+                                clearFieldError(`driver_${driver.id}_name`);
+                                setNewBookingData({
+                                  ...newBookingData,
+                                  additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, name: e.target.value } : d),
+                                });
+                              }}
                               placeholder="Driver's full name"
-                              style={bookingFieldInputStyle(false)}
+                              style={bookingFieldInputStyle(false, !!fieldErrors[`driver_${driver.id}_name`])}
                             />
+                            <FieldErr msg={fieldErrors[`driver_${driver.id}_name`]} />
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>Driving License No.</label>
                             <input
                               type="text"
                               value={driver.license}
-                              onChange={(e) => setNewBookingData({
-                                ...newBookingData,
-                                additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, license: e.target.value.toUpperCase() } : d),
-                              })}
+                              onChange={(e) => {
+                                clearFieldError(`driver_${driver.id}_license`);
+                                setNewBookingData({
+                                  ...newBookingData,
+                                  additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, license: e.target.value.toUpperCase() } : d),
+                                });
+                              }}
                               placeholder="S1234567A"
-                              style={bookingFieldInputStyle(false)}
+                              style={bookingFieldInputStyle(false, !!fieldErrors[`driver_${driver.id}_license`])}
                             />
+                            <FieldErr msg={fieldErrors[`driver_${driver.id}_license`]} />
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>License Expiry Date</label>
                             <input
                               type="date"
                               value={driver.licenseExpiry}
-                              onChange={(e) => setNewBookingData({
-                                ...newBookingData,
-                                additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, licenseExpiry: e.target.value } : d),
-                              })}
-                              style={bookingFieldInputStyle(false)}
+                              onChange={(e) => {
+                                clearFieldError(`driver_${driver.id}_licenseExpiry`);
+                                setNewBookingData({
+                                  ...newBookingData,
+                                  additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, licenseExpiry: e.target.value } : d),
+                                });
+                              }}
+                              style={bookingFieldInputStyle(false, !!fieldErrors[`driver_${driver.id}_licenseExpiry`])}
                             />
-                            {/* Warn (non-blocking) if the license has already expired as of
-                                the real date. A date-string compare avoids timezone drift, since
-                                both sides are YYYY-MM-DD. */}
-                            {driver.licenseExpiry && driver.licenseExpiry < new Date().toLocaleDateString("en-CA") && (
-                              <div style={{ marginTop: 4, fontSize: 10.5, fontWeight: 600, color: C.red }}>
-                                ⚠️ This license has expired.
-                              </div>
-                            )}
+                            <FieldErr msg={fieldErrors[`driver_${driver.id}_licenseExpiry`]} />
                           </div>
                           <div>
                             <label style={bookingFieldLabelStyle}>Contact Number</label>
@@ -2583,7 +2651,8 @@ export default function FleetOpzApp() {
                               // own code (defaulted from the customer's) and can change it.
                               const dCode = driver.contactCountryCode || "+65";
                               const reqDigits = contactDigitsRequired(dCode);
-                              const badLen = !!(driver.contact.trim() && driver.contact.length !== reqDigits);
+                              const driverContactErr = fieldErrors[`driver_${driver.id}_contact`];
+                              const badLen = !!driverContactErr || !!(driver.contact.trim() && driver.contact.length !== reqDigits);
                               return (
                                 <>
                                   <div style={{ display: "flex", gap: 8 }}>
@@ -2592,6 +2661,7 @@ export default function FleetOpzApp() {
                                       onChange={(e) => {
                                         const newCode = e.target.value;
                                         const clamped = (driver.contact || "").slice(0, contactDigitsRequired(newCode));
+                                        clearFieldError(`driver_${driver.id}_contact`);
                                         setNewBookingData({
                                           ...newBookingData,
                                           additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contactCountryCode: newCode, contact: clamped } : d),
@@ -2608,6 +2678,7 @@ export default function FleetOpzApp() {
                                       value={driver.contact}
                                       onChange={(e) => {
                                         const v = e.target.value.replace(/\D/g, "").slice(0, reqDigits);
+                                        clearFieldError(`driver_${driver.id}_contact`);
                                         setNewBookingData({
                                           ...newBookingData,
                                           additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, contact: v } : d),
@@ -2617,9 +2688,13 @@ export default function FleetOpzApp() {
                                       style={{ ...bookingFieldInputStyle(false, badLen), flex: 1 }}
                                     />
                                   </div>
-                                  <div style={{ fontSize: 10, color: badLen ? C.red : C.textMuted, marginTop: 3 }}>
-                                    {reqDigits} digits required
-                                  </div>
+                                  {driverContactErr ? (
+                                    <FieldErr msg={driverContactErr} />
+                                  ) : (
+                                    <div style={{ fontSize: 10, color: badLen ? C.red : C.textMuted, marginTop: 3 }}>
+                                      {reqDigits} digits required
+                                    </div>
+                                  )}
                                 </>
                               );
                             })()}
@@ -2907,10 +2982,7 @@ export default function FleetOpzApp() {
                       <div>
                         <label style={bookingFieldLabelStyle}>Payment Method</label>
                         <select value={newBookingData.paymentMethod} onChange={(e) => setNewBookingData({ ...newBookingData, paymentMethod: e.target.value })} style={bookingFieldInputStyle(false)}>
-                          <option value="Cash">Cash</option>
-                          <option value="Card">Card</option>
-                          <option value="Bank Transfer">Bank Transfer</option>
-                          <option value="Online">Online</option>
+                          {TRANSACTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                         </select>
                       </div>
                       <div>
@@ -2958,18 +3030,7 @@ export default function FleetOpzApp() {
                     </div>
                   ) : (
                     <>
-                      <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={newBookingData.depositCollected}
-                          onChange={(e) => setNewBookingData({ ...newBookingData, depositCollected: e.target.checked })}
-                          style={{ width: 16, height: 16, accentColor: C.teal }}
-                        />
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: C.navy }}>Security deposit received</span>
-                      </label>
-
-                      {newBookingData.depositCollected ? (
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
                           <div style={{ gridColumn: "1 / -1" }}>
                             <label style={bookingFieldLabelStyle}>Amount Collected Now</label>
                             <input
@@ -3004,10 +3065,7 @@ export default function FleetOpzApp() {
                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedMethod: e.target.value })}
                               style={bookingFieldInputStyle(false)}
                             >
-                              <option value="Cash">Cash</option>
-                              <option value="Card">Card</option>
-                              <option value="Bank Transfer">Bank Transfer</option>
-                              <option value="Online">Online</option>
+                              {TRANSACTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                             </select>
                           </div>
                           <div>
@@ -3040,11 +3098,6 @@ export default function FleetOpzApp() {
                             />
                           </div>
                         </div>
-                      ) : (
-                        <div style={{ fontSize: 12, color: "#92400e", border: "1px solid #f59e0b55", background: "#fef3c7", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-                          ⚠ Deposit pending — you can still confirm the booking. Record the deposit later from the booking's <b>Pricing &amp; Payment</b> tab.
-                        </div>
-                      )}
 
                       {/* Optional: collect rent now — e.g. same-day or backdated
                           rentals. The normal flow collects rent at pickup. */}
@@ -3076,10 +3129,7 @@ export default function FleetOpzApp() {
                                 onChange={(e) => setNewBookingData({ ...newBookingData, paymentMethod: e.target.value })}
                                 style={bookingFieldInputStyle(false)}
                               >
-                                <option value="Cash">Cash</option>
-                                <option value="Card">Card</option>
-                                <option value="Bank Transfer">Bank Transfer</option>
-                                <option value="Online">Online</option>
+                                {TRANSACTION_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                               </select>
                             </div>
                             <div>
