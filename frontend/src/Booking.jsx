@@ -2537,7 +2537,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${C.border}` }}>
                 {[
-                  { label: "Total Agreement", value: inv.grandTotal, color: C.navy },
+                  { label: "Total Rental Amount", value: inv.grandTotal, color: C.navy },
                   { label: "Total Collected", value: collected, color: C.teal },
                   { label: "Balance Due", value: inv.balanceDue, color: balanceColor },
                 ].map(s => (

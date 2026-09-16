@@ -1602,6 +1602,18 @@ export default function FleetOpzApp() {
         ];
         extendUpdates = {
           rentalAmount: original?.rentalAmount ?? newBookingData.rentalAmount,
+          // Delivery/Collection/Other/Additional-Driver Charge fields double as
+          // this wizard's inputs for the EXTENSION's own new fees (see
+          // extensionCollectionAmt/extensionOtherAmt above) — but they are also
+          // the booking's own stored fields that computeBookingInvoice's
+          // agreementTotal reads directly. Without restoring them here,
+          // editableFields below would overwrite the original booking's
+          // Agreement Total inputs with whatever was typed for the extension,
+          // corrupting the signed Agreement Total after every extension.
+          deliveryCharge: original?.deliveryCharge ?? newBookingData.deliveryCharge,
+          collectionCharge: original?.collectionCharge ?? newBookingData.collectionCharge,
+          otherCharges: original?.otherCharges ?? newBookingData.otherCharges,
+          additionalDriverCharge: original?.additionalDriverCharge ?? newBookingData.additionalDriverCharge,
           charges: [...(original?.charges || []), ...extensionCharge],
         };
         // "Extended Rent — Collect Now": record any amount taken during the
