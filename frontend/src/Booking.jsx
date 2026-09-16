@@ -1167,19 +1167,30 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const remarks = kind === "monthly"
       ? "Monthly collection"
       : (clearsBalance ? "Full payment" : "Partial payment");
-    const entry = {
-      id: `${Date.now()}`,
-      amount: amt,
+    // A collection must settle whichever balance is actually still owed. The
+    // pre-extension balance and the extension balance are separate mini-ledgers
+    // (see calcInvoice above — extensionPaid only counts payments explicitly
+    // tagged origin: "extension"), so an untagged entry here would only ever
+    // credit the pre-extension side and could leave a fully-collected extension
+    // balance stuck showing as still owed. Apply the collected amount to the
+    // pre-extension balance first, then whatever's left to the extension.
+    const reference = paymentReference.trim();
+    const toOriginal = Math.min(amt, inv.preExtensionBalance);
+    const toExtension = amt - toOriginal;
+    const baseEntry = {
       method: paymentMethod,
-      reference: paymentReference.trim(),
+      reference,
       addedAt: `${paymentDate}T${paymentTime}`,
       by: actor,
       kind,
       remarks,
     };
+    const newEntries = [];
+    if (toOriginal > 0) newEntries.push({ ...baseEntry, id: `${Date.now()}`, amount: toOriginal });
+    if (toExtension > 0) newEntries.push({ ...baseEntry, id: `${Date.now()}-ext`, amount: toExtension, origin: "extension" });
     onUpdateBooking(booking.id, {
-      payments: [...inv.payments, entry],
-      history: withHistory(histEntry("payment", `${kind === "monthly" ? "Monthly" : "Daily"} collection ${fmt(amt)} · ${paymentMethod}${entry.reference ? ` · Ref ${entry.reference}` : ""}`)),
+      payments: [...inv.payments, ...newEntries],
+      history: withHistory(histEntry("payment", `${kind === "monthly" ? "Monthly" : "Daily"} collection ${fmt(amt)} · ${paymentMethod}${reference ? ` · Ref ${reference}` : ""}`)),
     });
     setCollectionModal(null);
     setPaymentAmount("");
