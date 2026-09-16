@@ -1324,7 +1324,6 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               <div style={{ fontSize: 12, color: C.textMuted }}>{booking.customer} · {booking.plate}</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Btn onClick={() => onEditBooking?.(booking)}>✏️ Edit</Btn>
               {/* Extend only makes sense while the car is still with the
                   customer — Upcoming (not yet picked up) or On Rental
                   (Active/Ending Today/Overdue). Once it's back (Completed/
@@ -1557,12 +1556,11 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           );
                         })()}
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Optional — leave blank, or collect part now; any remaining balance can be collected later (e.g. at return).</div>
-                        {/* Collect Now — settles the FULL balance immediately without
-                            stepping through the rest of the handover form. */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-                          <Btn onClick={handleCollectNow}>Collect Full Balance Now ({fmt(inv.balanceDue)})</Btn>
-                          {fullyCollectedNotice && <span style={{ fontSize: 11.5, fontWeight: 600, color: C.teal }}>✓ Balance fully collected.</span>}
-                        </div>
+                        {fullyCollectedNotice && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 600, color: C.teal }}>✓ Balance fully collected.</span>
+                          </div>
+                        )}
                       </div>
                     )}
 

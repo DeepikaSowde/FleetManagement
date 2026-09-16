@@ -759,7 +759,10 @@ export default function FleetOpzApp() {
   // and blocks on any result; handleNewBookingSubmit calls all five in one
   // pass so a problem left behind on an earlier step is caught (and shown
   // exactly where it lives) even if the user jumped straight to Review.
-  const normalizeLicense = (v) => (v || "").trim().toUpperCase();
+  // Strips ALL whitespace (leading, trailing, and internal) before comparing
+  // against the Restricted Licences list — "ABC 123" and "ABC123" must match
+  // the same restricted entry, not slip past it as two different strings.
+  const normalizeLicense = (v) => (v || "").replace(/\s+/g, "").toUpperCase();
 
   const validateStep1 = () => {
     const errors = {};
@@ -2249,7 +2252,7 @@ export default function FleetOpzApp() {
                           Enter a valid Driving License Number (same as the IC Number)
                         </div>
                       ) : newBookingData.license && restrictedLicenses.some(
-                        r => r.licenseNumber.trim().toUpperCase() === newBookingData.license.trim().toUpperCase()
+                        r => normalizeLicense(r.licenseNumber) === normalizeLicense(newBookingData.license)
                       ) && (
                         <div style={{ fontSize: 10.5, color: C.red, marginTop: 5, fontWeight: 600 }}>
                           This driving license has an active criminal case. Booking cannot be created.
