@@ -648,7 +648,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
 
   const invTxns = txns.filter((t) => IN_TYPES.includes(t.type));
   const dividendTxns = txns.filter((t) => t.type === TXN_TYPES.DIVIDEND);
-  const exitTxns = txns.filter((t) => t.type === TXN_TYPES.EXIT);
 
   return (
     <div>
@@ -676,7 +675,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn onClick={() => onEditInvestor(investor)}>Edit Investor</Btn>
           <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.FIRST_INVESTMENT)}>+ Add Transaction</Btn>
         </div>
       </div>
@@ -689,7 +687,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           { key: "investments", label: "Investments" },
           { key: "transactions", label: "Transactions" },
           { key: "dividends", label: "Dividends" },
-          { key: "exits", label: "Exit / Withdrawals" },
         ]}
       />
 
@@ -758,7 +755,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Investment History</div>
-            <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.REINVESTMENT)}>+ Add Investment</Btn>
           </div>
           <PaginatedTxnTable rows={invTxns} emptyMessage="No investments recorded yet. Add the First Investment to get started." />
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", gap: 32, flexWrap: "wrap" }}>
@@ -773,7 +769,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>All Transactions</div>
-            <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.FIRST_INVESTMENT)}>+ Add Transaction</Btn>
           </div>
           <PaginatedTxnTable rows={txns} emptyMessage="No transactions recorded yet." />
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
@@ -786,7 +781,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Dividends</div>
-            <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.DIVIDEND)}>+ Add Dividend</Btn>
           </div>
           <PaginatedTxnTable rows={dividendTxns} emptyMessage="No dividends recorded yet." />
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -794,22 +788,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           </div>
           <div style={{ marginTop: 12, fontSize: 11, color: C.textMuted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
             Dividends are a return on this investment, kept separate from investment capital — they never change Holding %, which comes only from the Ownership tab's cap table.
-          </div>
-        </div>
-      )}
-
-      {tab === "exits" && (
-        <div style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Exit / Withdrawals</div>
-            <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.EXIT)}>+ Add Exit</Btn>
-          </div>
-          <PaginatedTxnTable rows={exitTxns} emptyMessage="No exits or withdrawals recorded yet." />
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <SummaryLine label="Total Exit Paid" value={fmtSGD(m.totalExit)} bold valueColor={IC.red} />
-          </div>
-          <div style={{ marginTop: 12, fontSize: 11, color: C.textMuted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
-            Exit / withdrawal amounts are kept separate from investment capital and dividends — they never change Holding %, which comes only from the Ownership tab's cap table.
           </div>
         </div>
       )}
@@ -883,7 +861,6 @@ function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAdd
         <StatCard label="Total Investors (Active)" value={investors.filter((i) => i.status === "Active").length} icon="👥" />
         <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub="Capital in" icon="💰" />
         <StatCard label="Total Dividends (OUT)" value={fmtSGD(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
-        <StatCard label="Total Exit Paid (OUT)" value={fmtSGD(totals.exit)} sub="All Time" icon="↩️" valueColor={IC.red} />
       </StatRow>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -932,10 +909,7 @@ function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAdd
                       <td style={{ ...td, textAlign: "right" }}>{fmtPct(m.holdingPct)}</td>
                       <td style={td}><StatusTag status={inv.status} /></td>
                       <td style={td}>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <Btn primary data-testid="investor-row-view" onClick={() => onView(inv.id)}>View</Btn>
-                          <Btn onClick={() => onReinvest(inv.id)}>+ Reinvest</Btn>
-                        </div>
+                        <Btn primary data-testid="investor-row-view" onClick={() => onView(inv.id)}>View</Btn>
                       </td>
                     </tr>
                   );
@@ -1268,6 +1242,14 @@ export default function Investors({
   const saveTransaction = (data) => {
     onCreateTransaction?.(txnTargetId, data);
     setShowTxnModal(false);
+
+    // Completing an Exit / Withdrawal means this investor has cashed out —
+    // move them to Inactive automatically instead of leaving that as a
+    // manual follow-up step someone can forget.
+    if (data.type === TXN_TYPES.EXIT) {
+      const who = investors.find((i) => i.id === txnTargetId);
+      if (who && who.status !== "Inactive") onUpdateInvestor?.(txnTargetId, { status: "Inactive" });
+    }
 
     // A reinvestment is the other case where money arriving may have been
     // agreed to buy a different share. Offer the change; don't assume it.
