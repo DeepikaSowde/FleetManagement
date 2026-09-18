@@ -120,6 +120,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
   // Net Profit by Car (top 6 for the month) — donut slices sized by |net|, with
   // each car's share of the month's total net for the legend.
   const totalNet = monthMetrics.monthlyProfit;
+  const totalNetStr = fmt(totalNet);
   const donutCars = perCarNet.slice(0, 6).map((c, i) => ({
     ...c, color: DONUT_COLORS[i % DONUT_COLORS.length],
     absNet: Math.abs(c.net),
@@ -248,10 +249,17 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
                         <Pie data={donutCars} dataKey="absNet" cx="50%" cy="50%" innerRadius={52} outerRadius={82} paddingAngle={2} stroke="none">
                           {donutCars.map((d, i) => <Cell key={i} fill={d.color} />)}
                         </Pie>
+                        <Tooltip
+                          formatter={(_v, _n, props) => [fmt(props.payload.net), props.payload.plate]}
+                          contentStyle={{ fontSize: 11, borderRadius: 8, border: `1px solid ${C.border}`, whiteSpace: "nowrap" }}
+                        />
                       </PieChart>
                       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
                         <div style={{ fontSize: 9.5, color: C.textMuted }}>Total</div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: totalNet >= 0 ? C.navy : C.red }}>{fmt(totalNet)}</div>
+                        <div style={{
+                          width: 96, fontSize: totalNetStr.length > 15 ? 10 : totalNetStr.length > 12 ? 12 : 15,
+                          fontWeight: 800, color: totalNet >= 0 ? C.navy : C.red, textAlign: "center", lineHeight: 1.15, wordBreak: "break-word",
+                        }}>{totalNetStr}</div>
                         <div style={{ fontSize: 8.5, color: C.textMuted }}>Net Profit (Loss)</div>
                       </div>
                     </div>
@@ -260,7 +268,6 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
                         <div key={d.plate} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
                           <span style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
                           <span style={{ fontSize: 11.5, color: C.textSec, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.plate}</span>
-                          <span style={{ ...mono, fontSize: 11, fontWeight: 700, color: d.net >= 0 ? C.green : C.red }}>{d.net >= 0 ? "" : "−"}{fmt(Math.abs(d.net))}</span>
                           <span style={{ fontSize: 10, color: C.textMuted, minWidth: 46, textAlign: "right" }}>({d.pct.toFixed(1)}%)</span>
                         </div>
                       ))}
