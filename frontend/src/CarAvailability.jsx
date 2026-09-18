@@ -180,7 +180,7 @@ function GreenButton({ children, onClick, disabled, full, small, id, dataTestid,
 const StatusChip = ({ status }) => {
   const map = {
     available: { bg: AVAIL.bg, text: AVAIL.text, dot: AVAIL.dot, label: "Available" },
-    booked: { bg: G.dangerSoft, text: G.danger, dot: AVAILABILITY_COLORS.booked.dot, label: "Booked" },
+    booked: { bg: G.dangerSoft, text: G.danger, dot: AVAILABILITY_COLORS.booked.dot, label: "On Rental" },
     partial: { bg: AVAILABILITY_COLORS.partial.bg, text: AVAILABILITY_COLORS.partial.text, dot: AVAILABILITY_COLORS.partial.dot, label: "Partial" },
   };
   const c = map[status] || { bg: G.primarySofter, text: G.textMuted, dot: G.borderStrong, label: "—" };
@@ -447,7 +447,7 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
           {/* Legend */}
           <div style={{ display: "flex", gap: 16, marginTop: 14, flexWrap: "wrap" }}>
             {selectedCar
-              ? [["available", "Available"], ["partial", "Partial"], ["booked", "Booked"]].map(([k, label]) => (
+              ? [["available", "Available"], ["partial", "Partial"], ["booked", "On Rental"]].map(([k, label]) => (
                 <span key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: G.text, fontWeight: 600 }}>
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: AVAILABILITY_COLORS[k].bg, border: `1px solid ${AVAILABILITY_COLORS[k].dot}` }} /> {label}
                 </span>
@@ -474,7 +474,7 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
               <div style={{ fontSize: 12.5, fontWeight: 700 }}>
                 {selectedCarPeriod === "available"
                   ? `Available for ${fmtShort(rangeStart)} – ${fmtShort(rangeEnd)}`
-                  : `Booked during ${fmtShort(rangeStart)} – ${fmtShort(rangeEnd)}`}
+                  : `On Rental during ${fmtShort(rangeStart)} – ${fmtShort(rangeEnd)}`}
               </div>
               {selectedCarPeriod === "available" && (
                 <div style={{ marginLeft: "auto" }}>

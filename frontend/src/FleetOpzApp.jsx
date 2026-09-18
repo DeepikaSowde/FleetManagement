@@ -60,6 +60,11 @@ const isValidPersonName = (v) => NAME_REGEX.test((v || "").trim());
 const NAME_ERROR = "Please enter a valid customer name.";
 const DRIVER_NAME_ERROR = "Please enter a valid driver name.";
 
+// Rental/Home Address cap — enforced only in validation (never via a hard
+// maxLength on the input), so a long paste is never silently truncated;
+// the user sees an error and must shorten it themselves before proceeding.
+const ADDRESS_MAX_LENGTH = 200;
+
 // Contact / Phone Number country codes + validation helpers now live in the
 // shared contactCodes module so the New Booking wizard and the Add / Edit
 // Customer form stay identical. (CONTACT_COUNTRY_CODES, contactDigitsRequired,
@@ -566,7 +571,7 @@ export default function FleetOpzApp() {
     additionalDrivers: [], // [{ id, name, license, licenseExpiry, contact }] — optional
     license: "",
     licenseExpiry: "",
-    attachment: null,   // { name, type, size, dataUrl } once a valid file is chosen
+    attachments: [],    // [{ name, type, size, dataUrl }, ...] — one or more chosen files
     comments: "",
     // Payment (Step 4) fields — collected at booking time, separate from the
     // pricing breakdown computed in Step 3. amountCollected defaults to "0"
@@ -790,17 +795,35 @@ export default function FleetOpzApp() {
       );
       if (restrictedMatch) errors.license = "This driving license has an active criminal case. Booking cannot be created.";
     }
-    // Age is now mandatory — required and a sensible positive number.
+    // Age is mandatory and must be a realistic adult driver age: 18-100
+    // inclusive. The upper bound also catches an excessively long typed
+    // value (e.g. "9999") without a separate length check, since anything
+    // past 100 already fails this range.
     if (String(newBookingData.age).trim() === "") {
       errors.age = "Age is required";
-    } else if (isNaN(Number(newBookingData.age)) || Number(newBookingData.age) <= 0) {
-      errors.age = "Enter a valid age";
+    } else if (!/^\d+$/.test(String(newBookingData.age).trim()) || Number(newBookingData.age) < 18 || Number(newBookingData.age) > 100) {
+      errors.age = "Please enter a valid age between 18 and 100.";
     }
-    // Driving Experience (years) is now mandatory — required and non-negative.
+    // Driving Experience (years) is mandatory, non-negative, and must be
+    // logically possible for the entered age — Singapore's minimum driving
+    // age is 18, so experience can never exceed age - 18 (e.g. a 20-year-old
+    // can't have 5 years of driving experience). Only checked once age
+    // itself is valid, so the two errors never contradict each other.
     if (String(newBookingData.drivingExperience).trim() === "") {
       errors.drivingExperience = "Driving Experience is required";
     } else if (isNaN(Number(newBookingData.drivingExperience)) || Number(newBookingData.drivingExperience) < 0) {
       errors.drivingExperience = "Enter valid years of driving experience";
+    } else if (!errors.age) {
+      const maxPossibleExperience = Number(newBookingData.age) - 18;
+      if (Number(newBookingData.drivingExperience) > maxPossibleExperience) {
+        errors.drivingExperience = `Driving Experience can't exceed ${maxPossibleExperience} year${maxPossibleExperience === 1 ? "" : "s"} for age ${newBookingData.age} (minimum driving age is 18).`;
+      }
+    }
+    // Rental/Home Address is optional, but capped at 200 characters — enforced
+    // here (not via a maxLength on the input) so a long paste is never
+    // silently truncated; the user sees this error and must shorten it.
+    if (newBookingData.address.length > ADDRESS_MAX_LENGTH) {
+      errors.address = `Address must be ${ADDRESS_MAX_LENGTH} characters or fewer (currently ${newBookingData.address.length}).`;
     }
     // Additional Drivers — same rules as the main customer/license fields
     // above, applied per driver. Keyed by driver id so each row's errors
@@ -1041,7 +1064,7 @@ export default function FleetOpzApp() {
   // Step 1 → Step 2.
   const handleBookingStep1Next = () => {
     const errors = validateStep1();
-    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, age: undefined, drivingExperience: undefined, driverLicense: undefined, driverContact: undefined, ...errors }));
+    setFieldErrors(prev => ({ ...prev, customer: undefined, ic: undefined, license: undefined, age: undefined, drivingExperience: undefined, address: undefined, driverLicense: undefined, driverContact: undefined, ...errors }));
     if (errors.contact) setContactError(errors.contact); else setContactError("");
     if (Object.keys(errors).length) return;
     setBookingStep(2);
@@ -1178,7 +1201,10 @@ export default function FleetOpzApp() {
       additionalDrivers: booking.additionalDrivers || [],
       license: booking.license || "",
       licenseExpiry: booking.licenseExpiry || "",
-      attachment: booking.attachment || null,
+      // Older bookings saved a single `attachment` object before multi-file
+      // upload existed — folded into the array here so editing one of those
+      // still shows its file instead of appearing empty.
+      attachments: booking.attachments || (booking.attachment ? [booking.attachment] : []),
       comments: booking.comments || "",
       amountCollected: "0",
       paymentMethod: "Cash",
@@ -1234,7 +1260,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachment: null, comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", staffToCustomerKm: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachments: [], comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", staffToCustomerKm: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setContactError("");
     setMatchedCustomer(null);
@@ -1487,30 +1513,53 @@ export default function FleetOpzApp() {
   const ALLOWED_ATTACHMENT_EXTENSIONS = ["jpg", "jpeg", "png", "pdf", "doc", "docx", "xls", "xlsx"];
   const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB
 
-  const handleAttachmentChange = (e) => {
-    const file = e.target.files[0];
-    e.target.value = ""; // reset so choosing the same file again still fires onChange
-    if (!file) return;
-
+  // Reads one file, resolving to its attachment record — or rejecting with
+  // the same per-file validation message handleAttachmentChange showed
+  // before multiple files were supported. Every file is still checked
+  // individually against the same type/size rules (nothing loosened for a
+  // multi-file selection).
+  const readAttachmentFile = (file) => new Promise((resolve, reject) => {
     const ext = file.name.split(".").pop().toLowerCase();
     if (!ALLOWED_ATTACHMENT_EXTENSIONS.includes(ext)) {
-      setAttachmentError(`Unsupported file type ".${ext}". Allowed: JPG, JPEG, PNG, PDF, DOC, DOCX, XLS, XLSX.`);
+      reject(`Unsupported file type ".${ext}". Allowed: JPG, JPEG, PNG, PDF, DOC, DOCX, XLS, XLSX.`);
       return;
     }
     if (file.size > MAX_ATTACHMENT_SIZE) {
-      setAttachmentError(`File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 5MB.`);
+      reject(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 5MB.`);
       return;
     }
-
-    setAttachmentError("");
     const reader = new FileReader();
-    reader.onload = () => {
-      setNewBookingData(prev => ({
-        ...prev,
-        attachment: { name: file.name, type: file.type, size: file.size, dataUrl: reader.result },
-      }));
-    };
+    reader.onload = () => resolve({ name: file.name, type: file.type, size: file.size, dataUrl: reader.result });
+    reader.onerror = () => reject(`Couldn't read "${file.name}".`);
     reader.readAsDataURL(file);
+  });
+
+  // Multiple files can be selected at once (or the picker used repeatedly to
+  // add more) — each accepted file is appended to the existing list rather
+  // than replacing it. If any file in the batch fails validation, the whole
+  // batch is rejected and nothing is added, so a bad file never silently
+  // drops the good ones next to it without explanation.
+  const handleAttachmentChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ""; // reset so choosing the same file(s) again still fires onChange
+    if (files.length === 0) return;
+
+    Promise.all(files.map(readAttachmentFile))
+      .then((newAttachments) => {
+        setAttachmentError("");
+        setNewBookingData(prev => ({
+          ...prev,
+          attachments: [...(prev.attachments || []), ...newAttachments],
+        }));
+      })
+      .catch((message) => setAttachmentError(message));
+  };
+
+  const removeAttachment = (index) => {
+    setNewBookingData(prev => ({
+      ...prev,
+      attachments: prev.attachments.filter((_, i) => i !== index),
+    }));
   };
 
   // Accepts either a 15-digit UAE Emirates ID (784-YYYY-NNNNNNN-N) or a
@@ -2279,8 +2328,10 @@ export default function FleetOpzApp() {
                         min="0"
                         value={newBookingData.age}
                         onChange={(e) => {
-                          const v = e.target.value;
-                          if (v !== "" && Number(v) < 0) return;
+                          // Digits only, capped at 3 characters — the valid
+                          // range (18-100) never needs more than 3 digits, so
+                          // this also blocks an excessively long typed value.
+                          const v = e.target.value.replace(/\D/g, "").slice(0, 3);
                           clearFieldError("age");
                           setNewBookingData({ ...newBookingData, age: v });
                         }}
@@ -2319,10 +2370,20 @@ export default function FleetOpzApp() {
                     <input
                       type="text"
                       value={newBookingData.address}
-                      onChange={(e) => setNewBookingData({ ...newBookingData, address: e.target.value })}
+                      onChange={(e) => {
+                        clearFieldError("address");
+                        setNewBookingData({ ...newBookingData, address: e.target.value });
+                      }}
                       placeholder=" 02-81 Pandan Gardens, Block 410, Singapore"
-                      style={bookingFieldInputStyle(false)}
+                      style={bookingFieldInputStyle(false, !!fieldErrors.address)}
                     />
+                    {/* No maxLength on the input itself — typing past the limit
+                        must show an error and block Next, not silently stop
+                        accepting keystrokes or truncate a pasted address. */}
+                    <div style={{ fontSize: 10, color: newBookingData.address.length > ADDRESS_MAX_LENGTH ? C.red : C.textMuted, marginTop: 4, textAlign: "right" }}>
+                      {newBookingData.address.length}/{ADDRESS_MAX_LENGTH}
+                    </div>
+                    <FieldErr msg={fieldErrors.address} />
                   </div>
                   </div>
                 </>
@@ -2719,28 +2780,36 @@ export default function FleetOpzApp() {
                       File Attachment <span style={{ fontWeight: 400, color: C.textMuted }}>( image or document, max 5MB)</span>
                     </label>
 
-                    {!newBookingData.attachment ? (
-                      <input
-                        type="file"
-                        accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx"
-                        onChange={handleAttachmentChange}
-                        style={{ fontSize: 12, fontFamily: "inherit", width: "100%" }}
-                      />
-                    ) : (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: C.bg }}>
-                        {newBookingData.attachment.type.startsWith("image/") ? (
-                          <img src={newBookingData.attachment.dataUrl} alt="attachment preview" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }} />
-                        ) : (
-                          <div style={{ width: 40, height: 40, borderRadius: 6, background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>📄</div>
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{newBookingData.attachment.name}</div>
-                          <div style={{ fontSize: 10, color: C.textMuted }}>{(newBookingData.attachment.size / 1024).toFixed(0)} KB</div>
-                        </div>
-                        <button type="button" onClick={() => setNewBookingData({ ...newBookingData, attachment: null })}
-                          style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                          Remove
-                        </button>
+                    {/* Always shown (not just when empty) so more files can be
+                        added to whatever's already attached — multiple can
+                        also be selected in one go via the native picker. */}
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx"
+                      multiple
+                      onChange={handleAttachmentChange}
+                      style={{ fontSize: 12, fontFamily: "inherit", width: "100%" }}
+                    />
+
+                    {newBookingData.attachments.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                        {newBookingData.attachments.map((att, idx) => (
+                          <div key={`${att.name}-${idx}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: C.bg }}>
+                            {att.type.startsWith("image/") ? (
+                              <img src={att.dataUrl} alt="attachment preview" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }} />
+                            ) : (
+                              <div style={{ width: 40, height: 40, borderRadius: 6, background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>📄</div>
+                            )}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</div>
+                              <div style={{ fontSize: 10, color: C.textMuted }}>{(att.size / 1024).toFixed(0)} KB</div>
+                            </div>
+                            <button type="button" onClick={() => removeAttachment(idx)}
+                              style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                              Remove
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
 

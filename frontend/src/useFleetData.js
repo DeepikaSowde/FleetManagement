@@ -423,17 +423,33 @@ const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bS
 // stops blocking new bookings the moment the return is recorded (no need to
 // wait for it to reach "Closed"), and a booking whose drop-off was extended
 // stays blocking through the new end date immediately.
+// An Overdue booking (past its scheduled end, car not yet actually returned)
+// must keep blocking new bookings indefinitely — not just up to the original
+// end date it already missed — until a real return is recorded. Without
+// this, getEffectiveBookingEnd falls back to the stale booking.end for a
+// still-open booking, so a new booking starting after that missed date would
+// see no overlap at all and let the car be double-booked while it's still
+// physically out. Mirrors computeCarAvailabilityTimeline's own isOverdueNow
+// check, which already treats these days as occupied on the calendar view.
+const FAR_FUTURE_MS = new Date(8640000000000000).getTime();
+const conflictBlockingEnd = (b) => {
+  const effectiveEnd = getEffectiveBookingEnd(b);
+  if (!b.actualReturnAt && !b.cancelled && effectiveEnd) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (todayStr > toDateStr(effectiveEnd)) return FAR_FUTURE_MS;
+  }
+  return effectiveEnd ? new Date(effectiveEnd).getTime() : null;
+};
+
 const findOverlappingBooking = (bookings, plate, start, end, excludeBookingId) => {
   if (!start || !end) return null;
   const newStart = new Date(start).getTime();
   const newEnd = new Date(end).getTime();
-  const conflicts = bookings.filter(b =>
-    b.plate === plate &&
-    b.id !== excludeBookingId &&
-    !b.cancelled &&
-    b.start && getEffectiveBookingEnd(b) &&
-    rangesOverlap(newStart, newEnd, new Date(b.start).getTime(), new Date(getEffectiveBookingEnd(b)).getTime())
-  );
+  const conflicts = bookings.filter(b => {
+    if (b.plate !== plate || b.id === excludeBookingId || b.cancelled || !b.start) return false;
+    const blockingEnd = conflictBlockingEnd(b);
+    return blockingEnd !== null && rangesOverlap(newStart, newEnd, new Date(b.start).getTime(), blockingEnd);
+  });
   if (conflicts.length === 0) return null;
   return conflicts.reduce((nearest, b) =>
     new Date(b.start).getTime() < new Date(nearest.start).getTime() ? b : nearest
@@ -476,10 +492,19 @@ export const buildAvailabilityConflictMessage = (conflict, requestedStart) => {
   const conflictStartStr = toDateStr(conflict.start);
   const conflictEndStr = toDateStr(getEffectiveBookingEnd(conflict));
   const requestedStartStr = toDateStr(requestedStart);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isOverdueNow = !conflict.actualReturnAt && !conflict.cancelled && todayStr > conflictEndStr;
 
   if (requestedStartStr < conflictStartStr) {
     const lastAvailable = addDaysToDateStr(conflictStartStr, -1);
     return `This vehicle is available only until ${formatShortDate(lastAvailable)}. An existing booking starts on ${formatShortDate(conflictStartStr)}. Please select an end date on or before ${formatShortDate(lastAvailable)} or choose another vehicle.`;
+  }
+
+  // An overdue, not-yet-returned booking has no real "available again" date —
+  // it stays blocked until the actual return is recorded, so the message
+  // says that plainly instead of quoting the missed date as if it still holds.
+  if (isOverdueNow) {
+    return `This vehicle is Overdue — it was due back on ${formatShortDate(conflictEndStr)} and hasn't been returned yet. It isn't available for new bookings until the return is completed.`;
   }
 
   const nextAvailable = addDaysToDateStr(conflictEndStr, 1);
@@ -1633,6 +1658,31 @@ export const useFleetData = () => {
           urgent: true,
         });
       }
+    });
+
+    // Overdue Return alerts — a booking whose scheduled return date/time has
+    // passed without the vehicle actually being returned yet.
+    // computeBookingStatus already derives "Overdue" the moment today passes
+    // booking.end with no real return recorded (see its own comment on why
+    // that's never inferred from the clock alone) — this alert just surfaces
+    // that same derived state, so it can never disagree with what the
+    // booking list/Fleet screen already show as Overdue.
+    bookingsWithStatus.forEach(b => {
+      if (b.status !== "Overdue") return;
+      const endDate = new Date(b.end).toISOString().split("T")[0];
+      const daysOverdue = Math.max(0, Math.floor((new Date(today) - new Date(endDate)) / 86400000));
+      alerts.push({
+        id: alertId++,
+        type: "overdue_return",
+        bookingId: b.id,
+        plate: b.plate,
+        car: fleet.find(c => c.plate === b.plate)?.make + " " + fleet.find(c => c.plate === b.plate)?.model,
+        customer: b.customer,
+        msg: `Vehicle ${b.plate} was due back on ${endDate} and hasn't been returned yet — ${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue.`,
+        dueDate: endDate,
+        days: daysOverdue,
+        urgent: true,
+      });
     });
 
     // Upcoming booking alerts

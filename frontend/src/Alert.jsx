@@ -12,7 +12,7 @@ import { Card } from "./components";
 // No alert data is invented here — everything shown comes from the alerts
 // array the app already computes.
 
-const CATEGORY_OF = { monthly_rent: "payment", coe: "renewal", maintenance: "operational", return: "operational", booking: "operational" };
+const CATEGORY_OF = { monthly_rent: "payment", coe: "renewal", maintenance: "operational", return: "operational", overdue_return: "operational", booking: "operational" };
 
 const CATEGORY_TABS = [
   { key: "all", label: "All Alerts" },
@@ -43,6 +43,9 @@ const rowVisual = (a) => {
   if (a.type === "coe") return { icon: "❗", bg: C.redFaint, color: C.red };
   if (a.type === "maintenance") return { icon: "🔧", bg: C.amberFaint, color: C.amber };
   if (a.type === "return") return { icon: "🔔", bg: C.amberFaint, color: C.amber };
+  // Distinct red (vs. the amber "due today" reminder above) — this one means
+  // the return window has already passed, not just that it's coming up.
+  if (a.type === "overdue_return") return { icon: "🔴", bg: C.redFaint, color: C.red };
   if (a.type === "booking") return { icon: "🔔", bg: C.blueFaint, color: C.blue };
   return { icon: "🔔", bg: C.bg, color: C.textMuted };
 };
@@ -52,6 +55,7 @@ const ROW_TITLE = {
   coe: "Registration Renewal Due Soon",
   maintenance: "Maintenance Pending",
   return: "Return Due Today",
+  overdue_return: "Overdue Return",
   booking: "Booking Starting Tomorrow",
 };
 const rowTitle = (a) => (a.type === "monthly_rent" ? ROW_TITLE.monthly_rent[a.subtype] : ROW_TITLE[a.type]) || a.msg;
@@ -66,6 +70,7 @@ const dueLabel = (a) => {
   }
   if (a.type === "coe") return { text: `${a.days} day${a.days === 1 ? "" : "s"} remaining`, color: a.urgent ? C.red : C.amber };
   if (a.type === "return") return { text: "Today", color: C.green };
+  if (a.type === "overdue_return") return { text: `${a.days} day${a.days === 1 ? "" : "s"} overdue`, color: C.red };
   if (a.type === "booking") return { text: "Tomorrow", color: C.blue };
   if (a.type === "maintenance") return { text: `Day ${a.days}`, color: a.urgent ? C.red : C.amber };
   return { text: "", color: C.textMuted };

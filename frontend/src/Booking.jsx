@@ -97,8 +97,8 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
           >
             <div style={{
               width: 8, height: 8, borderRadius: "50%", margin: "0 auto 4px",
-              background: availableFrom ? C.amber : (STATUS_PILL_COLORS[status] || C.textMuted),
-              boxShadow: availableFrom ? `0 0 0 2px ${C.amber}33` : "none",
+              background: availableFrom ? C.purple : (STATUS_PILL_COLORS[status] || C.textMuted),
+              boxShadow: availableFrom ? `0 0 0 2px ${C.purple}33` : "none",
             }} />
             <div style={{
               fontSize: 9, color: date === todayStr ? C.navy : C.textMuted,
@@ -107,7 +107,7 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
               {formatDayLabel(date)}
             </div>
             {availableFrom && (
-              <div style={{ fontSize: 8, color: C.amber, fontWeight: 700, marginTop: 1, lineHeight: 1 }}>
+              <div style={{ fontSize: 8, color: C.purple, fontWeight: 700, marginTop: 1, lineHeight: 1 }}>
                 {fmtTimeShort(availableFrom)}
               </div>
             )}
@@ -122,7 +122,7 @@ export const AvailabilityTimeline = ({ car, bookings = [] }) => {
           </div>
         ))}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.amber, boxShadow: `0 0 0 2px ${C.amber}33` }} />
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.purple, boxShadow: `0 0 0 2px ${C.purple}33` }} />
           <span style={{ fontSize: 10, color: C.textMuted }}>Available after return time</span>
         </div>
       </div>
@@ -751,7 +751,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       : [];
     const updates = {
       startingMileage, staffToCustomerKm, fuelLevel, vehicleCondition, handoverAt: new Date().toISOString(), status: "Active",
-      ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry] } : {}),
+      // paymentMethod is what the Rental Agreement PDF ticks a checkbox for
+      // (see rentalAgreement.js) — without updating it here, a rent payment
+      // actually collected at Handover with a different method than whatever
+      // was recorded at booking creation would tick the wrong box (or none)
+      // on the Agreement generated right after this.
+      ...(rentPaymentEntry.length ? { payments: [...inv.payments, ...rentPaymentEntry], paymentMethod: rentMethod } : {}),
       // Deposit top-up — same fields the booking wizard's own deposit
       // collection writes (depositPaid/depositCollectedMethod/depositReference/
       // depositCollectedAt), just overwritten here to reflect it's now full.
@@ -943,6 +948,20 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     if (fuelCharge !== "" && Number(fuelCharge) < 0) {
       alert("Fuel Charge cannot be negative");
       return;
+    }
+    // Fuel Charge becomes mandatory the moment Return Fuel reads lower than
+    // Pickup Fuel — never auto-calculated or suggested here, staff must type
+    // the amount themselves before the return can be confirmed. Once entered
+    // it flows into `charges` below exactly like any other post-return
+    // charge, so it's already itemized on the generated Invoice.
+    {
+      const pickupFuelIdx = FUEL_LEVELS.indexOf(booking.fuelLevel || "Full");
+      const returnFuelIdx = FUEL_LEVELS.indexOf(fuelIn);
+      const fuelIsLower = pickupFuelIdx !== -1 && returnFuelIdx !== -1 && returnFuelIdx > pickupFuelIdx;
+      if (fuelIsLower && (fuelCharge === "" || Number(fuelCharge) <= 0)) {
+        alert(`Return Fuel (${fuelIn}) is lower than Pickup Fuel (${booking.fuelLevel || "Full"}). Enter the Fuel Charge before confirming the return.`);
+        return;
+      }
     }
     if (additionalReturnCharges.some(c => c.amount !== "" && Number(c.amount) < 0)) {
       alert("Additional Return Charge amounts cannot be negative");
@@ -2027,17 +2046,28 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                       <div style={detailFieldLabelStyle}>Drop Location <span style={{ color: C.red }}>*</span></div>
                       <input type="text" value={returnLocation} onChange={(e) => setReturnLocation(e.target.value)} placeholder="e.g., Clementi" style={detailInputStyle} />
                     </div>
-                    <div style={{ flex: "0 1 110px" }}>
-                      <div style={detailFieldLabelStyle}>Fuel Charge</div>
-                      <input
-                        type="number"
-                        min="0"
-                        value={fuelCharge}
-                        onChange={(e) => setFuelCharge(e.target.value)}
-                        placeholder="0.00"
-                        style={detailInputStyle}
-                      />
-                    </div>
+                    {(() => {
+                      const pickupFuelIdx = FUEL_LEVELS.indexOf(booking.fuelLevel || "Full");
+                      const returnFuelIdx = FUEL_LEVELS.indexOf(fuelIn);
+                      const fuelChargeRequired = pickupFuelIdx !== -1 && returnFuelIdx !== -1 && returnFuelIdx > pickupFuelIdx;
+                      const fuelChargeMissing = fuelChargeRequired && (fuelCharge === "" || Number(fuelCharge) <= 0);
+                      return (
+                        <div style={{ flex: "0 1 110px" }}>
+                          <div style={detailFieldLabelStyle}>Fuel Charge {fuelChargeRequired && <span style={{ color: C.red }}>*</span>}</div>
+                          <input
+                            type="number"
+                            min="0"
+                            value={fuelCharge}
+                            onChange={(e) => setFuelCharge(e.target.value)}
+                            placeholder="0.00"
+                            style={{ ...detailInputStyle, ...(fuelChargeMissing ? { borderColor: C.red } : {}) }}
+                          />
+                          {fuelChargeMissing && (
+                            <div style={{ fontSize: 10, color: C.red, marginTop: 3 }}>Required — return fuel is lower than pickup</div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Additional Return Charges — folded into booking.charges on
                         Confirm Return (origin: "return", non-taxable), same
