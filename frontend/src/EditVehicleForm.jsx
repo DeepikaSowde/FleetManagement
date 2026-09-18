@@ -42,8 +42,10 @@ const SECTION = { fontSize: 10, fontWeight: 700, color: C.navy, textTransform: "
 const GRID = (min = 170) => ({ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, gap: 10 });
 const req = <span style={{ color: C.red }}>*</span>;
 
-// Money fields are whole numbers, matching the Add Car form.
-const wholeNumber = (raw) => (raw === "" ? "" : String(raw).replace(/[^\d]/g, ""));
+// Digits, with at most one decimal point and at least one digit on each side
+// of it — the final-value validation check, kept in sync with
+// fleetController.js's and AddCarWizard.jsx's copies of this rule.
+const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
 
 // Which fields belong to which stage, for gating "Next" — Stage 3 has no
 // inputs of its own (read-only), so it needs no entry here.
@@ -82,7 +84,14 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
     setErrors((e) => ({ ...e, [k]: undefined }));
     setSaveError("");
   };
-  const setMoney = (k) => (e) => setField(k, wholeNumber(e.target.value));
+  // Purchase Price / Advance / Insurance / Registration / Other Charges accept
+  // decimal amounts (e.g. 26000.50) — anything but digits and at most one
+  // decimal point is rejected character-by-character, same as Add Car.
+  const setMoney = (k) => (e) => {
+    const v = e.target.value;
+    if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
+    setField(k, v);
+  };
 
   // Brand/model suggestions come from the rest of the fleet, exactly as on Add Car.
   const brandModelMap = useMemo(() => buildBrandModelMap(fleet), [fleet]);
@@ -146,14 +155,14 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
 
     if (String(form.purchase).trim() === "" || Number(form.purchase) <= 0) {
       e.purchase = "Purchase Price must be greater than 0";
-    } else if (!Number.isInteger(Number(form.purchase))) {
-      e.purchase = "Purchase Price must be a whole number";
+    } else if (!DECIMAL_AMOUNT_RE.test(String(form.purchase).trim())) {
+      e.purchase = "Purchase Price must be a valid amount (numbers and up to one decimal point only, e.g. 26000.50)";
     }
     [["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"]]
       .forEach(([k, l]) => {
         if (String(form[k]).trim() === "") return;
         if (Number(form[k]) < 0) e[k] = `${l} can't be negative`;
-        else if (!Number.isInteger(Number(form[k]))) e[k] = `${l} must be a whole number`;
+        else if (!DECIMAL_AMOUNT_RE.test(String(form[k]).trim())) e[k] = `${l} must be a valid amount (numbers and up to one decimal point only, e.g. 26000.50)`;
       });
     if (String(form.purchase).trim() !== "" && String(form.purchaseAdvance).trim() !== "" &&
         Number(form.purchaseAdvance) > Number(form.purchase)) {
@@ -341,17 +350,17 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
               <div style={{ height: 1, background: C.border, margin: "14px 0" }} />
 
               <div style={GRID()}>
-                <Input label={<>Purchase Price (SGD) {req}</>} type="number" min="0" step="1"
+                <Input label={<>Purchase Price (SGD) {req}</>} type="number" min="0" step="0.01"
                   value={form.purchase} onChange={setMoney("purchase")} error={errors.purchase} />
-                <Input label="Purchase Advance (SGD)" type="number" min="0" step="1"
+                <Input label="Purchase Advance (SGD)" type="number" min="0" step="0.01"
                   value={form.purchaseAdvance} onChange={setMoney("purchaseAdvance")} error={errors.purchaseAdvance} />
-                <Input label="Insurance (SGD)" type="number" min="0" step="1"
+                <Input label="Insurance (SGD)" type="number" min="0" step="0.01"
                   value={form.insurance} onChange={setMoney("insurance")} error={errors.insurance} />
               </div>
               <div style={{ ...GRID(), marginTop: 6 }}>
-                <Input label="Registration (SGD)" type="number" min="0" step="1"
+                <Input label="Registration (SGD)" type="number" min="0" step="0.01"
                   value={form.reg} onChange={setMoney("reg")} error={errors.reg} />
-                <Input label="Other Charges (SGD)" type="number" min="0" step="1"
+                <Input label="Other Charges (SGD)" type="number" min="0" step="0.01"
                   value={form.otherCharges} onChange={setMoney("otherCharges")} error={errors.otherCharges} />
                 <div>
                   <Input label={<>Purchase Date {req}</>} type="date" value={form.purchaseDate}

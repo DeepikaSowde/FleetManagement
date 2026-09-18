@@ -18,15 +18,21 @@ function findNegativeFieldError(body) {
   return null;
 }
 
-const WHOLE_NUMBER_FIELDS = [
+const DECIMAL_AMOUNT_FIELDS = [
   ["purchase", "Purchase Price"], ["purchaseAdvance", "Purchase Advance"],
   ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"],
 ];
-function findNonWholeFieldError(body) {
-  for (const [key, label] of WHOLE_NUMBER_FIELDS) {
+// Digits, with at most one decimal point and at least one digit on each side
+// of it — matches what the Add Car / Edit Car forms already restrict typing
+// to (see AddCarWizard.jsx/EditVehicleForm.jsx), so a request that bypasses
+// the UI is held to the exact same rule. Rejects letters, symbols, multiple
+// dots (e.g. "26.00.50"), and scientific notation.
+const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
+function findInvalidAmountFieldError(body) {
+  for (const [key, label] of DECIMAL_AMOUNT_FIELDS) {
     const v = body[key];
-    if (v !== undefined && v !== null && v !== "" && !Number.isInteger(Number(v))) {
-      return `${label} must be a whole number`;
+    if (v !== undefined && v !== null && v !== "" && !DECIMAL_AMOUNT_RE.test(String(v).trim())) {
+      return `${label} must be a valid amount (numbers and up to one decimal point only, e.g. 26000.50)`;
     }
   }
   return null;
@@ -57,9 +63,9 @@ async function create(req, res, next) {
     if (negativeFieldError) {
       return res.status(400).json({ message: negativeFieldError });
     }
-    const nonWholeFieldError = findNonWholeFieldError(req.body);
-    if (nonWholeFieldError) {
-      return res.status(400).json({ message: nonWholeFieldError });
+    const invalidAmountFieldError = findInvalidAmountFieldError(req.body);
+    if (invalidAmountFieldError) {
+      return res.status(400).json({ message: invalidAmountFieldError });
     }
     // Case/space variations of an already-registered plate are the same
     // plate — the plate column's own uniqueness wouldn't catch that.
@@ -78,9 +84,9 @@ async function update(req, res, next) {
     if (negativeFieldError) {
       return res.status(400).json({ message: negativeFieldError });
     }
-    const nonWholeFieldError = findNonWholeFieldError(req.body);
-    if (nonWholeFieldError) {
-      return res.status(400).json({ message: nonWholeFieldError });
+    const invalidAmountFieldError = findInvalidAmountFieldError(req.body);
+    if (invalidAmountFieldError) {
+      return res.status(400).json({ message: invalidAmountFieldError });
     }
     const car = await Fleet.update(req.params.plate, req.body);
     if (!car) return res.status(404).json({ message: "Car not found" });

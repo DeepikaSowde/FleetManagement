@@ -46,6 +46,11 @@ const emptyCar = () => ({
 // as the same plate.
 const normalizePlate = (v) => String(v || "").replace(/\s+/g, "").toLowerCase();
 
+// Digits, with at most one decimal point and at least one digit on each side
+// of it — the final-value check backing handleAmountChange's live typing
+// filter, and kept in sync with fleetController.js's copy of this rule.
+const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
+
 // Base catalog of common brands/models (Singapore rental fleet defaults) —
 // merged at render time with any brand/model pairs already present in the
 // live fleet, so the dropdown always reflects real inventory too.
@@ -206,12 +211,13 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     setErrors(e => ({ ...e, plate: isDuplicate ? "Car Plate already exists" : undefined }));
   };
 
-  // Purchase Price / Advance / Insurance / Registration / Other Charges must all
-  // be whole numbers — reject anything but digits (so no "-", ".", or exponent
-  // form can land in the field at all).
-  const handleWholeNumberChange = (key) => (e) => {
+  // Purchase Price / Advance / Insurance / Registration / Other Charges accept
+  // decimal amounts (e.g. 26000.50) — digits with at most one decimal point.
+  // Anything else (letters, "-", a second ".", exponent form) is rejected
+  // character-by-character so it can never land in the field at all.
+  const handleAmountChange = (key) => (e) => {
     const v = e.target.value;
-    if (v !== "" && !/^\d+$/.test(v)) return;
+    if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
     setField(key, v);
   };
 
@@ -271,11 +277,11 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     if (!String(car.fuelType).trim()) e.fuelType = "Fuel Type is required";
     if (!String(car.transmission).trim()) e.transmission = "Transmission is required";
     if (String(car.purchase).trim() === "" || Number(car.purchase) <= 0) e.purchase = "Purchase Price must be greater than 0";
-    else if (!Number.isInteger(Number(car.purchase))) e.purchase = "Purchase Price must be a whole number";
+    else if (!DECIMAL_AMOUNT_RE.test(String(car.purchase).trim())) e.purchase = "Purchase Price must be a valid amount (numbers and up to one decimal point only, e.g. 26000.50)";
     [["purchaseAdvance", "Purchase Advance"], ["insurance", "Insurance"], ["reg", "Registration"], ["otherCharges", "Other Charges"]].forEach(([k, l]) => {
       if (String(car[k]).trim() === "") return;
       if (Number(car[k]) < 0) e[k] = `${l} can't be negative`;
-      else if (!Number.isInteger(Number(car[k]))) e[k] = `${l} must be a whole number`;
+      else if (!DECIMAL_AMOUNT_RE.test(String(car[k]).trim())) e[k] = `${l} must be a valid amount (numbers and up to one decimal point only, e.g. 26000.50)`;
     });
     if (String(car.purchase).trim() !== "" && String(car.purchaseAdvance).trim() !== "" && Number(car.purchaseAdvance) > Number(car.purchase)) {
       e.purchaseAdvance = "Advance can't exceed Purchase Price";
@@ -321,7 +327,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
   const handleFinish = () => {
     const finalCar = {
       ...car,
-      purchase: parseInt(car.purchase, 10),
+      purchase: parseFloat(car.purchase) || 0,
       purchaseAdvance: parseFloat(car.purchaseAdvance) || 0,
       insurance: parseFloat(car.insurance) || 0,
       reg: parseFloat(car.reg) || 0,
@@ -397,15 +403,15 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" min="0" step="1" value={car.purchase} onChange={handleWholeNumberChange("purchase")} placeholder="e.g., 26000" error={errors.purchase} />
-                <Input label="Purchase Advance (SGD)" type="number" min="0" step="1" value={car.purchaseAdvance} onChange={handleWholeNumberChange("purchaseAdvance")} placeholder="e.g., 5000" error={errors.purchaseAdvance} />
+                <Input label={<>Purchase Price (SGD) <span style={{ color: C.red }}>*</span></>} type="number" min="0" step="0.01" value={car.purchase} onChange={handleAmountChange("purchase")} placeholder="e.g., 26000.50" error={errors.purchase} />
+                <Input label="Purchase Advance (SGD)" type="number" min="0" step="0.01" value={car.purchaseAdvance} onChange={handleAmountChange("purchaseAdvance")} placeholder="e.g., 5000.50" error={errors.purchaseAdvance} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label="Insurance (SGD)" type="number" min="0" step="1" value={car.insurance} onChange={handleWholeNumberChange("insurance")} placeholder="e.g., 1200" error={errors.insurance} />
-                <Input label="Registration (SGD)" type="number" min="0" step="1" value={car.reg} onChange={handleWholeNumberChange("reg")} placeholder="e.g., 1300" error={errors.reg} />
+                <Input label="Insurance (SGD)" type="number" min="0" step="0.01" value={car.insurance} onChange={handleAmountChange("insurance")} placeholder="e.g., 1200.50" error={errors.insurance} />
+                <Input label="Registration (SGD)" type="number" min="0" step="0.01" value={car.reg} onChange={handleAmountChange("reg")} placeholder="e.g., 1300.50" error={errors.reg} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
-                <Input label="Other Charges (SGD)" type="number" min="0" step="1" value={car.otherCharges} onChange={handleWholeNumberChange("otherCharges")} placeholder="e.g., 200" error={errors.otherCharges} />
+                <Input label="Other Charges (SGD)" type="number" min="0" step="0.01" value={car.otherCharges} onChange={handleAmountChange("otherCharges")} placeholder="e.g., 200.50" error={errors.otherCharges} />
                 <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
               </div>
             </div>
