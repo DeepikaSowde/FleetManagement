@@ -41,8 +41,17 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
       const car = fleet.find((c) => c.plate === b.plate);
       const model = car ? `${car.make} ${car.model}` : (b.plate || "—");
       const state = (type === "Pickup" ? b.opPickup : b.opReturn) || {};
+      // Booking is the source of truth for whether this pickup/return has
+      // actually happened (Vehicle Handover / Confirm Return in Booking.jsx).
+      // `done` always wins: once it's true the operation reads Completed no
+      // matter what's stored, and while it's false the operation can never
+      // read Completed even if a stale/invalid "Completed" was written to
+      // state.status before this sync rule existed — see setStatus below,
+      // which also stops that from being written going forward.
       const done = type === "Pickup" ? !!b.handoverAt : (!!b.returnedAt || !!b.mileageIn);
-      const status = state.status || (done ? "Completed" : state.assignedTo ? "Assigned" : "Pending");
+      const status = done
+        ? "Completed"
+        : (state.status === "Completed" ? (state.assignedTo ? "Assigned" : "Pending") : (state.status || (state.assignedTo ? "Assigned" : "Pending")));
       return {
         key: `${b.id}-${type}`,
         bookingId: b.id,
@@ -58,6 +67,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
         contact: b.contact || "",
         assignedTo: state.assignedTo ?? null,
         status,
+        done,
         stateKey: type === "Pickup" ? "opPickup" : "opReturn",
         raw: state,
       };
@@ -73,14 +83,31 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
   // Persist a change to an operation onto its booking.
   const patchOp = (op, patch) => onUpdateBooking(op.bookingId, { [op.stateKey]: { ...op.raw, ...patch } });
   const assign = (op, empId) => patchOp(op, { assignedTo: empId || null, status: op.status === "Completed" ? "Completed" : empId ? "Assigned" : "Pending" });
-  const setStatus = (op, s) => patchOp(op, { status: s });
+  // Completing an operation requires a valid assigned employee, and can only
+  // ever reflect a booking pickup/return that's actually happened — Booking
+  // is the source of truth, so this never writes a "Completed" the sync rule
+  // in makeOp above would immediately have to override anyway.
+  const setStatus = (op, s) => {
+    if (s === "Completed") {
+      if (!op.assignedTo) { alert("Please assign an employee before completing this operation."); return; }
+      if (!op.done) { alert("This operation can only be marked Completed once the Vehicle Handover/Return is completed in the Booking."); return; }
+    }
+    patchOp(op, { status: s });
+  };
 
   // Salary paid to the employee for this operation. Kept on the operation (for
   // display + KPI) and posted once as a "Salary" expense so it flows into the
   // Expenses list and the Ledger. A salaryLogged flag prevents double-posting.
   const commitSalary = (op, v) => { if (String(op.raw.salary ?? "") !== String(v)) patchOp(op, { salary: v }); };
+  // Salary can only be logged for a valid, completed operation: a real
+  // employee must be assigned, and it must actually be Completed (which, per
+  // the sync rule above, can only be true once the Booking's own Vehicle
+  // Handover/Return is done) — never while Pending or Unassigned, so an
+  // invalid Salary expense record can never reach the Expenses module.
   const postSalary = (op) => {
     if (op.raw.salaryLogged) return;
+    if (!op.assignedTo) { alert("Assign an employee before logging salary for this operation."); return; }
+    if (op.status !== "Completed") { alert("Salary can only be logged once this operation is Completed."); return; }
     const amount = Number(salaryDrafts[op.key] ?? op.raw.salary) || 0;
     if (amount <= 0) { alert("Enter a salary amount first."); return; }
     const emp = empName(op.assignedTo);
@@ -95,16 +122,21 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
     patchOp(op, { salary: String(amount), salaryLogged: true });
   };
 
-  // KPI figures.
+  // KPI figures. "Completed" here means VALIDLY completed — status is
+  // Completed (already gated to a real Booking handover/return, per the sync
+  // rule in makeOp) AND a real employee is assigned. An Unassigned operation
+  // is never counted as Completed, even if the underlying booking event has
+  // physically happened.
+  const isValidCompleted = (o) => o.status === "Completed" && !!o.assignedTo;
   const pickups = allOps.filter((o) => o.type === "Pickup");
   const returns = allOps.filter((o) => o.type === "Return");
   const pending = allOps.filter((o) => o.status === "Pending");
-  const completed = allOps.filter((o) => o.status === "Completed");
+  const completed = allOps.filter(isValidCompleted);
   const salaryTotal = allOps.reduce((s, o) => s + (Number(o.raw.salary) || 0), 0);
   const salaryLoggedCount = allOps.filter((o) => o.raw.salaryLogged).length;
   const kpis = [
-    { label: "Pickup Today", value: pickups.length, sub: `${pickups.filter((o) => o.status === "Completed").length} Completed`, color: VIZ.green, icon: "🚗" },
-    { label: "Return Today", value: returns.length, sub: `${returns.filter((o) => o.status === "Completed").length} Completed`, color: VIZ.blue, icon: "🔄" },
+    { label: "Pickup Today", value: pickups.length, sub: `${pickups.filter(isValidCompleted).length} Completed`, color: VIZ.green, icon: "🚗" },
+    { label: "Return Today", value: returns.length, sub: `${returns.filter(isValidCompleted).length} Completed`, color: VIZ.blue, icon: "🔄" },
     { label: "Pending", value: pending.length, sub: `${pending.length} Awaiting`, color: VIZ.amber, icon: "⏱️" },
     { label: "Completed", value: completed.length, sub: "Today's Completed", color: VIZ.violet, icon: "✅" },
     { label: "Salary Today", value: fmt(salaryTotal), sub: `${salaryLoggedCount} logged to Expenses`, color: VIZ.red, icon: "💵" },
@@ -282,13 +314,17 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
                           style={{ ...cellSelect, width: 68 }} />
                         {o.raw.salaryLogged ? (
                           <span title="Logged to Expenses / Ledger" style={{ fontSize: 12, color: VIZ.green, fontWeight: 800 }}>✓</span>
-                        ) : (
-                          <button onClick={() => postSalary(o)}
-                            title="Record as a Salary expense (flows to the Ledger)"
-                            style={{ fontSize: 10, fontWeight: 700, color: VIZ.blue, background: tint(VIZ.blue), border: "none", borderRadius: 6, padding: "3px 7px", cursor: "pointer", whiteSpace: "nowrap" }}>
-                            Log
-                          </button>
-                        )}
+                        ) : (() => {
+                          const canLog = !!o.assignedTo && o.status === "Completed";
+                          return (
+                            <button onClick={() => postSalary(o)}
+                              disabled={!canLog}
+                              title={canLog ? "Record as a Salary expense (flows to the Ledger)" : "Assign an employee and complete this operation before logging salary"}
+                              style={{ fontSize: 10, fontWeight: 700, color: canLog ? VIZ.blue : C.textMuted, background: canLog ? tint(VIZ.blue) : "#F1F1F1", border: "none", borderRadius: 6, padding: "3px 7px", cursor: canLog ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
+                              Log
+                            </button>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td style={{ padding: "10px 12px" }}>
