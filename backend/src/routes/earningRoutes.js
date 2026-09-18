@@ -1,9 +1,11 @@
 const express = require("express");
 const ctrl = require("../controllers/earningController");
 const { requireAuth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permission");
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requirePermission("Earnings"));
 
 router.get("/", ctrl.list);           // GET    /api/earnings
 router.post("/", ctrl.create);        // POST   /api/earnings

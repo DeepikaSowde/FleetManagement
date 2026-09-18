@@ -1521,6 +1521,7 @@ export default function FleetOpzApp() {
         currentUserRole={currentUserRole}
         rolePermissions={fleetData.rolePermissions || undefined}
         onToggleRolePermission={fleetData.toggleRolePermission}
+        pendingPermissionToggles={fleetData.pendingPermissionToggles}
         auditLogs={fleetData.auditLogs}
       />
     ),

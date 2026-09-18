@@ -567,6 +567,10 @@ export const useFleetData = () => {
   // User Management module data (admin users, role permission grid, audit log).
   const [users, setUsers] = useState([]);
   const [rolePermissions, setRolePermissions] = useState(null); // null → module uses its built-in default until loaded
+  // Cell keys ("role|module|action") with a save in flight — lets the toggle
+  // switch disable itself while pending, so a rapid double-click can't fire a
+  // second, overlapping PUT for the same cell.
+  const [pendingPermissionToggles, setPendingPermissionToggles] = useState(() => new Set());
   const [auditLogs, setAuditLogs] = useState([]);
   // Investors module data (investor profiles + their unified money ledger).
   const [investors, setInvestors] = useState([]);
@@ -587,23 +591,28 @@ export const useFleetData = () => {
   // (status derivation, KPIs, alerts, P&L) recomputes from these arrays exactly
   // as it did when the data came from localStorage — only the source changed.
   const reload = async () => {
+    // Promise.allSettled, not .all: now that the API enforces the Role &
+    // Permission grid per module, a role without view access to just one of
+    // these (e.g. Staff with Earnings view off) rejects that single request
+    // with 403 — that must not take every other module's data down with it,
+    // so each endpoint is applied independently and a denied/unavailable one
+    // just leaves that slice empty rather than aborting the whole batch.
+    const CORE_ENDPOINTS = [
+      ["/fleet", setFleet],
+      ["/bookings", setBookings],
+      ["/earnings", setEarnings],
+      ["/expenses", setExpenses],
+      ["/restricted-licenses", setRestrictedLicenses],
+      ["/customers", setCustomers],
+      ["/employees", setEmployees],
+    ];
     try {
-      const [f, b, e, x, rl, cu, em] = await Promise.all([
-        api.get("/fleet"),
-        api.get("/bookings"),
-        api.get("/earnings"),
-        api.get("/expenses"),
-        api.get("/restricted-licenses"),
-        api.get("/customers"),
-        api.get("/employees"),
-      ]);
-      setFleet(f);
-      setBookings(b);
-      setEarnings(e);
-      setExpenses(x);
-      setRestrictedLicenses(rl);
-      setCustomers(cu);
-      setEmployees(em);
+      const results = await Promise.allSettled(CORE_ENDPOINTS.map(([path]) => api.get(path)));
+      results.forEach((result, i) => {
+        const [path, setter] = CORE_ENDPOINTS[i];
+        if (result.status === "fulfilled") setter(result.value);
+        else console.warn(`FleetOpz: ${path} unavailable:`, result.reason?.message);
+      });
     } catch (err) {
       console.error("FleetOpz: failed to load data from server", err);
     } finally {
@@ -1339,12 +1348,41 @@ export const useFleetData = () => {
   };
 
   // Optimistically flip the permission cell (snappy checkbox), then persist.
+  // Guards against rapid double-clicks on the same cell (ignored while a save
+  // for it is already in flight), applies the server's actual saved values on
+  // success (not just the local flip, so a concurrent change elsewhere can
+  // never leave this cell showing something that wasn't really saved), and
+  // reverts the cell immediately with an error message if the save fails.
   const toggleRolePermission = (role, module, action) => {
+    const cellKey = `${role}|${module}|${action}`;
+    if (pendingPermissionToggles.has(cellKey)) return;
+    const prevValue = !!rolePermissions?.[role]?.[module]?.[action];
+
+    setPendingPermissionToggles(prev => new Set(prev).add(cellKey));
     setRolePermissions(prev => ({
       ...prev,
-      [role]: { ...prev?.[role], [module]: { ...prev?.[role]?.[module], [action]: !prev?.[role]?.[module]?.[action] } },
+      [role]: { ...prev?.[role], [module]: { ...prev?.[role]?.[module], [action]: !prevValue } },
     }));
-    api.put("/role-permissions/toggle", { role, module, action }).then(refreshAuditLogs).catch(onWriteError);
+
+    api.put("/role-permissions/toggle", { role, module, action })
+      .then((saved) => {
+        setRolePermissions(prev => ({
+          ...prev,
+          [role]: { ...prev?.[role], [module]: { ...prev?.[role]?.[module], ...saved } },
+        }));
+        refreshAuditLogs();
+      })
+      .catch((err) => {
+        setRolePermissions(prev => ({
+          ...prev,
+          [role]: { ...prev?.[role], [module]: { ...prev?.[role]?.[module], [action]: prevValue } },
+        }));
+        console.error("FleetOpz: failed to save permission change, reverted", err);
+        alert(`Couldn't save this permission change — it has been reverted. ${err?.message || "Please try again."}`);
+      })
+      .finally(() => {
+        setPendingPermissionToggles(prev => { const next = new Set(prev); next.delete(cellKey); return next; });
+      });
   };
 
   // ── CALCULATIONS ──────────────────────────────────────────────────────────
@@ -1804,6 +1842,7 @@ export const useFleetData = () => {
     deleteUser,
     rolePermissions,
     toggleRolePermission,
+    pendingPermissionToggles,
     auditLogs,
 
     // Calculations

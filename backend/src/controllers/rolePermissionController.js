@@ -2,6 +2,7 @@
 // action) cell. Shapes the flat rows into the nested object the frontend uses.
 const RolePermissions = require("../models/rolePermissionModel");
 const audit = require("../models/auditLogModel");
+const { invalidateCache } = require("../middleware/permission");
 
 function rowsToNested(rows) {
   const out = {};
@@ -29,6 +30,7 @@ async function toggle(req, res, next) {
     }
     const updated = await RolePermissions.toggleCell(role, module, action);
     if (!updated) return res.status(404).json({ message: "Permission row not found" });
+    invalidateCache();
     const nowOn = { view: updated.can_view, create: updated.can_create, edit: updated.can_edit, delete: updated.can_delete }[action];
     audit.record(req, {
       module: "User Management", action: "Updated",

@@ -1,9 +1,11 @@
 const express = require("express");
 const ctrl = require("../controllers/customerController");
 const { requireAuth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permission");
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requirePermission("Customers"));
 
 router.get("/", ctrl.list);           // GET    /api/customers
 router.post("/", ctrl.create);        // POST   /api/customers  (upsert by IC)

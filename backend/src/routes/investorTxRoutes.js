@@ -1,9 +1,11 @@
 const express = require("express");
 const ctrl = require("../controllers/investorTxController");
 const { requireAuth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permission");
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requirePermission("Investors"));
 
 router.get("/", ctrl.list);           // GET    /api/investor-transactions
 router.post("/", ctrl.create);        // POST   /api/investor-transactions

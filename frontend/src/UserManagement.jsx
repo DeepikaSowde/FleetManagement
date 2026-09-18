@@ -156,6 +156,9 @@ const UserManagement = ({
   // role's permissions here immediately applies to every user with that role.
   rolePermissions = DEFAULT_ROLE_PERMISSIONS,
   onToggleRolePermission = () => {},
+  // Cell keys ("role|module|action") currently saving — disables that one
+  // toggle so a rapid double-click can't fire a second overlapping request.
+  pendingPermissionToggles = new Set(),
   // Real audit trail from the backend; falls back to the built-in sample when
   // rendered standalone without the prop wired in.
   auditLogs = DEFAULT_AUDIT_LOGS,
@@ -440,6 +443,7 @@ const UserManagement = ({
                         <td key={action} style={{ padding: "8px 10px", textAlign: "center" }}>
                           <ToggleSwitch
                             checked={!!rolePermissions[selectedRole]?.[m]?.[action]}
+                            disabled={pendingPermissionToggles.has(`${selectedRole}|${m}|${action}`)}
                             onChange={() => onToggleRolePermission(selectedRole, m, action)}
                           />
                         </td>

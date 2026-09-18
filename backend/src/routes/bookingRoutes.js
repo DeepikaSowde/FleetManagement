@@ -1,9 +1,11 @@
 const express = require("express");
 const ctrl = require("../controllers/bookingController");
 const { requireAuth } = require("../middleware/auth");
+const { requirePermission } = require("../middleware/permission");
 
 const router = express.Router();
 router.use(requireAuth);
+router.use(requirePermission("Bookings"));
 
 router.get("/", ctrl.list);           // GET    /api/bookings
 router.post("/", ctrl.create);        // POST   /api/bookings
