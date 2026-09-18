@@ -47,6 +47,10 @@ const req = <span style={{ color: C.red }}>*</span>;
 // fleetController.js's and AddCarWizard.jsx's copies of this rule.
 const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
 
+// Year is exactly 4 digits — no sign, no decimal point, no letters. Kept in
+// sync with AddCarWizard.jsx's and fleetController.js's copies.
+const YEAR_RE = /^\d{4}$/;
+
 // Which fields belong to which stage, for gating "Next" — Stage 3 has no
 // inputs of its own (read-only), so it needs no entry here.
 const STAGE_FIELDS = [
@@ -91,6 +95,14 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
     const v = e.target.value;
     if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
     setField(k, v);
+  };
+
+  // Year: strip anything that isn't a digit as it's typed, and cap at 4
+  // digits — so neither a negative sign, a decimal point, letters, nor a
+  // 5th+ digit can ever land in the field. Matches Add Car's handleYearChange.
+  const setYear = (e) => {
+    const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+    setField("year", v);
   };
 
   // Brand/model suggestions come from the rest of the fleet, exactly as on Add Car.
@@ -148,7 +160,8 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
     const e = {};
     if (!String(form.make).trim()) e.make = "Brand is required";
     if (!String(form.model).trim()) e.model = "Model is required";
-    if (!form.year || Number(form.year) <= 0) e.year = "Enter a valid year";
+    if (!String(form.year).trim()) e.year = "Year is required";
+    else if (!YEAR_RE.test(String(form.year).trim())) e.year = "Year must be a 4-digit number";
     if (!String(form.color).trim()) e.color = "Colour is required";
     if (!String(form.fuelType).trim()) e.fuelType = "Fuel Type is required";
     if (!String(form.transmission).trim()) e.transmission = "Transmission is required";
@@ -320,7 +333,7 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
                   </div>
                 </div>
                 <Input label={<>Year {req}</>} type="number" value={form.year}
-                  onChange={(e) => setField("year", e.target.value)} error={errors.year} />
+                  onChange={setYear} error={errors.year} />
                 <Combobox label={<>Brand {req}</>} listId="edit-brand-options" value={form.make}
                   onChange={(e) => {
                     const value = e.target.value;

@@ -51,6 +51,10 @@ const normalizePlate = (v) => String(v || "").replace(/\s+/g, "").toLowerCase();
 // filter, and kept in sync with fleetController.js's copy of this rule.
 const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
 
+// Year is exactly 4 digits — no sign, no decimal point, no letters. Kept in
+// sync with EditVehicleForm.jsx's and fleetController.js's copies.
+const YEAR_RE = /^\d{4}$/;
+
 // Base catalog of common brands/models (Singapore rental fleet defaults) —
 // merged at render time with any brand/model pairs already present in the
 // live fleet, so the dropdown always reflects real inventory too.
@@ -199,16 +203,26 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     setErrors(e => (e[key] === undefined ? e : { ...e, [key]: undefined }));
   };
 
-  // Car Plate: strip anything that isn't a letter or digit as it's typed (so
-  // invalid characters can never be entered at all), then check for a
+  // Car Plate: strip anything that isn't a letter, digit, or space as it's
+  // typed (so invalid characters can never be entered at all) — spaces are
+  // kept since real Singapore plates are commonly written with them (e.g.
+  // "SBA 1234 A", already present in the live fleet), then check for a
   // duplicate against the live fleet immediately — case/space variations of
   // an existing plate count as the same plate.
   const handlePlateChange = (raw) => {
-    const sanitized = raw.replace(/[^A-Za-z0-9]/g, "");
+    const sanitized = raw.replace(/[^A-Za-z0-9 ]/g, "");
     setCar(c => ({ ...c, plate: sanitized }));
     const normalized = normalizePlate(sanitized);
     const isDuplicate = normalized !== "" && fleet.some(c => normalizePlate(c.plate) === normalized);
     setErrors(e => ({ ...e, plate: isDuplicate ? "Car Plate already exists" : undefined }));
+  };
+
+  // Year: strip anything that isn't a digit as it's typed, and cap at 4
+  // digits — so neither a negative sign, a decimal point, letters, nor a
+  // 5th+ digit can ever land in the field.
+  const handleYearChange = (e) => {
+    const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+    setField("year", v);
   };
 
   // Purchase Price / Advance / Insurance / Registration / Other Charges accept
@@ -270,7 +284,8 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     const currentYr = new Date().getFullYear();
     const yr = Number(car.year);
     if (!String(car.year).trim()) e.year = "Year is required";
-    else if (!Number.isInteger(yr) || yr > currentYr) e.year = `Year cannot be later than ${currentYr}`;
+    else if (!YEAR_RE.test(String(car.year).trim())) e.year = "Year must be a 4-digit number";
+    else if (yr > currentYr) e.year = `Year cannot be later than ${currentYr}`;
     if (!String(car.make).trim()) e.make = "Brand is required";
     if (!String(car.model).trim()) e.model = "Model is required";
     if (!String(car.color).trim()) e.color = "Colour is required";
@@ -378,7 +393,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
             <div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
                 <Input label="Car Plate" value={car.plate} onChange={e => handlePlateChange(e.target.value)} placeholder="e.g., SBA1234A" error={errors.plate} />
-                <Input label={<>Year <span style={{ color: C.red }}>*</span></>} type="number" value={car.year} onChange={e => setField("year", e.target.value)} placeholder="e.g., 2024" error={errors.year} />
+                <Input label={<>Year <span style={{ color: C.red }}>*</span></>} type="number" value={car.year} onChange={handleYearChange} placeholder="e.g., 2024" error={errors.year} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Combobox label={<>Brand <span style={{ color: C.red }}>*</span></>} listId="brand-options" value={car.make}

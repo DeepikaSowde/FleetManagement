@@ -38,6 +38,17 @@ function findInvalidAmountFieldError(body) {
   return null;
 }
 
+// Year is exactly 4 digits — no sign, no decimal point, no letters. Kept in
+// sync with AddCarWizard.jsx's and EditVehicleForm.jsx's copies of this rule.
+const YEAR_RE = /^\d{4}$/;
+function findInvalidYearError(body) {
+  const v = body.year;
+  if (v !== undefined && v !== null && v !== "" && !YEAR_RE.test(String(v).trim())) {
+    return "Year must be a 4-digit number";
+  }
+  return null;
+}
+
 async function list(req, res, next) {
   try {
     res.json(await Fleet.getAll());
@@ -67,6 +78,10 @@ async function create(req, res, next) {
     if (invalidAmountFieldError) {
       return res.status(400).json({ message: invalidAmountFieldError });
     }
+    const invalidYearError = findInvalidYearError(req.body);
+    if (invalidYearError) {
+      return res.status(400).json({ message: invalidYearError });
+    }
     // Case/space variations of an already-registered plate are the same
     // plate — the plate column's own uniqueness wouldn't catch that.
     if (await Fleet.findByNormalizedPlate(plate)) {
@@ -87,6 +102,10 @@ async function update(req, res, next) {
     const invalidAmountFieldError = findInvalidAmountFieldError(req.body);
     if (invalidAmountFieldError) {
       return res.status(400).json({ message: invalidAmountFieldError });
+    }
+    const invalidYearError = findInvalidYearError(req.body);
+    if (invalidYearError) {
+      return res.status(400).json({ message: invalidYearError });
     }
     const car = await Fleet.update(req.params.plate, req.body);
     if (!car) return res.status(404).json({ message: "Car not found" });
