@@ -87,12 +87,12 @@ const fieldStyle = {
 const CompactRow = ({ label, value, valueColor, bold, useMono = true }) => (
   <div style={{
     display: "flex", justifyContent: "space-between", alignItems: "center",
-    padding: "8px 0",
+    padding: "10px 0",
     borderBottom: `1px solid ${C.border}`,
     fontSize: 12,
   }}>
-    <span style={{ color: C.textMuted, fontWeight: 500, fontSize: 11 }}>{label}</span>
-    <span style={{ ...(useMono ? mono : {}), fontWeight: bold ? 700 : 600, color: valueColor || C.textPri, fontSize: 12 }}>
+    <span style={{ color: C.textMuted, fontWeight: 500, fontSize: 11.5 }}>{label}</span>
+    <span style={{ ...(useMono ? mono : {}), fontWeight: bold ? 700 : 600, color: valueColor || C.textPri, fontSize: 12.5 }}>
       {value}
     </span>
   </div>
@@ -228,18 +228,18 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
 // and a coloured "Active · Nd left" status line, reusing the exact same
 // complianceStatus()/daysUntil() the rest of the app already uses, so the
 // wording and thresholds can never disagree with anywhere else it appears.
-const DetailGridCell = ({ label, value, icon, statusDate, lastCol, lastRow }) => {
+const DetailGridCell = ({ label, value, icon, iconBg, iconColor, statusDate, lastCol, lastRow }) => {
   const days = statusDate ? daysUntil(statusDate) : null;
   const st = statusDate ? complianceStatus(days) : null;
   return (
     <div style={{
-      padding: "12px 16px",
+      padding: "14px 16px",
       borderRight: lastCol ? "none" : `1px solid ${C.border}`,
       borderBottom: lastRow ? "none" : `1px solid ${C.border}`,
       display: "flex", gap: icon ? 10 : 0, alignItems: icon ? "flex-start" : undefined,
     }}>
       {icon && (
-        <span style={{ width: 30, height: 30, borderRadius: 8, background: C.bg, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>
+        <span style={{ width: 32, height: 32, borderRadius: 10, background: iconBg || C.bg, color: iconColor || C.textMuted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>
           {icon}
         </span>
       )}
@@ -260,8 +260,8 @@ const DetailGridCell = ({ label, value, icon, statusDate, lastCol, lastRow }) =>
 // small icon in a tinted circle + bold title, same visual weight for both
 // sections so neither reads as more or less important than the other.
 const CardSectionHeading = ({ icon, tint, title }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
-    <span style={{ width: 30, height: 30, borderRadius: "50%", background: tint, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{icon}</span>
+  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 18px", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+    <span style={{ width: 32, height: 32, borderRadius: "50%", background: tint, color: C.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{icon}</span>
     <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{title}</span>
   </div>
 );
@@ -303,13 +303,13 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
         width: "100%", maxWidth: 920, margin: "0 14px", maxHeight: "90vh",
         background: C.surface, zIndex: 41, display: "flex", flexDirection: "column",
-        border: `1px solid ${C.border}`, borderRadius: 14,
-        boxShadow: "0 20px 60px rgba(15, 23, 42, 0.25)", animation: "detailsSlide 0.2s cubic-bezier(.2,.8,.2,1)",
+        border: `1px solid ${C.border}`, borderRadius: 16,
+        boxShadow: "0 24px 60px rgba(15, 23, 42, 0.25)", animation: "detailsSlide 0.2s cubic-bezier(.2,.8,.2,1)",
         overflow: "hidden",
       }}>
         {/* Header — vehicle identity on the left; live status, registration
             expiry and close on the right, all in one row. */}
-        <div style={{ padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        <div style={{ padding: "18px 22px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 800, color: C.navy }}>{car.make} {car.model}</div>
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{car.plate}</div>
@@ -328,7 +328,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
             The only way this clears is the Complete Maintenance button below;
             nothing here does it automatically. */}
         {car.status === "Maintenance" && (
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.amberFaint, borderBottom: `1px solid ${C.amber}55`, padding: "10px 20px", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.amberFaint, borderBottom: `1px solid ${C.amber}55`, padding: "10px 22px", flexShrink: 0 }}>
             <span style={{ fontSize: 12 }}>🔧</span>
             <div style={{ fontSize: 11, color: C.amber, fontWeight: 600, lineHeight: 1.5 }}>
               Under maintenance{car.maintenanceStartDate ? ` since ${car.maintenanceStartDate}` : ""} — unavailable for new bookings until Complete Maintenance is used below.
@@ -336,24 +336,27 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
           </div>
         )}
         {car.status !== "Maintenance" && car.maintenanceCompletedAt && (
-          <div style={{ fontSize: 10, color: C.textMuted, padding: "6px 20px 0", flexShrink: 0 }}>
+          <div style={{ fontSize: 10, color: C.textMuted, padding: "6px 22px 0", flexShrink: 0 }}>
             Last maintenance completed {new Date(car.maintenanceCompletedAt).toLocaleString()}
           </div>
         )}
 
-        {/* Tab bar — a single segmented control (not floating pills), so the
-            active tab reads as an elevated card sitting inside it. */}
-        <div style={{ display: "flex", gap: 4, background: C.bg, borderRadius: 10, padding: 4, margin: "16px 20px 0" }}>
-          {DETAIL_TABS.map((t) => {
+        {/* Tab bar — same bordered/segmented look as the Booking View's
+            sub-tab row: one continuous card divided by hairlines, the
+            active segment picked out with a tinted fill + underline. */}
+        <div style={{ display: "flex", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: C.surface, margin: "18px 22px 0" }}>
+          {DETAIL_TABS.map((t, i) => {
             const isActive = activeTab === t.key;
             return (
               <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-                padding: "10px 8px", borderRadius: 8, cursor: "pointer",
-                background: isActive ? C.surface : "transparent",
+                padding: "11px 8px", border: "none", cursor: "pointer", fontFamily: "inherit",
+                background: isActive ? C.tealFaint : C.surface,
                 borderBottom: isActive ? `2px solid ${C.teal}` : "2px solid transparent",
-                color: isActive ? C.teal : C.textMuted,
-                fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
+                borderRight: i < DETAIL_TABS.length - 1 ? `1px solid ${C.border}` : "none",
+                color: isActive ? C.teal : C.textSec,
+                fontSize: 12.5, fontWeight: isActive ? 700 : 600, whiteSpace: "nowrap",
+                transition: "background 0.15s, color 0.15s",
               }}>
                 <span style={{ fontSize: 13 }}>{t.icon}</span>
                 {t.label}
@@ -363,11 +366,11 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
         </div>
 
         {/* Tab content */}
-        <div style={{ padding: "16px 20px 4px", overflowY: "auto", flex: 1 }}>
+        <div style={{ padding: "18px 22px 6px", overflowY: "auto", flex: 1 }}>
 
           {activeTab === "overview" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
                 <CardSectionHeading icon="🚗" tint={C.tealFaint} title="Vehicle Details" />
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
                   <DetailGridCell label="Make" value={car.make} />
@@ -379,59 +382,71 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
                 </div>
               </div>
 
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
                 <CardSectionHeading icon="🛡️" tint={C.tealFaint} title="Compliance & Validation" />
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)" }}>
-                  <DetailGridCell icon="🛡️" label="Insurance Expiry" value={car.insuranceExpiry || "—"} statusDate={car.insuranceExpiry} />
-                  <DetailGridCell icon="📄" label="LTA Transfer Validity" value={car.ltaTransferDate || "—"} statusDate={car.ltaTransferDate} lastCol />
-                  <DetailGridCell icon="⚠️" label="Road Tax Expiry" value={car.roadTaxExpiry || "—"} statusDate={car.roadTaxExpiry} lastRow />
-                  <DetailGridCell icon="🔧" label="Inspection Due" value={car.inspectionExpiry || "—"} statusDate={car.inspectionExpiry} lastCol lastRow />
+                  <DetailGridCell icon="🛡️" iconBg={C.blueFaint} iconColor={C.blue} label="Insurance Expiry" value={car.insuranceExpiry || "—"} statusDate={car.insuranceExpiry} />
+                  <DetailGridCell icon="📄" iconBg={C.purpleFaint} iconColor={C.purple} label="LTA Transfer Validity" value={car.ltaTransferDate || "—"} statusDate={car.ltaTransferDate} lastCol />
+                  <DetailGridCell icon="⚠️" iconBg={C.amberFaint} iconColor={C.amber} label="Road Tax Expiry" value={car.roadTaxExpiry || "—"} statusDate={car.roadTaxExpiry} lastRow />
+                  <DetailGridCell icon="🔧" iconBg={C.purpleFaint} iconColor={C.purple} label="Inspection Due" value={car.inspectionExpiry || "—"} statusDate={car.inspectionExpiry} lastCol lastRow />
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === "investment" && (
-            <div style={{ fontSize: 12 }}>
-              <CompactRow label="Purchase" value={fmt(car.purchase)} />
-              <CompactRow label="Purchase Advance" value={fmt(car.purchaseAdvance || 0)} />
-              <CompactRow label="Insurance" value={fmt(car.insurance)} />
-              <CompactRow label="Registration" value={fmt(car.reg)} />
-              <CompactRow label="Other Charges" value={fmt(car.otherCharges || 0)} />
-              <CompactRow label="Total" value={fmt(fin.inv)} valueColor={C.green} bold />
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
+              <CardSectionHeading icon="🪙" tint={C.tealFaint} title="Investment" />
+              <div style={{ padding: "4px 18px 6px" }}>
+                <CompactRow label="Purchase" value={fmt(car.purchase)} />
+                <CompactRow label="Purchase Advance" value={fmt(car.purchaseAdvance || 0)} />
+                <CompactRow label="Insurance" value={fmt(car.insurance)} />
+                <CompactRow label="Registration" value={fmt(car.reg)} />
+                <CompactRow label="Other Charges" value={fmt(car.otherCharges || 0)} />
+                <CompactRow label="Total" value={fmt(fin.inv)} valueColor={C.green} bold />
+              </div>
             </div>
           )}
 
           {activeTab === "target" && (
-            <div style={{ fontSize: 12 }}>
-              <CompactRow label="Target Rate" value={car.targetRate != null ? `SGD ${car.targetRate}/day` : "—"} useMono={false} />
-              <CompactRow label="Running Days Target" value={car.runningDaysTarget != null ? `${car.runningDaysTarget} days/mo` : "—"} useMono={false} />
-              <CompactRow label="Target Profit %" value={car.profitPctTarget != null ? `${car.profitPctTarget}%` : "—"} useMono={false} />
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
+              <CardSectionHeading icon="🎯" tint={C.tealFaint} title="Target" />
+              <div style={{ padding: "4px 18px 6px" }}>
+                <CompactRow label="Target Rate" value={car.targetRate != null ? `SGD ${car.targetRate}/day` : "—"} useMono={false} />
+                <CompactRow label="Running Days Target" value={car.runningDaysTarget != null ? `${car.runningDaysTarget} days/mo` : "—"} useMono={false} />
+                <CompactRow label="Target Profit %" value={car.profitPctTarget != null ? `${car.profitPctTarget}%` : "—"} useMono={false} />
+              </div>
             </div>
           )}
 
           {activeTab === "financial" && (
-            <div style={{ fontSize: 12 }}>
-              <CompactRow label="Total Investment" value={fmt(fin.inv)} valueColor={C.navy} bold />
-              <CompactRow label="Booking Revenue" value={fmt(fin.bookingRevenue)} valueColor={C.green} />
-              <CompactRow label="Vehicle Expense" value={fmt(fin.vehicleExpense)} valueColor={C.amber} />
-              <CompactRow label="Net Profit" value={fmt(fin.netProfit)} valueColor={profitColor} bold />
-              <CompactRow label="ROI" value={`${fin.roi.toFixed(2)}%`} valueColor={profitColor} bold />
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
+              <CardSectionHeading icon="📄" tint={C.tealFaint} title="Financial Summary" />
+              <div style={{ padding: "4px 18px 6px" }}>
+                <CompactRow label="Total Investment" value={fmt(fin.inv)} valueColor={C.navy} bold />
+                <CompactRow label="Booking Revenue" value={fmt(fin.bookingRevenue)} valueColor={C.green} />
+                <CompactRow label="Vehicle Expense" value={fmt(fin.vehicleExpense)} valueColor={C.amber} />
+                <CompactRow label="Net Profit" value={fmt(fin.netProfit)} valueColor={profitColor} bold />
+                <CompactRow label="ROI" value={`${fin.roi.toFixed(2)}%`} valueColor={profitColor} bold />
+              </div>
             </div>
           )}
 
           {activeTab === "performance" && (
-            <div style={{ fontSize: 12 }}>
-              <CompactRow label="Rental Days" value={`${fin.rentalDays}d`} useMono={false} />
-              <CompactRow label="Total Bookings" value={fin.totalBookings} useMono={false} />
-              <CompactRow label="Recovery %" value={`${recoveryPct.toFixed(0)}%`} useMono={false} />
-              <div style={{ marginTop: 8 }}>
-                <div style={{ position: "relative", height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ width: `${recoveryPct}%`, height: "100%", background: C.teal, borderRadius: 3 }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.textMuted, marginTop: 4 }}>
-                  <span>{fmt(fin.bookingRevenue)}</span>
-                  <span>Target: {fmt(fin.inv)}</span>
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
+              <CardSectionHeading icon="📈" tint={C.tealFaint} title="Performance" />
+              <div style={{ padding: "4px 18px 16px" }}>
+                <CompactRow label="Rental Days" value={`${fin.rentalDays}d`} useMono={false} />
+                <CompactRow label="Total Bookings" value={fin.totalBookings} useMono={false} />
+                <CompactRow label="Recovery %" value={`${recoveryPct.toFixed(0)}%`} useMono={false} />
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ position: "relative", height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${recoveryPct}%`, height: "100%", background: C.teal, borderRadius: 3 }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.textMuted, marginTop: 4 }}>
+                    <span>{fmt(fin.bookingRevenue)}</span>
+                    <span>Target: {fmt(fin.inv)}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -442,7 +457,7 @@ const VehicleDetailsModal = ({ car, bookings, expenses, onAddExpense, onDelete, 
             land at the same height and share the width evenly regardless of
             how many are showing (Edit Vehicle lives on its own screen now,
             reachable from the table's pencil icon, so it isn't repeated here). */}
-        <div style={{ display: "flex", gap: 8, padding: "16px 20px", borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 8, padding: "18px 22px", borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
           <Btn small onClick={() => setDrawerOpen(true)} style={{ flex: 1, background: C.greenFaint, color: C.green, border: `1px solid ${C.green}` }}>
             + Add Vehicle Expense
           </Btn>
