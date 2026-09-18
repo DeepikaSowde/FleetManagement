@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import { C, mono, fmt } from "./theme";
-import { Card, CardHeader, Btn, Badge, PlateBadge } from "./components";
+import { Card, CardHeader, Btn, Badge, PlateBadge, Pagination } from "./components";
 
 // Categories from RDK Trading's real ledger (RDK_Car Rental_Database.xlsx).
 const CATEGORIES = [
@@ -43,23 +43,6 @@ const EmptyViz = ({ icon, text }) => (
 const fieldLabel = { fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 4 };
 const fieldInput = { width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: "inherit", fontSize: 12, color: C.textPri, background: C.surface, outline: "none" };
 const selectStyle = { padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "inherit", background: C.surface, cursor: "pointer", color: C.textPri, outline: "none" };
-
-// Tinted car glyph — stand-in for a photo (matches the Car Availability page).
-const CAR_COLOR_HEX = { Silver: "#C3C8CC", White: "#E9ECEA", Blue: "#4472C4", Black: "#353B40", Red: "#D64045", Grey: "#8A8F94", Gray: "#8A8F94", Green: "#4B6B3A", Yellow: "#E4B33B", Orange: "#DD7A34", Brown: "#8C6B4B" };
-function CarGlyph({ color }) {
-  const paint = CAR_COLOR_HEX[color] || "#6C7A70";
-  return (
-    <svg viewBox="0 0 132 84" style={{ width: "100%", height: "100%", display: "block" }} aria-hidden="true">
-      <ellipse cx="66" cy="70" rx="52" ry="7" fill="#00000010" />
-      <path d="M12 58 Q10 44 24 41 L40 40 Q50 28 66 27 Q86 27 96 40 L112 44 Q122 46 122 58 L120 64 Q118 66 112 66 L20 66 Q14 66 12 60 Z" fill={paint} stroke="#00000022" strokeWidth="1.2" />
-      <path d="M44 40 Q52 30 66 29 Q82 29 92 41 Z" fill="#ffffff" opacity="0.22" />
-      <path d="M50 39 Q56 33 65 33 L65 39 Z" fill="#2b3a42" opacity="0.55" />
-      <path d="M69 33 Q80 34 86 39 L69 39 Z" fill="#2b3a42" opacity="0.55" />
-      <circle cx="38" cy="65" r="12" fill="#23282b" /><circle cx="38" cy="65" r="5.2" fill="#c7cdd0" />
-      <circle cx="96" cy="65" r="12" fill="#23282b" /><circle cx="96" cy="65" r="5.2" fill="#c7cdd0" />
-    </svg>
-  );
-}
 
 // Small trend sparkline (inline SVG) for the Top 5 vehicles table.
 function Sparkline({ points, color }) {
@@ -105,6 +88,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
   const [newExpense, setNewExpense] = useState({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false, paidTo: "" });
   const [sortBy, setSortBy] = useState("high");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [acqPage, setAcqPage] = useState(1);
+  const ACQ_PAGE_SIZE = 10;
   // Expense Management dashboard filters.
   const [period, setPeriod] = useState("all"); // all | thisMonth | lastMonth | thisYear | custom
   const [fromDate, setFromDate] = useState("");
@@ -234,6 +219,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
     else rows.sort((a, b) => a.name.localeCompare(b.name));
     return rows;
   }, [acqRows, statusFilter, sortBy]);
+  const pagedCards = cards.slice((acqPage - 1) * ACQ_PAGE_SIZE, acqPage * ACQ_PAGE_SIZE);
   const acqDonut = [
     { key: "purchase", name: "Purchase", value: acqTotals.purchase, color: ACQ_HUES.purchase },
     { key: "insurance", name: "Insurance", value: acqTotals.insurance, color: ACQ_HUES.insurance },
@@ -556,23 +542,20 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
 
       {/* Acquisition KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
-        <div style={{ position: "relative", overflow: "hidden", border: `1px solid ${C.green}33`, borderRadius: 16, padding: "18px 20px", background: `linear-gradient(120deg, ${C.green}14 0%, ${C.green}06 55%, ${C.surface} 100%)` }}>
+        <div style={{ border: `1px solid ${C.green}33`, borderRadius: 16, padding: "18px 20px", background: `linear-gradient(120deg, ${C.green}14 0%, ${C.green}06 55%, ${C.surface} 100%)` }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.6 }}>Total Invested</div>
           <div style={{ ...mono, fontSize: 26, fontWeight: 800, color: C.green, marginTop: 8, letterSpacing: -0.6 }}>{fmt(totalInvested)}</div>
           <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>{acqRows.length} Vehicles</div>
-          <div style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", fontSize: 40, opacity: 0.5 }}>📈</div>
         </div>
-        <div style={{ position: "relative", overflow: "hidden", border: `1px solid ${C.blue}33`, borderRadius: 16, padding: "18px 20px", background: `linear-gradient(120deg, ${C.blue}14 0%, ${C.blue}06 55%, ${C.surface} 100%)` }}>
+        <div style={{ border: `1px solid ${C.blue}33`, borderRadius: 16, padding: "18px 20px", background: `linear-gradient(120deg, ${C.blue}14 0%, ${C.blue}06 55%, ${C.surface} 100%)` }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.6 }}>Avg Cost Per Vehicle</div>
           <div style={{ ...mono, fontSize: 26, fontWeight: 800, color: C.blue, marginTop: 8, letterSpacing: -0.6 }}>{fmt(avgCost)}</div>
           <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4 }}>Acquisition Cost</div>
-          <div style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", fontSize: 40, opacity: 0.5 }}>🧮</div>
         </div>
-        <div style={{ position: "relative", overflow: "hidden", border: `1px solid ${C.amber}33`, borderRadius: 16, padding: "18px 20px", background: `linear-gradient(120deg, ${C.amber}14 0%, ${C.amber}06 55%, ${C.surface} 100%)` }}>
+        <div style={{ border: `1px solid ${C.amber}33`, borderRadius: 16, padding: "18px 20px", background: `linear-gradient(120deg, ${C.amber}14 0%, ${C.amber}06 55%, ${C.surface} 100%)` }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.6 }}>Most Expensive</div>
           <div style={{ ...mono, fontSize: 26, fontWeight: 800, color: C.amber, marginTop: 8, letterSpacing: -0.6 }}>{mostExpensive ? fmt(mostExpensive.total) : fmt(0)}</div>
           <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{mostExpensive ? mostExpensive.name : "—"}</div>
-          <div style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", fontSize: 40, opacity: 0.5 }}>🏆</div>
         </div>
       </div>
 
@@ -583,11 +566,11 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
           subtitle="Overview of all vehicles and their acquisition cost"
           right={
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectStyle}>
+              <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setAcqPage(1); }} style={selectStyle}>
                 <option value="all">All Status</option>
                 {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={selectStyle}>
+              <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setAcqPage(1); }} style={selectStyle}>
                 <option value="high">Sort by: Highest Cost</option>
                 <option value="low">Sort by: Lowest Cost</option>
                 <option value="name">Sort by: Name</option>
@@ -600,7 +583,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
             <div style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Add a vehicle to see its acquisition cost here.</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
-              {cards.map((r, i) => {
+              {pagedCards.map((r) => {
+                const i = cards.indexOf(r);
                 const share = totalInvested > 0 ? (r.total / totalInvested) * 100 : 0;
                 const hue = CAT_HUES[i % CAT_HUES.length];
                 return (
@@ -609,7 +593,6 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                       <PlateBadge plate={r.plate} small />
                       <span style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: hue, background: `${hue}18`, borderRadius: 20, padding: "2px 9px" }}>{share.toFixed(1)}%</span>
                     </div>
-                    <div style={{ height: 54, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ width: 116, height: 50 }}><CarGlyph color={r.color} /></div></div>
                     <div style={{ fontSize: 13.5, fontWeight: 700, color: C.navy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
                     <div style={{ ...mono, fontSize: 19, fontWeight: 800, color: C.textPri, letterSpacing: -0.5 }}>{fmt(r.total)}</div>
                     <div style={{ height: 5, background: C.bg, borderRadius: 4, overflow: "hidden" }}><div style={{ width: `${Math.max(4, share)}%`, height: "100%", background: hue, borderRadius: 4 }} /></div>
@@ -658,6 +641,9 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                 </div>
               )}
             </div>
+          )}
+          {cards.length > 0 && (
+            <Pagination page={acqPage} pageSize={ACQ_PAGE_SIZE} totalCount={cards.length} onPageChange={setAcqPage} />
           )}
         </div>
       </Card>
