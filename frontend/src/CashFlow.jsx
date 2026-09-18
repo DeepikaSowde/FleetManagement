@@ -97,15 +97,18 @@ const TierBadge = ({ tier }) => tier ? (
 const CAR_PAGE_SIZE = 5;
 const MONTH_PAGE_SIZE = 5;
 
-const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onUpdateCar, calculateCarMonthlyTarget }) => {
+const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], investors = [], onUpdateCar, calculateCarMonthlyTarget }) => {
   // Current cash position from the ledger — the ONLY source for starting
   // cash now (see header comment). Recomputes automatically whenever the
   // ledger's underlying data changes; there is no separate editable copy of
-  // this number anywhere in the module.
+  // this number anywhere in the module. Must pass `investors` through to
+  // buildLedgerRows exactly like LedgerDashboard.jsx's own Current Balance
+  // does — omitting it silently drops investor capital/dividend/exit rows,
+  // so this number would otherwise disagree with the real Ledger balance.
   const currentBalance = useMemo(() => {
-    const rows = buildLedgerRows(earnings, expenses, bookings);
+    const rows = buildLedgerRows(earnings, expenses, bookings, investors);
     return Math.round(rows.reduce((s, r) => s + r.credit - r.debit, 0));
-  }, [earnings, expenses, bookings]);
+  }, [earnings, expenses, bookings, investors]);
 
   const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [horizon, setHorizon] = useState(12);
@@ -352,12 +355,16 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], onU
           }
         />
         <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 16, alignItems: "start" }}>
-          {/* Starting Cash is a live, read-only readout — never a text field. */}
+          {/* Starting Cash is a live, read-only readout — never a text field.
+              Styled like every other field in this row (plain border,
+              white background) rather than the previous green "live sync"
+              highlight — it still re-reads currentBalance on every render,
+              so it updates automatically whenever the Ledger balance changes,
+              just without the extra visual treatment. */}
           <div style={fieldWrap}>
             <span style={fieldLabel}>Starting Cash on Hand</span>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", borderRadius: 8, border: `1px solid ${VIZ.green}55`, background: tint(VIZ.green) }}>
-              <span style={{ ...mono, fontSize: 14, fontWeight: 800, color: VIZ.green }}>{fmtAbs(currentBalance)}</span>
-              <span title="Synced live from the Ledger" style={{ fontSize: 14, color: VIZ.green, lineHeight: 1 }}>🔄</span>
+            <div style={{ ...field, ...mono, fontSize: 14, fontWeight: 800, color: C.textPri }}>
+              {fmtAbs(currentBalance)}
             </div>
             <span style={{ fontSize: 10, color: C.textMuted }}>Synced from Ledger (Current Balance)</span>
           </div>

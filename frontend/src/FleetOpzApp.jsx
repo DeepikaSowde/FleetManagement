@@ -1454,6 +1454,7 @@ export default function FleetOpzApp() {
         earnings={fleetData.earnings}
         expenses={fleetData.expenses}
         bookings={fleetData.bookings}
+        investors={fleetData.investorsWithTx}
         onUpdateCar={fleetData.updateFleet}
         calculateCarMonthlyTarget={fleetData.calculateCarMonthlyTarget}
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}
