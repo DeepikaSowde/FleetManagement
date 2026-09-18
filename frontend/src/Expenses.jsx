@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -78,12 +78,23 @@ function ExpKpi({ label, value, sub, subColor, icon, iconBg, bar, barColor }) {
   );
 }
 
-const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, onDeleteExpense }) => {
+const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, onDeleteExpense, openAddOnEntry, onOpenAddOnEntryHandled }) => {
   // Level 2 tab: "all" = Expense Management dashboard, "acquisition" = Fleet
   // Acquisition dashboard. Both dashboards below are otherwise unchanged —
   // this only decides which one is currently shown.
   const [section, setSection] = useState("all");
   const [showForm, setShowForm] = useState(false);
+  // Dashboard's "Record Expense" Quick Action opens the Log Expense form
+  // directly (on the "All Expenses" section, which is already the default),
+  // rather than just landing on the P&L → Expenses tab — same one-shot
+  // hand-off pattern used elsewhere (e.g. Fleet.jsx's initialEditPlate).
+  useEffect(() => {
+    if (!openAddOnEntry) return;
+    setSection("all");
+    setShowForm(true);
+    onOpenAddOnEntryHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAddOnEntry]);
   const [catFilter, setCatFilter] = useState("all");
   const [newExpense, setNewExpense] = useState({ plate: "", date: "", category: "", desc: "", amount: "", receipt: false, paidTo: "" });
   const [sortBy, setSortBy] = useState("high");

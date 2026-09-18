@@ -108,6 +108,7 @@ const Dashboard = ({
   fleet, bookings, earnings, expenses, alerts,
   calculateMetrics, calculateMonthlyMetrics, calculateMonthlyTarget,
   getExpensesByCategory, onNewBooking, onNavigate,
+  onAddVehicle, onAddCustomer, onRecordExpense,
 }) => {
   const [revPeriod, setRevPeriod] = useState("Month");
   const { isMobile, isDesktop } = useViewport();
@@ -326,9 +327,12 @@ const Dashboard = ({
 
   const quickActions = [
     { label: "New Booking", icon: "＋", color: D.green, bg: D.greenSoft, onClick: () => onNewBooking?.() },
-    { label: "Add Vehicle", icon: "＋", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("fleet") },
-    { label: "Add Customer", icon: "＋", color: D.purple, bg: D.purpleSoft, onClick: () => onNavigate?.("customers") },
-    { label: "Record Expense", icon: "＋", color: D.orange, bg: D.orangeSoft, onClick: () => onNavigate?.("expenses") },
+    // These three open their form/modal directly on arrival, instead of just
+    // switching to the page and leaving the user to find the button again —
+    // see onAddVehicle/onAddCustomer/onRecordExpense in FleetOpzApp.jsx.
+    { label: "Add Vehicle", icon: "＋", color: D.blue, bg: D.blueSoft, onClick: () => onAddVehicle?.() },
+    { label: "Add Customer", icon: "＋", color: D.purple, bg: D.purpleSoft, onClick: () => onAddCustomer?.() },
+    { label: "Record Expense", icon: "＋", color: D.orange, bg: D.orangeSoft, onClick: () => onRecordExpense?.() },
     { label: "Calendar", icon: "📅", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("car-availability") },
   ];
 

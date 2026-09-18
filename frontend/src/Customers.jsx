@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { C, mono, fmt, daysUntil } from "./theme";
 import { Card, Badge, Btn, Modal, Input, Select } from "./components";
 import { computeBookingInvoice } from "./useFleetData";
@@ -85,6 +85,7 @@ const Customers = ({
   customers = [], bookings = [], onSaveCustomer, onUpdateCustomer, onDeleteCustomer,
   currentUserRole = "Staff",
   restrictedLicenses = [], onAddRestrictedLicense, onUpdateRestrictedLicense, onDeleteRestrictedLicense,
+  openAddOnEntry, onOpenAddOnEntryHandled,
 }) => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // all | active | inactive | pending
@@ -192,6 +193,16 @@ const Customers = ({
 
   // ── Modal handlers ────────────────────────────────────────────────────────
   const openAdd = () => { setForm(emptyForm); setError(""); setFieldErrors({}); setFormCustomer(null); setMode("add"); };
+
+  // Dashboard's "Add Customer" Quick Action opens the Add New Customer form
+  // directly, rather than just landing on the Customers page — same one-shot
+  // hand-off pattern used by Fleet.jsx's initialEditPlate/initialViewPlate.
+  useEffect(() => {
+    if (!openAddOnEntry) return;
+    openAdd();
+    onOpenAddOnEntryHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAddOnEntry]);
   const openEdit = (c) => {
     setForm({
       ...emptyForm, ...c,

@@ -649,6 +649,7 @@ const Fleet = ({
   fleet = [], onAddFleet, onUpdateCar, onDeleteCar, calculateCarMetrics, bookings = [], expenses = [], onAddExpense,
   onCompleteMaintenanceCar,
   initialEditPlate, onInitialEditPlateHandled, initialViewPlate, onInitialViewPlateHandled,
+  openAddOnEntry, onOpenAddOnEntryHandled,
 }) => {
   // Which car's details modal is open, keyed by plate (not a row index) so it
   // stays correct across pagination/filtering/sorting.
@@ -689,6 +690,16 @@ const Fleet = ({
     onInitialViewPlateHandled?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialViewPlate]);
+
+  // Dashboard's "Add Vehicle" Quick Action opens the Add New Car wizard
+  // directly, rather than just landing on the Fleet page — same one-shot
+  // hand-off pattern as initialEditPlate/initialViewPlate above.
+  useEffect(() => {
+    if (!openAddOnEntry) return;
+    setWizardOpen(true);
+    onOpenAddOnEntryHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAddOnEntry]);
 
   // Generate unique plates from fleet (automatically updates when fleet changes)
   const uniquePlates = useMemo(() => {

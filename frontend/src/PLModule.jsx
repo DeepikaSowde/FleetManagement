@@ -22,6 +22,7 @@ const PLModule = ({
   expenses, onAddExpense, onUpdateExpense, onDeleteExpense,
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics,
   plInitialView, onPlInitialViewConsumed,
+  expenseOpenAddOnEntry, onExpenseOpenAddOnEntryHandled,
 }) => {
   const [tab, setTab] = useState(initialTab);
   // Same one-shot hand-off pattern PlReport itself already uses for
@@ -68,6 +69,8 @@ const PLModule = ({
           onAddExpense={onAddExpense}
           onUpdateExpense={onUpdateExpense}
           onDeleteExpense={onDeleteExpense}
+          openAddOnEntry={expenseOpenAddOnEntry}
+          onOpenAddOnEntryHandled={onExpenseOpenAddOnEntryHandled}
         />
       )}
 

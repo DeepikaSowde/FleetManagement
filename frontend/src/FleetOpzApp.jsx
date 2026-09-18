@@ -450,6 +450,12 @@ export default function FleetOpzApp() {
   // click defaults to Earnings; a Dashboard quick-link into "earnings" or
   // "expenses" (now folded into this one module) opens straight to that tab.
   const [plModuleInitialTab, setPlModuleInitialTab] = useState("earnings");
+  // Dashboard Quick Actions that open a form/modal directly on arrival,
+  // instead of just switching pages — one-shot flags, reset back to false
+  // once each destination page has actually opened its form.
+  const [fleetOpenAddOnEntry, setFleetOpenAddOnEntry] = useState(false);
+  const [customerOpenAddOnEntry, setCustomerOpenAddOnEntry] = useState(false);
+  const [expenseOpenAddOnEntry, setExpenseOpenAddOnEntry] = useState(false);
   const { isMobile } = useViewport();
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile sidebar drawer
   const [showNewBooking, setShowNewBooking] = useState(false);
@@ -1343,6 +1349,9 @@ export default function FleetOpzApp() {
           if (page === "pl") { setPlModuleInitialTab("pl"); setPlInitialView(view || "fleet"); setActive("pl"); return; }
           setActive(page);
         }}
+        onAddVehicle={() => { setFleetOpenAddOnEntry(true); setActive("fleet"); }}
+        onAddCustomer={() => { setCustomerOpenAddOnEntry(true); setActive("customers"); }}
+        onRecordExpense={() => { setExpenseOpenAddOnEntry(true); setPlModuleInitialTab("expenses"); setActive("pl"); }}
       />
     ),
     fleet: (
@@ -1361,6 +1370,8 @@ export default function FleetOpzApp() {
         onInitialEditPlateHandled={() => setRenewPlate(null)}
         initialViewPlate={viewVehiclePlate}
         onInitialViewPlateHandled={() => setViewVehiclePlate(null)}
+        openAddOnEntry={fleetOpenAddOnEntry}
+        onOpenAddOnEntryHandled={() => setFleetOpenAddOnEntry(false)}
       />
     ),
     "car-availability": (
@@ -1398,6 +1409,8 @@ export default function FleetOpzApp() {
         onAddRestrictedLicense={addRestrictedLicense}
         onUpdateRestrictedLicense={updateRestrictedLicense}
         onDeleteRestrictedLicense={deleteRestrictedLicense}
+        openAddOnEntry={customerOpenAddOnEntry}
+        onOpenAddOnEntryHandled={() => setCustomerOpenAddOnEntry(false)}
       />
     ),
     "today-ops": (
@@ -1480,6 +1493,8 @@ export default function FleetOpzApp() {
         calculateCarMetrics={fleetData.calculateCarMetrics}
         plInitialView={plInitialView}
         onPlInitialViewConsumed={() => setPlInitialView("fleet")}
+        expenseOpenAddOnEntry={expenseOpenAddOnEntry}
+        onExpenseOpenAddOnEntryHandled={() => setExpenseOpenAddOnEntry(false)}
       />
     ),
     alerts: (
