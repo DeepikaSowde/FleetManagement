@@ -404,7 +404,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                       <span style={{ width: 9, height: 9, borderRadius: 2, background: catColor(d.name), flexShrink: 0, marginTop: 3 }} />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 11, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
-                        <div style={{ ...mono, fontSize: 10.5, color: C.textMuted }}>{fmt(d.value)} ({Math.round((d.value / (scopedTotal || 1)) * 100)}%)</div>
+                        <div style={{ ...mono, fontSize: 10.5, color: C.textMuted }}>{Math.round((d.value / (scopedTotal || 1)) * 100)}%</div>
                       </div>
                     </div>
                   ))}
@@ -480,9 +480,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginTop: 14 }}>
               {breakdown.map((b) => (
                 <div key={b.key} style={{ textAlign: "center" }}>
-                  <div style={{ width: 30, height: 30, borderRadius: 8, background: `${b.color}18`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{b.icon}</div>
-                  <div style={{ ...mono, fontSize: 10.5, fontWeight: 700, color: C.navy, marginTop: 4 }}>{b.value >= 1000 ? `${Math.round(b.value / 1000)}k` : Math.round(b.value)}</div>
-                  <div style={{ fontSize: 8, color: C.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.key}</div>
+                  <div title={fmt(b.value)} style={{ width: 30, height: 30, borderRadius: 8, background: `${b.color}18`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 14, cursor: "default" }}>{b.icon}</div>
+                  <div style={{ fontSize: 8, color: C.textMuted, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.key}</div>
                 </div>
               ))}
             </div>
