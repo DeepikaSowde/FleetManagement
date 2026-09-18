@@ -20,6 +20,36 @@ const CUSTOMER_TYPES = [
   { value: "Tourist", label: "Tourist" },
 ];
 
+// Closed list — Nationality is a dropdown, not free text, so no arbitrary
+// value can be saved. Covers Singapore's own nationality plus the
+// nationalities most commonly seen in a Singapore car-rental customer base.
+const NATIONALITY_OPTIONS = [
+  "Singaporean", "Malaysian", "Indian", "Chinese", "Indonesian", "Filipino",
+  "Vietnamese", "Thai", "Myanmar", "Bangladeshi", "Sri Lankan", "Nepalese",
+  "Pakistani", "Japanese", "South Korean", "Taiwanese", "Hong Konger",
+  "American", "British", "Australian", "Canadian", "New Zealander",
+  "French", "German", "Dutch", "Other",
+].map((n) => ({ value: n, label: n }));
+
+// Digits, with at most one decimal point — used to filter Age typing so
+// letters/symbols/decimals can never land in the field.
+const AGE_RE = /^\d{1,3}$/;
+// RFC-5322-ish but pragmatic: local@domain.tld, no consecutive/leading/
+// trailing "@" or missing domain — rejects "test@", "test.com", "test@@gmail.com".
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Age as of today from a YYYY-MM-DD date of birth — "" if dob is blank/invalid.
+const calcAgeFromDob = (dobStr) => {
+  if (!dobStr) return "";
+  const dob = new Date(dobStr);
+  if (isNaN(dob)) return "";
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+  return age >= 0 ? String(age) : "";
+};
+
 const PAGE_SIZE = 8;
 
 // A customer becomes a "Repeated Customer" once they reach this many bookings.
@@ -186,6 +216,16 @@ const Customers = ({
     setFieldErrors((prev) => ({ ...prev, ic: undefined, license: undefined }));
   };
 
+  // Age is derived from DOB the moment a DOB is entered — the two fields can
+  // never disagree since Age is simply overwritten from it, rather than
+  // separately validated against it. Clearing DOB leaves whatever Age is
+  // already there for manual entry.
+  const handleDobChange = (raw) => {
+    const computed = calcAgeFromDob(raw);
+    setForm((prev) => ({ ...prev, dob: raw, ...(raw ? { age: computed } : {}) }));
+    if (raw) setFieldErrors((prev) => ({ ...prev, age: undefined }));
+  };
+
   const handleSubmit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     // ── Per-field validation (mirrors the New Booking Customer Details step) ──
@@ -197,11 +237,28 @@ const Customers = ({
       if (!form.contact.trim()) errors.contact = "Phone Number is required";
       else if (form.contact.length !== requiredDigits) errors.contact = `Contact number must be exactly ${requiredDigits} digits`;
     }
+    // Age is auto-calculated from DOB whenever DOB is set (see handleDobChange),
+    // so the two can never disagree by construction — this range check applies
+    // to whichever value ends up in the field either way.
     if (form.age === "" || form.age === null) errors.age = "Age is required";
-    else if (isNaN(Number(form.age)) || Number(form.age) <= 0) errors.age = "Enter a valid age";
+    else if (!AGE_RE.test(String(form.age).trim()) || Number(form.age) < 18 || Number(form.age) > 100) errors.age = "Please enter a valid age between 18 and 100.";
     if (!String(form.license || "").trim()) errors.license = "Driving License Number is required";
+    if (form.email.trim() && !EMAIL_RE.test(form.email.trim())) errors.email = "Please enter a valid email address.";
+    if (form.licenseExpiry) {
+      const todayStr = new Date().toLocaleDateString("en-CA");
+      if (form.licenseExpiry < todayStr) errors.licenseExpiry = "License expiry date cannot be in the past.";
+    }
     if (form.drivingExperience === "" || form.drivingExperience === null) errors.drivingExperience = "Driving Experience is required";
-    else if (isNaN(Number(form.drivingExperience)) || Number(form.drivingExperience) < 0) errors.drivingExperience = "Enter valid years of driving experience";
+    else if (isNaN(Number(form.drivingExperience)) || Number(form.drivingExperience) <= 0) errors.drivingExperience = "Driving Experience must be greater than 0.";
+    else if (!errors.age) {
+      // Logically bounded by age — Singapore's minimum driving age is 18, so
+      // experience can never exceed age - 18 (matches the same rule used in
+      // the New Booking Customer Details step).
+      const maxPossibleExperience = Number(form.age) - 18;
+      if (Number(form.drivingExperience) > maxPossibleExperience) {
+        errors.drivingExperience = `Driving Experience can't exceed ${maxPossibleExperience} year${maxPossibleExperience === 1 ? "" : "s"} for age ${form.age} (minimum driving age is 18).`;
+      }
+    }
 
     if (Object.keys(errors).length) { setFieldErrors(errors); setError(""); return; }
     setFieldErrors({});
@@ -347,7 +404,7 @@ const Customers = ({
                           <div style={{ width: 30, height: 30, borderRadius: "50%", background: avatarColor(c.name), color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials(c.name)}</div>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 12.5, fontWeight: 600, color: C.navy, whiteSpace: "nowrap" }}>{c.name}</div>
-                            <div style={{ fontSize: 10.5, color: C.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>{c.email || "—"}</div>
+                            {c.email && <div style={{ fontSize: 10.5, color: C.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>{c.email}</div>}
                           </div>
                         </div>
                       </td>
@@ -430,16 +487,18 @@ const Customers = ({
                 {/* Two-column field grid */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0 28px" }}>
                   <div>
-                    <DetailField label="Email" value={selected.email || "—"} />
-                    <DetailField label="Date of Birth" value={fmtDate(selected.dob)} />
-                    <DetailField label="Nationality" value={selected.nationality || "—"} />
+                    {/* Optional fields only render when the customer actually
+                        provided them — never a "—"/blank placeholder row. */}
+                    {selected.email && <DetailField label="Email" value={selected.email} />}
+                    {selected.dob && <DetailField label="Date of Birth" value={fmtDate(selected.dob)} />}
+                    {selected.nationality && <DetailField label="Nationality" value={selected.nationality} />}
                     <DetailField label="Customer Type" value={selected.customerType || "—"} />
-                    <DetailField label="Address" value={selected.address || "—"} />
-                    <DetailField label="Driving Experience" value={selected.drivingExperience != null ? `${selected.drivingExperience} Years` : "—"} />
+                    {selected.address && <DetailField label="Address" value={selected.address} />}
+                    {selected.drivingExperience != null && <DetailField label="Driving Experience" value={`${selected.drivingExperience} Years`} />}
                   </div>
                   <div>
                     <DetailField label="License Number" value={selected.license || "—"} />
-                    <DetailField label="License Expiry" value={fmtDate(selected.licenseExpiry)} />
+                    {selected.licenseExpiry && <DetailField label="License Expiry" value={fmtDate(selected.licenseExpiry)} />}
                     <DetailField label="Created Date" value={fmtDate(selected.createdAt)} />
                     <DetailField label="Last Updated" value={fmtDate(selected.updatedAt || selected.createdAt)} />
                   </div>
@@ -545,14 +604,37 @@ const Customers = ({
             {fieldErrors.contact && <div style={{ fontSize: 11, color: C.red, marginTop: 3 }}>{fieldErrors.contact}</div>}
           </div>
 
-          <Input id="customer-email" label="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="e.g. ravi.kumar@email.com" />
-          <Input id="customer-dob" label="Date of Birth" type="date" value={form.dob || ""} onChange={(e) => setForm({ ...form, dob: e.target.value })} />
-          <Input id="customer-nationality" label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} placeholder="e.g. Singaporean" />
+          <Input id="customer-email" label="Email" type="email" value={form.email} onChange={(e) => { setForm({ ...form, email: e.target.value }); setFieldErrors((p) => ({ ...p, email: undefined })); }} placeholder="e.g. ravi.kumar@email.com" error={fieldErrors.email} />
+          <Input id="customer-dob" label="Date of Birth" type="date" value={form.dob || ""} max={new Date().toLocaleDateString("en-CA")} onChange={(e) => handleDobChange(e.target.value)} />
+          <Select id="customer-nationality" label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} options={NATIONALITY_OPTIONS} />
           <Select id="customer-type" label="Customer Type" value={form.customerType} onChange={(e) => setForm({ ...form, customerType: e.target.value })} options={CUSTOMER_TYPES} />
-          <Input id="customer-age" label="Age *" type="number" value={form.age} onChange={(e) => { setForm({ ...form, age: e.target.value }); setFieldErrors((p) => ({ ...p, age: undefined })); }} placeholder="e.g. 32" error={fieldErrors.age} />
+          <Input
+            id="customer-age" label="Age *" type="number" value={form.age}
+            onChange={(e) => {
+              // Digits only, capped at 3 characters — the valid range
+              // (18-100) never needs more than 3 digits.
+              const v = e.target.value.replace(/\D/g, "").slice(0, 3);
+              setForm({ ...form, age: v });
+              setFieldErrors((p) => ({ ...p, age: undefined }));
+            }}
+            placeholder="e.g. 32" error={fieldErrors.age}
+            // Once a DOB is on file, Age is derived from it (see
+            // handleDobChange) — locked here so it can't be hand-edited back
+            // out of sync with the DOB. Clear DOB to enter Age manually.
+            readOnly={!!form.dob}
+            style={form.dob ? { background: C.bg, cursor: "not-allowed" } : undefined}
+          />
           <Input id="customer-license" label="Driving License Number *" value={form.license} onChange={(e) => { setForm({ ...form, license: e.target.value }); setFieldErrors((p) => ({ ...p, license: undefined })); }} placeholder="e.g. S1234567A" error={fieldErrors.license} />
-          <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })} />
-          <Input id="customer-driving-experience" label="Driving Experience (years) *" type="number" value={form.drivingExperience} onChange={(e) => { setForm({ ...form, drivingExperience: e.target.value }); setFieldErrors((p) => ({ ...p, drivingExperience: undefined })); }} placeholder="e.g. 5" error={fieldErrors.drivingExperience} />
+          <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => { setForm({ ...form, licenseExpiry: e.target.value }); setFieldErrors((p) => ({ ...p, licenseExpiry: undefined })); }} error={fieldErrors.licenseExpiry} />
+          <Input
+            id="customer-driving-experience" label="Driving Experience (years) *" type="number" value={form.drivingExperience}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "");
+              setForm({ ...form, drivingExperience: v });
+              setFieldErrors((p) => ({ ...p, drivingExperience: undefined }));
+            }}
+            placeholder="e.g. 5" error={fieldErrors.drivingExperience}
+          />
         </div>
         <Input id="customer-address" label="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="e.g. 12, Jalan Bukit Merah, #04-15, Singapore 150012" />
         {error && <div style={{ background: C.redFaint, color: C.red, fontSize: 12, padding: "9px 12px", borderRadius: 8 }}>{error}</div>}
