@@ -33,7 +33,7 @@ const Gauge = ({ value = 0, size = 260 }) => {
   );
 };
 import { forfeitedDepositIncome } from "./ledgerUtils";
-import { Card, CardHeader, Btn, StatusTag, PlateBadge, KpiCard, MiniBar, PLRow } from "./components";
+import { Card, CardHeader, Btn, StatusTag, PlateBadge, KpiCard, MiniBar, PLRow, Pagination } from "./components";
 
 const PL_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
 const shortMonth = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString("en-US", { month: "short" });
@@ -56,6 +56,11 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
   const [month, setMonth] = useState("2026-06");
   const [overviewGran, setOverviewGran] = useState("Monthly");
   const [perCarSearch, setPerCarSearch] = useState("");
+  const [utilPage, setUtilPage] = useState(1);
+  // Changing the month recomputes the Utilization rows from scratch — reset
+  // back to page 1 so a page number that no longer exists in the new
+  // month's result set is never left selected.
+  useEffect(() => { setUtilPage(1); }, [month]);
 
   const monthLabel = {
     "2026-01": "January",
@@ -334,6 +339,12 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
             const carsWithBookings = new Set(bookings.filter(b => !b.cancelled && b.start?.startsWith(month)).map(b => b.plate));
             const availableCars = fleet.filter(c => !carsWithBookings.has(c.plate)).length;
             const utilColor = (u) => u >= 70 ? C.green : u >= 40 ? C.amber : C.red;
+            // Pagination only slices which rows the table renders — every
+            // total/overall/availableCars figure above is still computed
+            // from the full, unpaginated `rows`, so the summary stays correct
+            // regardless of which page is showing.
+            const UTIL_PAGE_SIZE = 10;
+            const pagedRows = rows.slice((utilPage - 1) * UTIL_PAGE_SIZE, utilPage * UTIL_PAGE_SIZE);
             return (
               <>
                 <Card>
@@ -380,7 +391,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
                       <tbody>
                         {rows.length === 0 ? (
                           <tr><td colSpan={7} style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 12 }}>No cars registered</td></tr>
-                        ) : rows.map(r => {
+                        ) : pagedRows.map(r => {
                           const onHire = r.util >= 50;
                           return (
                             <tr key={r.plate} style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -411,6 +422,11 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
                       </tbody>
                     </table>
                   </div>
+                  {rows.length > 0 && (
+                    <div style={{ padding: "0 14px 14px" }}>
+                      <Pagination page={utilPage} pageSize={UTIL_PAGE_SIZE} totalCount={rows.length} onPageChange={setUtilPage} />
+                    </div>
+                  )}
                 </Card>
               </>
             );
