@@ -413,7 +413,7 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
   );
 
   const header = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
       <div style={{ display: "flex", gap: 18, fontSize: 11, color: C.textMuted, flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, background: "#3B82F6" }} />
@@ -444,12 +444,14 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
     );
   }
 
-  const barW = 26;
-  const barGap = 7;
+  const barW = 22;
+  const barGap = 6;
   const groupW = barW * 3 + barGap * 2;
-  const groupGap = 34;
-  const width = Math.max(560, data.length * (groupW + groupGap) + groupGap);
-  const padL = 56, padR = 16, padT = 20, padB = 40;
+  const groupGap = 26;
+  const width = Math.max(520, data.length * (groupW + groupGap) + groupGap);
+  // padL is wide enough that even a compact "SGD 1.23M" label (text-anchor
+  // "end") never runs past the left edge of the viewBox.
+  const padL = 68, padR = 14, padT = 16, padB = 34;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
@@ -1011,7 +1013,6 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ ...inputStyle, width: "auto", padding: "8px 12px", color: C.textMuted, background: C.bg }}>All Time</span>
-          <Btn primary id="investor-add" onClick={onAddInvestor}>+ Add Investor</Btn>
         </div>
       </div>
 
@@ -1020,7 +1021,6 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
         <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub="Capital in" icon="💰" />
         <StatCard label="Current Value" value={fmtSGD(totalCurrentValue)} sub="Portfolio Value" icon="📈" valueColor={IC.primary} />
         <StatCard label="Total Dividends" value={fmtSGD(totals.dividends)} sub="Paid to date" icon="🎁" valueColor={IC.red} />
-        <StatCard label="Total Exit Paid" value={fmtSGD(totals.exit)} sub="Paid to date" icon="↩️" valueColor={IC.red} />
       </StatRow>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 16 }}>
@@ -1031,24 +1031,24 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Track the growth of invested capital and current value over time</div>
             </div>
           </div>
-          <ValueProgressChart data={progressSeries} granularity={progressGranularity} onGranularityChange={setProgressGranularity} />
+          <ValueProgressChart data={progressSeries} granularity={progressGranularity} onGranularityChange={setProgressGranularity} height={220} />
         </div>
-        <div style={cardStyle}>
+        <div style={{ ...cardStyle, padding: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Portfolio Allocation</div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, marginBottom: 12 }}>Ownership distribution among investors</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, marginBottom: 8 }}>Ownership distribution among investors</div>
           {investors.length === 0 ? (
             <div style={{ padding: "24px 0", textAlign: "center", color: C.textMuted, fontSize: 12.5 }}>No investors yet.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-              <DonutChart size={170} thickness={26} segments={donutSegments} centerTitle="Total Ownership" centerValue={fmtPct(donutSegments.reduce((s, d) => s + d.value, 0), 0)} />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <DonutChart size={140} thickness={20} segments={donutSegments} centerTitle="Total Ownership" centerValue={fmtPct(donutSegments.reduce((s, d) => s + d.value, 0), 0)} />
               <div style={{ width: "100%" }}>
                 {investors.map((inv, i) => (
-                  <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "4px 0" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSec }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 4, background: donutSegments[i].color, display: "inline-block" }} />
+                  <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "3px 0" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 4, background: donutSegments[i].color, display: "inline-block", flexShrink: 0 }} />
                       {inv.name}
                     </span>
-                    <span style={{ fontWeight: 700, color: C.navy }}>{fmtPct(metricsById[inv.id].holdingPct, 1)}</span>
+                    <span style={{ fontWeight: 700, color: C.navy, flexShrink: 0 }}>{fmtPct(metricsById[inv.id].holdingPct, 1)}</span>
                   </div>
                 ))}
               </div>
@@ -1104,10 +1104,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
                       <td style={{ ...td, textAlign: "right" }}>{fmtPct(m.holdingPct)}</td>
                       <td style={td}><StatusTag status={inv.status} /></td>
                       <td style={td}>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <Btn primary data-testid="investor-row-view" onClick={() => onView(inv.id)}>View</Btn>
-                          <Btn onClick={() => onReinvest(inv.id)}>+ Reinvest</Btn>
-                        </div>
+                        <Btn primary data-testid="investor-row-view" onClick={() => onView(inv.id)}>View</Btn>
                       </td>
                     </tr>
                   );
