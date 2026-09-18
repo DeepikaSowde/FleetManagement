@@ -386,8 +386,21 @@ export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDat
         } else if (dateStr > bStart && dateStr < bEffEnd) {
           occupied = true;
         } else if (dateStr === bEffEnd) {
-          const t = timeOf(effectiveEndSrc);
-          if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
+          // The scheduled return day itself only turns into a "free from
+          // this time" turnover when it actually could still happen on
+          // schedule (or already did) — i.e. isOverdueNow is false. Once
+          // isOverdueNow is true, real time has already passed this same
+          // date with no return recorded, so this day never became a real
+          // handback either — it stays fully occupied, exactly like every
+          // day after it, instead of optimistically showing "available
+          // from" a return that's already known (in hindsight) not to have
+          // happened.
+          if (isOverdueNow) {
+            occupied = true;
+          } else {
+            const t = timeOf(effectiveEndSrc);
+            if (t && (turnoverTime === null || t > turnoverTime)) turnoverTime = t;
+          }
         } else if (isOverdueNow && dateStr > bEffEnd) {
           occupied = true;
         }

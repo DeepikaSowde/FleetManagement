@@ -76,6 +76,21 @@ const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 // ── Availability primitives (shared convention with useFleetData) ──────────
 const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
 
+// A booking that's overdue (real today is past its scheduled end) and not
+// yet actually returned must keep blocking availability indefinitely — not
+// just up to the scheduled end it already missed — until a real return
+// (actualReturnAt) is recorded. Without this, a booking's scheduled end
+// date passing would make the calendar show the car "available" the very
+// next day even though it's still with the customer. Mirrors the same rule
+// useFleetData.js's booking-conflict guard applies.
+const FAR_FUTURE_MS = new Date(8640000000000000).getTime();
+const effectiveBlockingEndMs = (b) => {
+  const effectiveEndSrc = b.actualReturnAt || b.end;
+  if (!effectiveEndSrc) return null;
+  if (!b.actualReturnAt && todayISO() > effectiveEndSrc.slice(0, 10)) return FAR_FUTURE_MS;
+  return new Date(effectiveEndSrc).getTime();
+};
+
 function dayAvailabilityStatus(plate, dateISO, { bookings, checkBookingConflict } = {}) {
   const dayStartISO = `${dateISO}T00:00`;
   const dayEndISO = `${nextDayISO(dateISO)}T00:00`;
@@ -85,10 +100,10 @@ function dayAvailabilityStatus(plate, dateISO, { bookings, checkBookingConflict 
     const dayEnd = new Date(dayEndISO).getTime();
     const overlapping = bookings.filter(b =>
       b.plate === plate && !b.cancelled && b.start && b.end &&
-      rangesOverlap(dayStart, dayEnd, new Date(b.start).getTime(), new Date(b.end).getTime())
+      rangesOverlap(dayStart, dayEnd, new Date(b.start).getTime(), effectiveBlockingEndMs(b))
     );
     if (overlapping.length === 0) return "available";
-    const fullyCovered = overlapping.some(b => new Date(b.start).getTime() <= dayStart && new Date(b.end).getTime() >= dayEnd);
+    const fullyCovered = overlapping.some(b => new Date(b.start).getTime() <= dayStart && effectiveBlockingEndMs(b) >= dayEnd);
     return fullyCovered ? "booked" : "partial";
   }
 
@@ -121,7 +136,7 @@ function isFreeForRange(plate, range, { bookings, checkBookingConflict } = {}) {
     const s = new Date(range.start).getTime(), e = new Date(range.end).getTime();
     return !bookings.some(b =>
       b.plate === plate && !b.cancelled && b.start && b.end &&
-      rangesOverlap(s, e, new Date(b.start).getTime(), new Date(b.end).getTime())
+      rangesOverlap(s, e, new Date(b.start).getTime(), effectiveBlockingEndMs(b))
     );
   }
   return checkBookingConflict ? !checkBookingConflict(plate, range.start, range.end) : true;
