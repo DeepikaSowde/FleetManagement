@@ -101,6 +101,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
   const [statusFilter, setStatusFilter] = useState("all");
   const [acqPage, setAcqPage] = useState(1);
   const ACQ_PAGE_SIZE = 10;
+  const [recPage, setRecPage] = useState(1);
+  const REC_PAGE_SIZE = 10;
   // Expense Management dashboard filters.
   const [period, setPeriod] = useState("all"); // all | thisMonth | lastMonth | thisYear | custom
   const [fromDate, setFromDate] = useState("");
@@ -240,6 +242,8 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
 
   const filtered = catFilter === "all" ? expenses : expenses.filter((e) => e.category === catFilter);
   const filteredTotal = filtered.reduce((s, e) => s + (e.amount || 0), 0);
+  const pagedRecords = filtered.slice((recPage - 1) * REC_PAGE_SIZE, recPage * REC_PAGE_SIZE);
+  useEffect(() => { setRecPage(1); }, [catFilter]);
   const modelOf = (plate) => { const c = fleet.find((f) => f.plate === plate); return c ? (c.model || "") : ""; };
   const yTick = (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
 
@@ -688,7 +692,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
               </tr>
             </thead>
             <tbody>
-              {filtered.map(e => (
+              {pagedRecords.map(e => (
                 <tr key={e.id} data-testid="expense-row" data-expense-id={e.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: "10px 12px", ...mono, fontSize: 11, fontWeight: 700, color: C.navyMid }}>{e.id}</td>
                   <td style={{ padding: "10px 12px" }}>
@@ -720,6 +724,9 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
         </div>
         {filtered.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>{expenses.length === 0 ? "No expenses recorded" : "No expenses in this category"}</div>
+        )}
+        {filtered.length > 0 && (
+          <Pagination page={recPage} pageSize={REC_PAGE_SIZE} totalCount={filtered.length} onPageChange={setRecPage} />
         )}
       </Card>
       </>
