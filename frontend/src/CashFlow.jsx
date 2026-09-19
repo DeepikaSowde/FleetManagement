@@ -613,7 +613,7 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], inv
                     <td style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 600, color: C.navy }}>{r.label}</td>
                     <td style={{ ...numCell, color: C.textSec }}>{fmtAbs(r.opening)}</td>
                     <td style={{ ...numCell, color: VIZ.green }}>{fmtAbs(r.receipts)}</td>
-                    <td style={{ padding: "9px 12px" }}><BalanceCell value={r.closing} /></td>
+                    <td style={{ padding: "9px 12px", textAlign: "right" }}><BalanceCell value={r.closing} /></td>
                     <td style={{ padding: "9px 12px", textAlign: "center" }}><Badge color={s.color} bg={tint(s.color)}>{s.label}</Badge></td>
                   </tr>
                 );
