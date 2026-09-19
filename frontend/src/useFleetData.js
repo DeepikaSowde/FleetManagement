@@ -1490,10 +1490,17 @@ export const useFleetData = () => {
     };
   };
 
-  const calculateCarMetrics = (plate) => {
-    const carEarnings = earnings.filter(e => e.plate === plate).reduce((sum, e) => sum + (e.total || 0), 0);
-    const carExpenses = expenses.filter(e => e.plate === plate).reduce((sum, e) => sum + (e.amount || 0), 0);
-    const carBookings = bookings.filter(b => b.plate === plate).length;
+  // `month` ("YYYY-MM") is optional and backward-compatible — every existing
+  // caller that omits it keeps getting the exact same lifetime figures as
+  // before. When passed (e.g. by the Ledger dashboard's Period filter), only
+  // earnings/expenses/bookings actually falling in that month are counted,
+  // so a per-car figure can be scoped to a period without changing the
+  // underlying formula at all.
+  const calculateCarMetrics = (plate, month) => {
+    const inMonth = (dateStr) => !month || (dateStr || "").startsWith(month);
+    const carEarnings = earnings.filter(e => e.plate === plate && inMonth(e.end || e.start)).reduce((sum, e) => sum + (e.total || 0), 0);
+    const carExpenses = expenses.filter(e => e.plate === plate && inMonth(e.date)).reduce((sum, e) => sum + (e.amount || 0), 0);
+    const carBookings = bookings.filter(b => b.plate === plate && inMonth(b.start)).length;
     const car = fleet.find(c => c.plate === plate);
     const totalInv = car
       ? ((car.purchase || 0) + (car.purchaseAdvance || 0) + (car.insurance || 0) + (car.reg || 0) + (car.otherCharges || 0))

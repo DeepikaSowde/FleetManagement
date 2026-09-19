@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell,
 } from "recharts";
-import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
+import { C, mono, fmt, totalInv, carAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows } from "./ledgerUtils";
 import { computeEarningTotal } from "./useFleetData";
@@ -106,7 +106,16 @@ const LedgerDashboard = ({
   // Investment + Rental Income + Deposits − Expenses − Refunds. Investor capital
   // now flows in via buildLedgerRows. Opening Balance is intentionally not shown.
   const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
-  const currentBalance = rows.reduce((s, r) => s + r.credit - r.debit, 0);
+  // "All time" is every transaction ever; a selected month is the running
+  // balance UP TO AND INCLUDING that month (same cumulative opening/closing
+  // idea the Ledger tab's own transaction table already uses for a period) —
+  // not just that month's own net change, since a balance is a snapshot at a
+  // point in time, not a flow over a period. Same credit − debit formula
+  // either way, only the row set is scoped by the Period filter.
+  const currentBalance = useMemo(() => {
+    const scoped = isAll ? rows : rows.filter((r) => r.date.slice(0, 7) <= period);
+    return scoped.reduce((s, r) => s + r.credit - r.debit, 0);
+  }, [rows, isAll, period]);
 
   // ── Balance sheet (assets & net worth) ─────────────────────────────────────
   // The full car cost is booked as a "Vehicle Purchase" expense, which pulls the
@@ -120,8 +129,18 @@ const LedgerDashboard = ({
   const [depRate, setDepRate] = useState(20);
   const methodDef = DEPRECIATION_METHODS.find((m) => m.id === depMethod) || DEPRECIATION_METHODS[0];
 
+  // A car bought after the selected period wasn't an asset yet as of that
+  // point in time, so a Balance Sheet "as of" that period must not count it —
+  // "all" keeps every car, same as before. This only changes WHICH cars are
+  // included; each included car's value/depreciation still comes from the
+  // exact same carAssetValueBy formula as always (today's value — there is
+  // no "value as of that past date" here, only "was it owned yet").
+  const ownedByPeriod = useMemo(
+    () => (isAll ? fleet : fleet.filter((c) => !c.purchaseDate || c.purchaseDate.slice(0, 7) <= period)),
+    [fleet, isAll, period]
+  );
   const assetRows = useMemo(() =>
-    fleet.map((c) => {
+    ownedByPeriod.map((c) => {
       const cost = totalInv(c);
       // null when the car's purchase and expiry dates contradict each other —
       // it cannot be valued, so it is shown as unvalued rather than given a
@@ -139,8 +158,11 @@ const LedgerDashboard = ({
         depPct: unvalued || cost <= 0 ? null : ((cost - value) / cost) * 100,
       };
     }).filter((r) => r.cost > 0).sort((a, b) => (b.value ?? -1) - (a.value ?? -1)),
-  [fleet, depMethod, depRate]);
-  const fleetValue = useMemo(() => fleetAssetValueBy(fleet, depMethod, depRate), [fleet, depMethod, depRate]);
+  [ownedByPeriod, depMethod, depRate]);
+  // Derived from the same (period-scoped) assetRows rather than a separate
+  // fleetAssetValueBy(fleet, ...) call, so the "Fleet Asset Value" tile can
+  // never disagree with what the table right below it actually sums to.
+  const fleetValue = useMemo(() => assetRows.reduce((s, r) => s + (r.unvalued ? 0 : r.value), 0), [assetRows]);
   const totalCost = assetRows.reduce((s, r) => s + r.cost, 0);
   const totalDepreciation = assetRows.reduce((s, r) => s + (r.depreciation ?? 0), 0);
   const netWorth = currentBalance + fleetValue;
@@ -154,7 +176,7 @@ const LedgerDashboard = ({
   useEffect(() => { setAssetPage(1); }, [assetRows.length]);
 
   const kpis = [
-    { label: "Current Balance", value: currentBalance, sub: "", color: VIZ.aqua, icon: "💵", delta: null },
+    { label: "Current Balance", value: currentBalance, sub: isAll ? "" : `As of ${monthLabelOf(period)}`, color: VIZ.aqua, icon: "💵", delta: null },
     { label: "Total Income", value: income, sub: isAll ? "All time" : "Selected month", color: VIZ.blue, icon: "💲", delta: prevP ? pct(income, earnMonth(prevP)) : null },
     { label: "Total Expense", value: expenseTotal, sub: isAll ? "All time" : "Selected month", color: VIZ.red, icon: "📉", delta: prevP ? pct(expenseTotal, expMonth(prevP)) : null },
     { label: "Net Profit", value: profit, sub: isAll ? "All time" : "Selected month", color: VIZ.violet, icon: "📊", delta: prevP ? pct(profit, earnMonth(prevP) - expMonth(prevP)) : null },
@@ -207,18 +229,23 @@ const LedgerDashboard = ({
   const donutTotal = donut.reduce((s, d) => s + d.value, 0);
 
   // ── Vehicle profitability + top performers ────────────────────────────────
+  // Scoped by the same Period filter as the KPI cards/chart above — "all" is
+  // every car's lifetime figures (the historical default), a specific month
+  // narrows calculateCarMetrics down to that month only, using the exact same
+  // revenue/expense/profit formula either way.
   const vehicleRows = useMemo(() => fleet.map((c) => {
-    const m = calculateCarMetrics(c.plate);
+    const m = calculateCarMetrics(c.plate, isAll ? undefined : period);
     return { plate: c.plate, model: `${c.make} ${c.model}`, revenue: m.earnings, expense: m.expenses, profit: m.profit, profitPct: m.earnings > 0 ? (m.profit / m.earnings) * 100 : 0 };
-  }), [fleet, calculateCarMetrics]);
+  }), [fleet, calculateCarMetrics, isAll, period]);
   const daysRentedByPlate = useMemo(() => {
     const map = {};
     bookings.forEach((b) => {
       if (b.cancelled || !b.start || !b.end) return;
+      if (!isAll && !b.start.startsWith(period)) return;
       map[b.plate] = (map[b.plate] || 0) + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000));
     });
     return map;
-  }, [bookings]);
+  }, [bookings, isAll, period]);
   const rankedVehicles = useMemo(() => [...vehicleRows].sort((a, b) => b.profit - a.profit), [vehicleRows]);
   const topVehicles = rankedVehicles.slice(0, 5);
   const [showAllVehicles, setShowAllVehicles] = useState(false);
@@ -395,7 +422,7 @@ const LedgerDashboard = ({
       {/* Vehicle Profitability + Top Performing */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <Card style={cardStyle}>
-          <CardHeader title="Vehicle Profitability" subtitle="Lifetime, per car"
+          <CardHeader title="Vehicle Profitability" subtitle={isAll ? "Lifetime, per car" : `${monthLabelOf(period)}, per car`}
             right={rankedVehicles.length > 5 && (
               <button onClick={() => setShowAllVehicles((s) => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, color: VIZ.blue }}>
                 {showAllVehicles ? "Show less" : `View all (${rankedVehicles.length})`}
@@ -428,7 +455,7 @@ const LedgerDashboard = ({
         </Card>
 
         <Card style={cardStyle}>
-          <CardHeader title="Top Performing Vehicles" subtitle="By lifetime profit" />
+          <CardHeader title="Top Performing Vehicles" subtitle={isAll ? "By lifetime profit" : `By ${monthLabelOf(period)} profit`} />
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr>
@@ -482,8 +509,8 @@ const LedgerDashboard = ({
           {/* Summary row: Current Balance + Fleet Asset Value = Net Worth */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
             {[
-              { label: "Current Balance", value: currentBalance, color: VIZ.aqua, sub: "" },
-              { label: "Fleet Asset Value", value: fleetValue, color: VIZ.blue, sub: `Now worth of ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` },
+              { label: "Current Balance", value: currentBalance, color: VIZ.aqua, sub: isAll ? "" : `As of ${monthLabelOf(period)}` },
+              { label: "Fleet Asset Value", value: fleetValue, color: VIZ.blue, sub: isAll ? `Now worth of ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` : `Owned by ${monthLabelOf(period)} · ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` },
               { label: "Net Worth", value: netWorth, color: netWorth >= 0 ? UP : DOWN, sub: "Current Balance + Fleet Value", strong: true },
             ].map((t) => (
               <div key={t.label} style={{ padding: "12px 14px", borderRadius: 10, border: `1px solid ${t.strong ? tint(t.color) : "#EFEFEF"}`, background: t.strong ? tint(t.color) : "#FBFBFC" }}>
