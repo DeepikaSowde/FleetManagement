@@ -859,7 +859,7 @@ export default function FleetOpzApp() {
       if (!d.licenseExpiry) {
         errors[`driver_${d.id}_licenseExpiry`] = "License Expiry Date is required.";
       } else if (d.licenseExpiry <= new Date().toLocaleDateString("en-CA")) {
-        errors[`driver_${d.id}_licenseExpiry`] = "License Expiry Date must be a valid future date.";
+        errors[`driver_${d.id}_licenseExpiry`] = "License expiry date must be a future date.";
       }
 
       const dCode = d.contactCountryCode || "+65";
