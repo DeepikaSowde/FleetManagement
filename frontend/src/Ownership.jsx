@@ -115,7 +115,20 @@ function Empty({ title, message, actionLabel, onAction }) {
 // Ownership is a staircase, not a curve — flat until an agreed event moves it —
 // so the bands are drawn step-after. Only Effective events appear: a draft that
 // nobody has agreed to has not changed who owns anything.
+//
+// The X-axis reads year-by-year (2026, 2027, ...) rather than two endpoint
+// dates. Every event still sits at its own real effectiveDate — nothing is
+// snapped to a grid — but a permanent text label per event was what used to
+// overlap once two fell close together, so the timeline only ever shows a
+// small dot + a thin guide line; the actual type/date/parties/amount/before →
+// after only appear in a tooltip on hover. Events too close together to get
+// their own dot (same small pixel window) share one dot/tooltip instead of
+// drawing on top of each other — the dot sits at the earliest of them, which
+// keeps it anchored to a real date rather than an averaged fake one.
+const EVENT_TYPE_ICON = { Opening: "●", "New Investor": "+", Reinvestment: "↻", Transfer: "→", Exit: "⇥", Buyback: "⇥", Adjustment: "±" };
+
 function OwnershipTimeline({ events, investors, colorOf }) {
+  const [hoverCluster, setHoverCluster] = useState(null); // index into markerClusters, or null
   const effective = useMemo(
     () => (events || [])
       .filter((e) => e.state === "Effective")
@@ -126,7 +139,7 @@ function OwnershipTimeline({ events, investors, colorOf }) {
   if (effective.length === 0) return null;
 
   const W = 860, H = 320;
-  const padL = 44, padR = 116, padT = 34, padB = 40;
+  const padL = 44, padR = 116, padT = 34, padB = 34;
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const t0 = Date.parse(effective[0].effectiveDate);
@@ -137,6 +150,8 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 
   const x = (t) => padL + ((t - t0) / span) * plotW;
   const y = (p) => padT + ((100 - p) / 100) * plotH;
+
+  const nameOf = (id) => investors.find((v) => v.id === id)?.name || id;
 
   // Everyone who has ever appeared in an effective table, in investor order.
   const ids = investors.map((i) => i.id).filter((id) => effective.some((e) => e.holdings.some((h) => h.investorId === id)));
@@ -177,8 +192,63 @@ function OwnershipTimeline({ events, investors, colorOf }) {
   const endLabels = ids.map((id, i) => {
     const mid = acc + endVals[i] / 2;
     acc += endVals[i];
-    return { id, mid, pct: endVals[i], name: investors.find((v) => v.id === id)?.name || id };
+    return { id, mid, pct: endVals[i], name: nameOf(id) };
   }).filter((l) => l.pct > 0);
+
+  // ── Year ticks — one per calendar year in range, clamped so the first
+  // tick sits at the real start of the data rather than before it. ─────────
+  const yearTicks = [];
+  for (let yr = new Date(t0).getFullYear(); yr <= new Date(t1).getFullYear(); yr++) {
+    const jan1 = Date.parse(`${yr}-01-01T00:00:00`);
+    yearTicks.push({ year: yr, t: Math.max(jan1, t0) });
+  }
+
+  // ── Event markers, before/after per investor, and overlap-free clustering.
+  // Before = the table in force immediately prior to this event (the opening
+  // table, or the previous effective event's holdings).
+  const beforeOf = (event) => {
+    const idx = effective.indexOf(event);
+    return idx > 0 ? effective[idx - 1].holdings : [];
+  };
+
+  const detailOf = (e) => {
+    const beforeMap = {};
+    beforeOf(e).forEach((h) => { beforeMap[h.investorId] = Number(h.pct); });
+    const afterMap = {};
+    (e.holdings || []).forEach((h) => { afterMap[h.investorId] = Number(h.pct); });
+    const allIds = Array.from(new Set([...Object.keys(beforeMap), ...Object.keys(afterMap)]));
+    const changes = allIds
+      .map((id) => ({ id, before: beforeMap[id] ?? null, after: afterMap[id] ?? 0 }))
+      .filter((c) => c.before === null ? c.after > 0 : Math.abs(c.after - c.before) > 0.005);
+
+    const decreased = changes.filter((c) => c.before !== null && c.after < c.before);
+    const increased = changes.filter((c) => c.before === null || c.after > c.before);
+    let parties = null;
+    if (e.newMoneyInvestorId) {
+      parties = nameOf(e.newMoneyInvestorId);
+    } else if (decreased.length === 1 && increased.length === 1) {
+      parties = `${nameOf(decreased[0].id)} → ${nameOf(increased[0].id)}`;
+    } else if (decreased.length === 1 && increased.length === 0) {
+      parties = `${nameOf(decreased[0].id)} → Company`;
+    }
+    return { changes, parties };
+  };
+
+  const MIN_GAP_PX = 18;
+  const markerClusters = [];
+  effective.forEach((e) => {
+    const px = x(Date.parse(e.effectiveDate));
+    const last = markerClusters[markerClusters.length - 1];
+    if (last && px - last.x < MIN_GAP_PX) last.events.push(e);
+    else markerClusters.push({ x: px, events: [e] });
+  });
+
+  const axisY = padT + plotH;
+  const hovered = hoverCluster != null ? markerClusters[hoverCluster] : null;
+  // Keep the tooltip inside the card — flip to right-anchored past the
+  // midpoint so it never runs off the right edge.
+  const tooltipLeftPct = hovered ? (hovered.x / W) * 100 : 0;
+  const tooltipFlip = hovered ? hovered.x / W > 0.58 : false;
 
   return (
     <div style={{ ...card }}>
@@ -191,46 +261,121 @@ function OwnershipTimeline({ events, investors, colorOf }) {
         {ids.map((id) => (
           <span key={id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: C.textSec }}>
             <Swatch color={colorOf(id)} />
-            {investors.find((v) => v.id === id)?.name || id}
+            {nameOf(id)}
           </span>
         ))}
       </div>
 
       <div style={{ overflowX: "auto" }}>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 620, height: "auto", display: "block" }}>
-          {[0, 25, 50, 75, 100].map((p) => (
-            <g key={p}>
-              <line x1={padL} x2={padL + plotW} y1={y(p)} y2={y(p)} stroke={C.linen} strokeWidth="1" />
-              <text x={padL - 8} y={y(p) + 3.5} textAnchor="end" fontSize="10.5" fill={C.textMuted}>{p}%</text>
-            </g>
-          ))}
-
-          {/* 2px surface-coloured stroke is what opens the gap between fills. */}
-          {bands.map((b) => (
-            <path key={b.id} d={b.d} fill={b.color} stroke={C.surface} strokeWidth="2" strokeLinejoin="round" />
-          ))}
-
-          {effective.map((e) => {
-            const tx = x(Date.parse(e.effectiveDate));
-            return (
-              <g key={e.id}>
-                <line x1={tx} x2={tx} y1={padT - 10} y2={padT + plotH} stroke={C.border} strokeWidth="1" strokeDasharray="3 3" />
-                <text x={tx + 4} y={padT - 14} fontSize="9.5" fill={C.textMuted}>{e.type}</text>
+        <div style={{ position: "relative", minWidth: 620 }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+            {[0, 25, 50, 75, 100].map((p) => (
+              <g key={p}>
+                <line x1={padL} x2={padL + plotW} y1={y(p)} y2={y(p)} stroke={C.linen} strokeWidth="1" />
+                <text x={padL - 8} y={y(p) + 3.5} textAnchor="end" fontSize="10.5" fill={C.textMuted}>{p}%</text>
               </g>
-            );
-          })}
+            ))}
 
-          <line x1={padL} x2={padL + plotW} y1={padT + plotH} y2={padT + plotH} stroke={C.border} strokeWidth="1" />
-          <text x={padL} y={padT + plotH + 18} fontSize="10" fill={C.textMuted}>{fmtDate(effective[0].effectiveDate)}</text>
-          <text x={padL + plotW} y={padT + plotH + 18} fontSize="10" fill={C.textMuted} textAnchor="end">{fmtDate(new Date(t1).toISOString().slice(0, 10))}</text>
+            {/* 2px surface-coloured stroke is what opens the gap between fills. */}
+            {bands.map((b) => (
+              <path key={b.id} d={b.d} fill={b.color} stroke={C.surface} strokeWidth="2" strokeLinejoin="round" />
+            ))}
 
-          {/* Direct labels, so identity never rests on colour alone. */}
-          {endLabels.map((l) => (
-            <text key={l.id} x={padL + plotW + 10} y={y(l.mid) + 4} fontSize="11" fontWeight="600" fill={colorOf(l.id)}>
-              {l.name.length > 12 ? l.name.slice(0, 11) + "…" : l.name} {l.pct.toFixed(0)}%
-            </text>
-          ))}
-        </svg>
+            <line x1={padL} x2={padL + plotW} y1={axisY} y2={axisY} stroke={C.border} strokeWidth="1" />
+
+            {/* Year ticks — the axis reads year-by-year rather than two
+                endpoint dates. */}
+            {yearTicks.map((yt) => (
+              <g key={yt.year}>
+                <line x1={x(yt.t)} x2={x(yt.t)} y1={axisY} y2={axisY + 4} stroke={C.textMuted} strokeWidth="1" />
+                <text x={x(yt.t)} y={axisY + 17} fontSize="11" fontWeight="700" fill={C.textSec} textAnchor="middle">{yt.year}</text>
+              </g>
+            ))}
+
+            {/* Small, clean event markers — a thin guide line and a dot at
+                its real (or, if clustered, earliest-in-cluster) date. No
+                permanent text label, so nothing can ever overlap; full
+                detail is the hover tooltip below. */}
+            {markerClusters.map((cl, i) => {
+              const isHovered = hoverCluster === i;
+              return (
+                <g key={i}
+                  onMouseEnter={() => setHoverCluster(i)}
+                  onMouseLeave={() => setHoverCluster((c) => (c === i ? null : c))}
+                  style={{ cursor: "pointer" }}
+                >
+                  <line x1={cl.x} x2={cl.x} y1={padT - 4} y2={axisY} stroke={isHovered ? C.teal : C.border} strokeWidth={isHovered ? 1.5 : 1} strokeDasharray="3 3" />
+                  {/* Invisible larger hit target, so a small dot is still easy to hover. */}
+                  <circle cx={cl.x} cy={axisY} r={9} fill="transparent" />
+                  <circle cx={cl.x} cy={axisY} r={isHovered ? 5 : 4} fill={C.surface} stroke={isHovered ? C.teal : C.textMuted} strokeWidth="2" />
+                  {cl.events.length > 1 && (
+                    <text x={cl.x} y={axisY + 3.5} fontSize="7" fontWeight="700" textAnchor="middle" fill={C.textMuted}>{cl.events.length}</text>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Direct labels, so identity never rests on colour alone. */}
+            {endLabels.map((l) => (
+              <text key={l.id} x={padL + plotW + 10} y={y(l.mid) + 4} fontSize="11" fontWeight="600" fill={colorOf(l.id)}>
+                {l.name.length > 12 ? l.name.slice(0, 11) + "…" : l.name} {l.pct.toFixed(0)}%
+              </text>
+            ))}
+          </svg>
+
+          {hovered && (
+            <div
+              onMouseEnter={() => setHoverCluster(hoverCluster)}
+              onMouseLeave={() => setHoverCluster(null)}
+              style={{
+                position: "absolute",
+                left: `${tooltipLeftPct}%`,
+                top: 0,
+                transform: tooltipFlip ? "translateX(-100%)" : "translateX(0)",
+                zIndex: 5,
+                width: 240,
+                maxWidth: "calc(100vw - 64px)",
+                background: C.surface,
+                border: `1px solid ${C.border}`,
+                borderRadius: 10,
+                boxShadow: "0 8px 24px rgba(15,23,42,0.14)",
+                padding: "10px 12px",
+                pointerEvents: "auto",
+              }}
+            >
+              {hovered.events.map((e, i) => {
+                const { changes, parties } = detailOf(e);
+                return (
+                  <div key={e.id} style={{ paddingTop: i === 0 ? 0 : 10, marginTop: i === 0 ? 0 : 10, borderTop: i === 0 ? "none" : `1px solid ${C.linen}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: C.tealFaint, color: C.teal, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                        {EVENT_TYPE_ICON[e.type] || "•"}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: C.navy }}>{e.type}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 2, marginLeft: 25 }}>{fmtDate(e.effectiveDate)}</div>
+                    <div style={{ marginTop: 7, display: "flex", flexDirection: "column", gap: 3 }}>
+                      {parties && <div style={{ fontSize: 11.5, color: C.textPri, fontWeight: 600 }}>{parties}</div>}
+                      {e.newMoneyAmount ? (
+                        <div style={{ fontSize: 11, color: C.textSec }}>{fmtSGD(e.newMoneyAmount)}{parties ? "" : " invested"}</div>
+                      ) : null}
+                      {changes.map((c) => (
+                        <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11 }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.textSec }}>
+                            <Swatch color={colorOf(c.id)} />{nameOf(c.id)}
+                          </span>
+                          <span style={{ color: C.textMuted }}>
+                            {c.before === null ? "new" : `${c.before.toFixed(0)}%`} <span style={{ color: C.border }}>→</span> <b style={{ color: C.navy }}>{c.after.toFixed(0)}%</b>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
