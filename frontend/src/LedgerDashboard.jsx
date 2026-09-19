@@ -179,7 +179,10 @@ const LedgerDashboard = ({
     { label: "Current Balance", value: currentBalance, sub: isAll ? "" : `As of ${monthLabelOf(period)}`, color: VIZ.aqua, icon: "💵", delta: null },
     { label: "Total Income", value: income, sub: isAll ? "All time" : "Selected month", color: VIZ.blue, icon: "💲", delta: prevP ? pct(income, earnMonth(prevP)) : null },
     { label: "Total Expense", value: expenseTotal, sub: isAll ? "All time" : "Selected month", color: VIZ.red, icon: "📉", delta: prevP ? pct(expenseTotal, expMonth(prevP)) : null },
-    { label: "Net Profit", value: profit, sub: isAll ? "All time" : "Selected month", color: VIZ.violet, icon: "📊", delta: prevP ? pct(profit, earnMonth(prevP) - expMonth(prevP)) : null },
+    // Financial colour convention: green when actually profitable, red for a
+    // loss, and the same default value colour every other neutral figure on
+    // this page uses when it's exactly zero (neither a gain nor a loss).
+    { label: "Net Profit", value: profit, sub: isAll ? "All time" : "Selected month", color: profit > 0 ? VIZ.green : profit < 0 ? VIZ.red : C.navy, icon: "📊", delta: prevP ? pct(profit, earnMonth(prevP) - expMonth(prevP)) : null },
   ];
 
   // ── Revenue & Expense chart — Monthly (12 months of one year) or Yearly
