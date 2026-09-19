@@ -5,7 +5,8 @@ import {
 } from "recharts";
 import { C, mono, fmt, totalInv, carAssetValueBy, fleetAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
-import { buildLedgerRows, forfeitedDepositIncome } from "./ledgerUtils";
+import { buildLedgerRows } from "./ledgerUtils";
+import { computeEarningTotal } from "./useFleetData";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
 // from data the app already has (no backend). Colours use a validated
@@ -73,9 +74,26 @@ const LedgerDashboard = ({
   const isAll = period === "all";
 
   // ── Money helpers ─────────────────────────────────────────────────────────
-  const earnMonth = (m) => earnings.filter((e) => (e.end || e.start || "").startsWith(m)).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { prefix: m });
+  const bookingById = useMemo(() => {
+    const map = {};
+    bookings.forEach((b) => { map[b.id] = b; });
+    return map;
+  }, [bookings]);
+
+  // Total Income = the exact same rental-earnings figure P&L → Earnings
+  // totals as "Total Earnings": each earning row's current invoice total
+  // (computeEarningTotal — already includes any extension charges, since it
+  // reflects the booking's live end date, and already excludes the
+  // refundable security deposit), summed straight from booking/earning data
+  // rather than a separate Ledger-only calculation. Forfeited deposits are
+  // cash, not rental income, so they are deliberately not added here — they
+  // still flow into the ledger's own Credit/Debit rows and Current Balance
+  // below, which is a different, unrelated figure.
+  const earnMonth = (m) => earnings
+    .filter((e) => (e.end || e.start || "").startsWith(m))
+    .reduce((s, e) => s + computeEarningTotal(e, bookingById), 0);
   const expMonth = (m) => expenses.filter((x) => (x.date || "").startsWith(m)).reduce((s, x) => s + (x.amount || 0), 0);
-  const totalEarn = earnings.reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings);
+  const totalEarn = earnings.reduce((s, e) => s + computeEarningTotal(e, bookingById), 0);
   const totalExp = expenses.reduce((s, x) => s + (x.amount || 0), 0);
 
   const income = isAll ? totalEarn : earnMonth(period);

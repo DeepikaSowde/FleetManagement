@@ -172,6 +172,23 @@ export const computeBookingInvoice = (b) => {
   };
 };
 
+// Recognized rental income for ONE earning row — the same figure P&L →
+// Earnings sums into its "Total Earnings" KPI. For a daily/hourly rental,
+// that's the linked booking's current finalInvoiceTotal (already reflects
+// any extension, since computeBookingInvoice recomputes it live from the
+// booking's actual end date/charges, and already excludes the refundable
+// security deposit). A monthly contract recognizes income per contract
+// month — each month is its own earning row with nothing to recompute, so
+// that row's own stored total is used instead. Any other screen that needs
+// "how much rental income does this earning row represent" should call this
+// rather than reading e.total directly, so it can never silently drift from
+// what P&L shows for the same row.
+export const computeEarningTotal = (e, bookingById) => {
+  const b = bookingById[e.bookingId];
+  if (b && b.rentalType !== "monthly") return computeBookingInvoice(b).finalInvoiceTotal;
+  return Number(e.total) || 0;
+};
+
 // A booking is "closed out" once it's reached either terminal status —
 // Completed (returned, balance may still be pending) or Closed (returned AND
 // fully paid). Anything that should react to a booking being done — earnings
