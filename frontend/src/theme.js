@@ -44,6 +44,12 @@ export const C = {
 
 export const mono = { fontFamily: "'JetBrains Mono', 'Courier New', monospace" };
 
+// The one body/UI font stack for the entire app — every top-level screen
+// (main app shell, Dashboard, Investor Portal, the loading screen) applies
+// this exact string rather than its own copy, so none of them can drift into
+// a different typeface.
+export const FONT_FAMILY = "'Inter', 'Segoe UI', sans-serif";
+
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 export const fmt = (n) => `SGD ${n.toLocaleString()}`;
 

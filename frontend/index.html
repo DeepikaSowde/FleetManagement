@@ -5,25 +5,31 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FleetOpz - Car Rental Dashboard</title>
+    <!-- Loaded once, here, so every screen (main app, Dashboard, Investor
+         Portal, loading/login screens) resolves the SAME 'Inter'/'JetBrains
+         Mono' referenced across the codebase from first paint, instead of
+         each one silently falling back to whatever font family happens to
+         be installed on that particular device. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
       }
-      
+
       html, body {
         height: 100%;
       }
-      
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-          'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica',
-          'Arial', sans-serif;
+        font-family: 'Inter', 'Segoe UI', sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
-      
+
       #root {
         height: 100%;
       }

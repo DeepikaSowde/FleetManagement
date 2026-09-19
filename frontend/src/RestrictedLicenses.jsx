@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { C } from "./theme";
+import { C, mono } from "./theme";
 import { Card, CardHeader, Btn, Badge, Input } from "./components";
 
 // Admin-only: manage the list of driving license numbers that are blocked from
@@ -74,7 +74,7 @@ export default function RestrictedLicenses({ licenses = [], onAdd, onUpdate, onD
             <div key={l.id} data-testid="rl-row" data-license={l.licenseNumber}
               style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, fontFamily: "monospace" }}>{l.licenseNumber}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, ...mono }}>{l.licenseNumber}</div>
                 <div style={{ fontSize: 10.5, color: C.textMuted }}>{l.reason}</div>
               </div>
               <Badge color={C.red} bg="#fdecea">Restricted</Badge>

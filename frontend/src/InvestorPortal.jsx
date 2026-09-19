@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { C } from "./theme";
+import { C, FONT_FAMILY } from "./theme";
 import { Btn } from "./components";
 import { useAuth } from "./context/AuthContext";
 import api from "./services/api";
@@ -270,7 +270,7 @@ export default function InvestorPortal() {
   };
 
   const shell = (children) => (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: FONT_FAMILY }}>
       <header style={{ background: C.navy, color: "#fff", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.2 }}>FleetOpz</div>

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { fmt } from "./theme";
+import { fmt, FONT_FAMILY } from "./theme";
 import { computeBookingInvoice } from "./useFleetData";
 import { forfeitedDepositIncome } from "./ledgerUtils";
 import { useViewport } from "./useViewport";
@@ -346,7 +346,7 @@ const Dashboard = ({
   return (
     // Negative margin lets the dashboard own its lighter background inside the
     // shell's 24px-padded content area, without changing the shell itself.
-    <div style={{ margin: isMobile ? -16 : -24, padding: isMobile ? 16 : 24, background: D.page, minHeight: "100%", fontFamily: "'Inter','Segoe UI',sans-serif", color: D.body }}>
+    <div style={{ margin: isMobile ? -16 : -24, padding: isMobile ? 16 : 24, background: D.page, minHeight: "100%", fontFamily: FONT_FAMILY, color: D.body }}>
 
       {/* ── PERIOD FILTER (scopes Revenue, P&L, Expenses & Vehicle cards) ──── */}
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 16 }}>

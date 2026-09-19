@@ -96,7 +96,7 @@ export const Ring = ({ pct, color, plate, model, note, noteColor }) => {
         <circle cx={40} cy={40} r={r} fill="none" stroke={color} strokeWidth={8}
           strokeDasharray={circ} strokeDashoffset={offset}
           strokeLinecap="round" transform="rotate(-90 40 40)" />
-        <text x={40} y={44} textAnchor="middle" fontFamily="'Courier New',monospace" fontSize={13} fontWeight={700} fill={C.navy}>{pct}%</text>
+        <text x={40} y={44} textAnchor="middle" fontFamily={mono.fontFamily} fontSize={13} fontWeight={700} fill={C.navy}>{pct}%</text>
       </svg>
       <div style={{ ...mono, fontSize: 10, fontWeight: 700, color: C.textSec }}>{plate}</div>
       <div style={{ fontSize: 9.5, color: C.textMuted, textAlign: "center" }}>{model}</div>

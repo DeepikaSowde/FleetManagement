@@ -333,7 +333,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
               <div><div style={fieldLabel}>Description</div><input id="expense-desc" type="text" placeholder="e.g. 60,000 km oil change and filter" value={newExpense.desc} onChange={e => setNewExpense({ ...newExpense, desc: e.target.value })} style={{ ...fieldInput, fontFamily: "inherit" }} /></div>
               <div>
                 <div style={fieldLabel}>Amount (SGD){newExpense.category === "Repairs & Maintenance" && <span style={{ fontWeight: 400 }}> — optional</span>}</div>
-                <input id="expense-amount" type="number" placeholder={newExpense.category === "Repairs & Maintenance" ? "Leave blank if not yet known" : "0.00"} value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })} style={{ ...fieldInput, fontFamily: "'Courier New',monospace" }} />
+                <input id="expense-amount" type="number" placeholder={newExpense.category === "Repairs & Maintenance" ? "Leave blank if not yet known" : "0.00"} value={newExpense.amount} onChange={e => setNewExpense({ ...newExpense, amount: e.target.value })} style={{ ...fieldInput, ...mono }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>

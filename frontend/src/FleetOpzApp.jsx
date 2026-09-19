@@ -4,7 +4,7 @@ import {
   BookOpen, Briefcase, TrendingUp, ArrowLeftRight,
   UserCog, Settings as SettingsIcon, Bell,
 } from "lucide-react";
-import { C, TRANSACTION_METHODS } from "./theme";
+import { C, TRANSACTION_METHODS, mono, FONT_FAMILY } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
 import { useViewport } from "./useViewport";
@@ -36,7 +36,6 @@ import Settings from "./Settings";
 // field is locked after an existing-customer match — <Input>'s prop surface
 // isn't available to confirm it forwards those through.
 const bookingFieldLabelStyle = { fontSize: 11, fontWeight: 600, color: C.textSec, display: "block", marginBottom: 6 };
-const mono = { fontFamily: "'SF Mono', 'Consolas', 'Menlo', monospace" };
 const bookingFieldInputStyle = (readOnly, hasError) => ({
   width: "100%", padding: "10px 12px", borderRadius: 8,
   border: `1px solid ${hasError ? C.red : C.border}`,
@@ -2019,7 +2018,7 @@ export default function FleetOpzApp() {
   const bookingBalance = Math.max(0, bookingTotal - bookingAmountCollected);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "'Inter', 'Segoe UI', sans-serif", fontSize: 13, color: C.textPri }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: FONT_FAMILY, fontSize: 13, color: C.textPri }}>
 
       {/* Backdrop behind the mobile drawer */}
       {isMobile && drawerOpen && (

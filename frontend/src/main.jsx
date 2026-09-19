@@ -4,7 +4,7 @@ import FleetOpzApp from "./FleetOpzApp";
 import InvestorPortal from "./InvestorPortal";
 import Login from "./Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { C } from "./theme";
+import { C, FONT_FAMILY } from "./theme";
 import "./index.css";
 import "./App.css";
 
@@ -16,7 +16,7 @@ function Root() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.textMuted, fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.textMuted, fontFamily: FONT_FAMILY }}>
         Loading…
       </div>
     );
