@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { C, mono, fmt } from "./theme";
 import { Card, Btn } from "./components";
+import { DATE_MIN, DATE_MAX } from "./validation";
 
 // Today's Operations — the day's pickups & returns, derived from bookings.
 //   • Pickup  = a booking starting on the selected date
@@ -191,7 +192,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={selectStyle} />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={selectStyle} />
           <Btn primary onClick={onNewBooking}>＋ Add Operation</Btn>
         </div>
       </div>

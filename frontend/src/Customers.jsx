@@ -4,6 +4,7 @@ import { Card, Badge, Btn, Modal, Input, Select } from "./components";
 import { computeBookingInvoice } from "./useFleetData";
 import RestrictedLicenses from "./RestrictedLicenses";
 import { CONTACT_COUNTRY_CODES, contactDigitsRequired, combineContact, splitContact } from "./contactCodes";
+import { DATE_MIN, DATE_MAX } from "./validation";
 
 // Customer Management — master customer directory with live, booking-derived
 // stats (pending amount, pending bookings, last booking/payment) joined in from
@@ -616,7 +617,7 @@ const Customers = ({
           </div>
 
           <Input id="customer-email" label="Email" type="email" value={form.email} onChange={(e) => { setForm({ ...form, email: e.target.value }); setFieldErrors((p) => ({ ...p, email: undefined })); }} placeholder="e.g. ravi.kumar@email.com" error={fieldErrors.email} />
-          <Input id="customer-dob" label="Date of Birth" type="date" value={form.dob || ""} max={new Date().toLocaleDateString("en-CA")} onChange={(e) => handleDobChange(e.target.value)} />
+          <Input id="customer-dob" label="Date of Birth" type="date" value={form.dob || ""} min={DATE_MIN} max={new Date().toLocaleDateString("en-CA")} onChange={(e) => handleDobChange(e.target.value)} />
           <Select id="customer-nationality" label="Nationality" value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} options={NATIONALITY_OPTIONS} />
           <Select id="customer-type" label="Customer Type" value={form.customerType} onChange={(e) => setForm({ ...form, customerType: e.target.value })} options={CUSTOMER_TYPES} />
           <Input
@@ -636,7 +637,7 @@ const Customers = ({
             style={form.dob ? { background: C.bg, cursor: "not-allowed" } : undefined}
           />
           <Input id="customer-license" label="Driving License Number *" value={form.license} onChange={(e) => { setForm({ ...form, license: e.target.value }); setFieldErrors((p) => ({ ...p, license: undefined })); }} placeholder="e.g. S1234567A" error={fieldErrors.license} />
-          <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} onChange={(e) => { setForm({ ...form, licenseExpiry: e.target.value }); setFieldErrors((p) => ({ ...p, licenseExpiry: undefined })); }} error={fieldErrors.licenseExpiry} />
+          <Input id="customer-license-expiry" label="License Expiry" type="date" value={form.licenseExpiry || ""} min={DATE_MIN} max={DATE_MAX} onChange={(e) => { setForm({ ...form, licenseExpiry: e.target.value }); setFieldErrors((p) => ({ ...p, licenseExpiry: undefined })); }} error={fieldErrors.licenseExpiry} />
           <Input
             id="customer-driving-experience" label="Driving Experience (years) *" type="number" value={form.drivingExperience}
             onChange={(e) => {

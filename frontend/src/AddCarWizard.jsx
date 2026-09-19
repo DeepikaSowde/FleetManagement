@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions, purchaseAfterCoe, PURCHASE_AFTER_COE_MESSAGE } from "./theme";
 import { Btn, Input } from "./components";
+import { sanitizeYearDigits, getYearFormatError, DATE_MIN, DATE_MAX } from "./validation";
 
 const STEPS = [
   "Purchase & Vehicle Details",
@@ -50,10 +51,6 @@ const normalizePlate = (v) => String(v || "").replace(/\s+/g, "").toLowerCase();
 // of it — the final-value check backing handleAmountChange's live typing
 // filter, and kept in sync with fleetController.js's copy of this rule.
 const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
-
-// Year is exactly 4 digits — no sign, no decimal point, no letters. Kept in
-// sync with EditVehicleForm.jsx's and fleetController.js's copies.
-const YEAR_RE = /^\d{4}$/;
 
 // Base catalog of common brands/models (Singapore rental fleet defaults) —
 // merged at render time with any brand/model pairs already present in the
@@ -157,7 +154,7 @@ export const ComplianceField = ({ label, value, onChange, blocking = false }) =>
   const isPast = days != null && days < 0;
   return (
     <div>
-      <Input label={label} type="date" value={value} onChange={onChange} style={blocking && isPast ? { borderColor: C.red } : undefined} />
+      <Input label={label} type="date" value={value} onChange={onChange} min={DATE_MIN} max={DATE_MAX} style={blocking && isPast ? { borderColor: C.red } : undefined} />
       {value && (
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, marginBottom: 4, fontSize: 10.5 }}>
           <span style={{ color: C.textMuted }}>
@@ -217,12 +214,12 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     setErrors(e => ({ ...e, plate: isDuplicate ? "Car Plate already exists" : undefined }));
   };
 
-  // Year: strip anything that isn't a digit as it's typed, and cap at 4
-  // digits — so neither a negative sign, a decimal point, letters, nor a
-  // 5th+ digit can ever land in the field.
+  // Year: shared live-typing filter (see validation.js) — strips anything
+  // that isn't a digit as it's typed and caps at 4 digits, so neither a
+  // negative sign, a decimal point, letters, nor a 5th+ digit can ever land
+  // in the field.
   const handleYearChange = (e) => {
-    const v = e.target.value.replace(/\D/g, "").slice(0, 4);
-    setField("year", v);
+    setField("year", sanitizeYearDigits(e.target.value));
   };
 
   // Purchase Price / Advance / Insurance / Registration / Other Charges accept
@@ -283,8 +280,8 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     // cutoff always tracks today's real year with nothing hardcoded.
     const currentYr = new Date().getFullYear();
     const yr = Number(car.year);
-    if (!String(car.year).trim()) e.year = "Year is required";
-    else if (!YEAR_RE.test(String(car.year).trim())) e.year = "Year must be a 4-digit number";
+    const yearFormatErr = !String(car.year).trim() ? "Year is required" : getYearFormatError(car.year);
+    if (yearFormatErr) e.year = yearFormatErr;
     else if (yr > currentYr) e.year = `Year cannot be later than ${currentYr}`;
     if (!String(car.make).trim()) e.make = "Brand is required";
     if (!String(car.model).trim()) e.model = "Model is required";
@@ -427,7 +424,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginTop: 6 }}>
                 <Input label="Other Charges (SGD)" type="number" min="0" step="0.01" value={car.otherCharges} onChange={handleAmountChange("otherCharges")} placeholder="e.g., 200.50" error={errors.otherCharges} />
-                <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
+                <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} min={DATE_MIN} max={DATE_MAX} error={errors.purchaseDate} />
               </div>
             </div>
           )}

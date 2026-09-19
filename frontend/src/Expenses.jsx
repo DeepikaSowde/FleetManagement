@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { C, mono, fmt } from "./theme";
 import { Card, CardHeader, Btn, Badge, PlateBadge, Pagination } from "./components";
+import { DATE_MIN, DATE_MAX } from "./validation";
 
 // Categories from RDK Trading's real ledger (RDK_Car Rental_Database.xlsx).
 const CATEGORIES = [
@@ -313,7 +314,7 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
                   {fleet.map(c => <option key={c.plate} value={c.plate}>{c.plate}</option>)}
                 </select>
               </div>
-              <div><div style={fieldLabel}>Date</div><input id="expense-date" type="date" value={newExpense.date} onChange={e => setNewExpense({ ...newExpense, date: e.target.value })} style={fieldInput} /></div>
+              <div><div style={fieldLabel}>Date</div><input id="expense-date" type="date" value={newExpense.date} onChange={e => setNewExpense({ ...newExpense, date: e.target.value })} min={DATE_MIN} max={DATE_MAX} style={fieldInput} /></div>
               <div>
                 <div style={fieldLabel}>Category</div>
                 <select id="expense-category" value={newExpense.category} onChange={e => setNewExpense({ ...newExpense, category: e.target.value })} style={fieldInput}>
@@ -369,9 +370,9 @@ const Expenses = ({ expenses = [], fleet = [], onAddExpense, onUpdateExpense, on
         </select>
         {period === "custom" && (
           <>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={selectStyle} />
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={selectStyle} />
             <span style={{ fontSize: 12, color: C.textMuted }}>to</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={selectStyle} />
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={selectStyle} />
           </>
         )}
       </div>

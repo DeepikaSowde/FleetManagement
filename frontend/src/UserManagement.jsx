@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { C } from "./theme";
 import { Card, CardHeader, Btn, Badge, Modal, Input, Select } from "./components";
+import { DATE_MIN, DATE_MAX } from "./validation";
 
 // ── STATIC REFERENCE DATA ───────────────────────────────────────────────────
 // Role metadata (icon/description) for the Role & Permission tab's role
@@ -474,6 +475,7 @@ const UserManagement = ({
                 type="date"
                 value={logDateFrom}
                 onChange={e => { setLogDateFrom(e.target.value); setLogPage(1); }}
+                min={DATE_MIN} max={DATE_MAX}
                 style={{ border: "none", outline: "none", fontSize: 12.5, color: C.textPri, background: "transparent" }}
               />
               <span style={{ fontSize: 12, color: C.textMuted }}>–</span>
@@ -481,6 +483,7 @@ const UserManagement = ({
                 type="date"
                 value={logDateTo}
                 onChange={e => { setLogDateTo(e.target.value); setLogPage(1); }}
+                min={DATE_MIN} max={DATE_MAX}
                 style={{ border: "none", outline: "none", fontSize: 12.5, color: C.textPri, background: "transparent" }}
               />
             </div>

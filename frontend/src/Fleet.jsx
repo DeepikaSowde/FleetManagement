@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions, purchaseAfterCoe, PURCHASE_AFTER_COE_MESSAGE } from "./theme";
+import { DATE_MIN, DATE_MAX } from "./validation";
 import { fleetDisplayStatus } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
@@ -205,7 +206,7 @@ const ExpenseDrawer = ({ car, onAddExpense, onClose }) => {
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, marginBottom: 3 }}>Date</div>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle} />
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={fieldStyle} />
             </div>
           </div>
 

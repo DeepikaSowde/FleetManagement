@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { CalendarDays, CreditCard, User, Car as CarIcon, Ban } from "lucide-react";
 import { C, mono, fmt, TRANSACTION_METHODS } from "./theme";
+import { DATE_MIN, DATE_MAX } from "./validation";
 import { Card, Btn, StatusTag } from "./components";
 import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
 
@@ -1553,7 +1554,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           </div>
                           <div style={{ flex: "1 1 120px" }}>
                             <div style={detailFieldLabelStyle}>Date</div>
-                            <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} style={detailInputStyle} />
+                            <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 100px" }}>
                             <div style={detailFieldLabelStyle}>Time</div>
@@ -1759,7 +1760,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           </div>
                           <div style={{ flex: "1 1 130px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
-                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
+                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "0.85 1 110px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>
@@ -1981,7 +1982,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div style={{ flex: "1 1 140px" }}>
                       <div style={detailFieldLabelStyle}>Actual Return Date</div>
-                      <input type="date" value={actualReturnDate} onChange={(e) => setActualReturnDate(e.target.value)} style={detailInputStyle} />
+                      <input type="date" value={actualReturnDate} onChange={(e) => setActualReturnDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "1 1 110px" }}>
                       <div style={detailFieldLabelStyle}>Actual Return Time</div>
@@ -2197,7 +2198,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                           <div style={{ flex: "1 1 130px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
-                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} style={detailInputStyle} />
+                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 110px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>
@@ -2268,7 +2269,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                               </div>
                               <div style={{ flex: "1 1 120px" }}>
                                 <div style={detailFieldLabelStyle}>Date</div>
-                                <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} style={detailInputStyle} />
+                                <input type="date" value={rentDate} onChange={(e) => setRentDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
                               </div>
                               <div style={{ flex: "0 1 110px" }}>
                                 <div style={detailFieldLabelStyle}>Time</div>
@@ -2528,7 +2529,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 </div>
                 <div>
                   <div style={detailFieldLabelStyle}>Date</div>
-                  <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} style={detailInputStyle} />
+                  <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
                 </div>
                 <div>
                   <div style={detailFieldLabelStyle}>Time</div>

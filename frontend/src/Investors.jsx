@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag, Pagination } from "./components";
 import Ownership, { holdingsAsOf } from "./Ownership";
+import { DATE_MIN, DATE_MAX } from "./validation";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
@@ -570,7 +571,7 @@ function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinv
       {!isEdit && (
         <>
           <Input label="First Investment Amount (SGD)" type="number" value={form.firstAmount} onChange={(e) => setForm({ ...form, firstAmount: e.target.value })} placeholder="e.g., 100000" />
-          <Input label="First Investment Date" type="date" value={form.firstDate} onChange={(e) => setForm({ ...form, firstDate: e.target.value })} />
+          <Input label="First Investment Date" type="date" value={form.firstDate} onChange={(e) => setForm({ ...form, firstDate: e.target.value })} min={DATE_MIN} max={DATE_MAX} />
         </>
       )}
     </Modal>
@@ -608,7 +609,7 @@ function TransactionFormModal({ open, investorName, presetType, editingTxn, onCl
         onChange={(e) => setForm({ ...form, type: e.target.value })}
         options={Object.values(TXN_TYPES).map((t) => ({ value: t, label: `${t} (${flowForType(t)})` }))}
       />
-      <Input label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      <Input label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} min={DATE_MIN} max={DATE_MAX} />
       <Input label="Amount (SGD)" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g., 100000" />
       <Input label="Description / Reason" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g., Dividend FY 2025-26, Partial Exit, Reinvested returns" />
     </Modal>

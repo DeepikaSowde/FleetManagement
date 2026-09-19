@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
 import { Btn, Input, Select, Pagination } from "./components";
 import { splitFromValuation } from "./capTableMath";
+import { DATE_MIN, DATE_MAX } from "./validation";
 
 /* =====================================================================================
    OWNERSHIP (CAP TABLE)
@@ -443,7 +444,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
             <Select label="Type" value={type} onChange={(e) => setType(e.target.value)}
               options={EVENT_TYPES.map((t) => ({ value: t, label: t }))} />
-            <Input label="Effective date" type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
+            <Input label="Effective date" type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} />
           </div>
 
           <Input label="Reason — in the group's own words" value={reason} onChange={(e) => setReason(e.target.value)}
@@ -679,7 +680,7 @@ function ValuationModal({ suggested, onClose, onSave }) {
               That is <b style={{ color: C.navy }}>{fmtSGDCompact(value)}</b>.
             </div>
           )}
-          <Input label="Applies from" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          <Input label="Applies from" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} min={DATE_MIN} max={DATE_MAX} />
           <Input label="How you arrived at it" value={basis} onChange={(e) => setBasis(e.target.value)}
             placeholder="e.g., 9 vehicles at market less the loan, plus a year's earnings" />
           <Input label="Agreed by" value={agreedBy} onChange={(e) => setAgreedBy(e.target.value)}

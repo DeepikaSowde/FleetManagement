@@ -5,6 +5,7 @@ import {
   UserCog, Settings as SettingsIcon, Bell,
 } from "lucide-react";
 import { C, TRANSACTION_METHODS, mono, FONT_FAMILY } from "./theme";
+import { DATE_MIN, DATE_MAX } from "./validation";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
 import { useViewport } from "./useViewport";
@@ -2719,6 +2720,7 @@ export default function FleetOpzApp() {
                                   additionalDrivers: newBookingData.additionalDrivers.map(d => d.id === driver.id ? { ...d, licenseExpiry: e.target.value } : d),
                                 });
                               }}
+                              min={DATE_MIN} max={DATE_MAX}
                               style={bookingFieldInputStyle(false, !!fieldErrors[`driver_${driver.id}_licenseExpiry`])}
                             />
                             <FieldErr msg={fieldErrors[`driver_${driver.id}_licenseExpiry`]} />
@@ -3080,7 +3082,7 @@ export default function FleetOpzApp() {
                       </div>
                       <div>
                         <label style={bookingFieldLabelStyle}>Payment Date</label>
-                        <input type="date" value={newBookingData.amountCollectedDate} onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })} style={bookingFieldInputStyle(false)} />
+                        <input type="date" value={newBookingData.amountCollectedDate} onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })} min={DATE_MIN} max={DATE_MAX} style={bookingFieldInputStyle(false)} />
                       </div>
                       <div>
                         <label style={bookingFieldLabelStyle}>Payment Time</label>
@@ -3173,6 +3175,7 @@ export default function FleetOpzApp() {
                               type="date"
                               value={newBookingData.depositCollectedDate}
                               onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedDate: e.target.value })}
+                              min={DATE_MIN} max={DATE_MAX}
                               style={bookingFieldInputStyle(false)}
                             />
                           </div>
@@ -3226,6 +3229,7 @@ export default function FleetOpzApp() {
                                 type="date"
                                 value={newBookingData.amountCollectedDate}
                                 onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })}
+                                min={DATE_MIN} max={DATE_MAX}
                                 style={bookingFieldInputStyle(false)}
                               />
                             </div>

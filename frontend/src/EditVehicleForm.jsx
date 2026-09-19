@@ -5,6 +5,7 @@ import {
 } from "./theme";
 import { Btn, Input } from "./components";
 import { Combobox, SelectField, ComplianceField, buildBrandModelMap } from "./AddCarWizard";
+import { sanitizeYearDigits, getYearFormatError, DATE_MIN, DATE_MAX } from "./validation";
 
 /* =====================================================================================
    EDIT VEHICLE
@@ -46,10 +47,6 @@ const req = <span style={{ color: C.red }}>*</span>;
 // of it — the final-value validation check, kept in sync with
 // fleetController.js's and AddCarWizard.jsx's copies of this rule.
 const DECIMAL_AMOUNT_RE = /^\d+(\.\d+)?$/;
-
-// Year is exactly 4 digits — no sign, no decimal point, no letters. Kept in
-// sync with AddCarWizard.jsx's and fleetController.js's copies.
-const YEAR_RE = /^\d{4}$/;
 
 // Which fields belong to which stage, for gating "Next" — Stage 3 has no
 // inputs of its own (read-only), so it needs no entry here.
@@ -97,12 +94,12 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
     setField(k, v);
   };
 
-  // Year: strip anything that isn't a digit as it's typed, and cap at 4
-  // digits — so neither a negative sign, a decimal point, letters, nor a
-  // 5th+ digit can ever land in the field. Matches Add Car's handleYearChange.
+  // Year: shared live-typing filter (see validation.js) — strips anything
+  // that isn't a digit as it's typed and caps at 4 digits, so neither a
+  // negative sign, a decimal point, letters, nor a 5th+ digit can ever land
+  // in the field. Matches Add Car's handleYearChange.
   const setYear = (e) => {
-    const v = e.target.value.replace(/\D/g, "").slice(0, 4);
-    setField("year", v);
+    setField("year", sanitizeYearDigits(e.target.value));
   };
 
   // Brand/model suggestions come from the rest of the fleet, exactly as on Add Car.
@@ -161,7 +158,10 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
     if (!String(form.make).trim()) e.make = "Brand is required";
     if (!String(form.model).trim()) e.model = "Model is required";
     if (!String(form.year).trim()) e.year = "Year is required";
-    else if (!YEAR_RE.test(String(form.year).trim())) e.year = "Year must be a 4-digit number";
+    else {
+      const yearFormatErr = getYearFormatError(form.year);
+      if (yearFormatErr) e.year = yearFormatErr;
+    }
     if (!String(form.color).trim()) e.color = "Colour is required";
     if (!String(form.fuelType).trim()) e.fuelType = "Fuel Type is required";
     if (!String(form.transmission).trim()) e.transmission = "Transmission is required";
@@ -377,7 +377,7 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
                   value={form.otherCharges} onChange={setMoney("otherCharges")} error={errors.otherCharges} />
                 <div>
                   <Input label={<>Purchase Date {req}</>} type="date" value={form.purchaseDate}
-                    onChange={(e) => setField("purchaseDate", e.target.value)} error={errors.purchaseDate} />
+                    onChange={(e) => setField("purchaseDate", e.target.value)} min={DATE_MIN} max={DATE_MAX} error={errors.purchaseDate} />
                   {form.purchaseDate !== (car.purchaseDate || "") && (
                     <div style={{ fontSize: 10, color: C.amber, fontWeight: 600, marginTop: -10 }}>
                       Was {car.purchaseDate || "—"} — target figures on Stage 4 will be recalculated.

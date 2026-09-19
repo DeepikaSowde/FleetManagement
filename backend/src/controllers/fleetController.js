@@ -44,7 +44,7 @@ const YEAR_RE = /^\d{4}$/;
 function findInvalidYearError(body) {
   const v = body.year;
   if (v !== undefined && v !== null && v !== "" && !YEAR_RE.test(String(v).trim())) {
-    return "Year must be a 4-digit number";
+    return "Year must be exactly 4 digits.";
   }
   return null;
 }
