@@ -698,7 +698,6 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
             <StatCard label="Current Value" value={fmtSGD(m.currentValue)} valueColor={IC.primary} />
             <StatCard label="Holding %" value={fmtPct(m.holdingPct)} />
             <StatCard label="Total Dividends (OUT)" value={fmtSGD(m.totalDividends)} valueColor={IC.red} />
-            <StatCard label="Total Exit Paid (OUT)" value={fmtSGD(m.totalExit)} valueColor={IC.red} />
           </StatRow>
 
           <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, marginBottom: 16 }}>
@@ -938,24 +937,48 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
   const [sortKey, setSortKey] = useState("nameAsc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  // The header period filter — was a static, non-interactive "All Time" label
+  // before; now a real control. "All Time" (the default) is every
+  // transaction ever, exactly what this page always showed. "This Year" /
+  // "This Month" scope the two CASH-FLOW totals below (Total Invested, Total
+  // Dividends) to that window — Current Value and Holding % are left alone
+  // regardless of period, since those are a snapshot of what's true right
+  // now (from the published cap table), not a flow that happened "in" a
+  // period, and Total Investors stays the current roster count.
+  const [overviewPeriod, setOverviewPeriod] = useState("all");
 
+  const inOverviewPeriod = (dateStr) => {
+    if (overviewPeriod === "all") return true;
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    if (Number.isNaN(+d)) return false;
+    if (overviewPeriod === "thisYear") return d.getFullYear() === now.getFullYear();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  };
+
+  // Deliberately NOT metricsById (that's every investor's lifetime figures,
+  // shared with Investor Detail/All Investors and left untouched) — this is
+  // its own period-scoped sum straight from each investor's own transaction
+  // log, using the same IN/OUT categorization computeInvestorMetrics uses.
   const totals = useMemo(
     () =>
       investors.reduce(
         (acc, inv) => {
-          const m = metricsById[inv.id];
-          acc.first += m.firstInvestment;
-          acc.reinv += m.reinvestment;
-          acc.invested += m.totalInvested;
-          acc.dividends += m.totalDividends;
-          acc.exit += m.totalExit;
-          acc.cashIn += m.totalCashIn;
-          acc.cashOut += m.totalCashOut;
+          (inv.transactions || []).forEach((t) => {
+            if (!inOverviewPeriod(t.date)) return;
+            const amt = Number(t.amount) || 0;
+            if (t.type === TXN_TYPES.FIRST_INVESTMENT) { acc.first += amt; acc.invested += amt; acc.cashIn += amt; }
+            else if (t.type === TXN_TYPES.REINVESTMENT) { acc.reinv += amt; acc.invested += amt; acc.cashIn += amt; }
+            else if (t.type === TXN_TYPES.DIVIDEND) { acc.dividends += amt; acc.cashOut += amt; }
+            else if (t.type === TXN_TYPES.EXIT) { acc.exit += amt; acc.cashOut += amt; }
+          });
           return acc;
         },
         { first: 0, reinv: 0, invested: 0, dividends: 0, exit: 0, cashIn: 0, cashOut: 0 }
       ),
-    [investors, metricsById]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [investors, overviewPeriod]
   );
 
   const progressSeries = useMemo(() => buildValueProgressSeries(investors, progressGranularity), [investors, progressGranularity]);
@@ -987,15 +1010,23 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
           <div style={{ fontSize: 12, color: C.textMuted }}>Track ownership, invested capital and investor returns</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ ...inputStyle, width: "auto", padding: "8px 12px", color: C.textMuted, background: C.bg }}>All Time</span>
+          <select
+            value={overviewPeriod}
+            onChange={(e) => setOverviewPeriod(e.target.value)}
+            style={{ ...inputStyle, width: "auto" }}
+          >
+            <option value="all">All Time</option>
+            <option value="thisYear">This Year</option>
+            <option value="thisMonth">This Month</option>
+          </select>
         </div>
       </div>
 
       <StatRow>
         <StatCard label="Total Investors" value={investors.length} sub="Active Investors" icon="👥" />
-        <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub="Capital in" icon="💰" />
+        <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub={overviewPeriod === "all" ? "Capital in" : overviewPeriod === "thisYear" ? "This year" : "This month"} icon="💰" />
         <StatCard label="Current Value" value={fmtSGD(totalCurrentValue)} sub="Portfolio Value" icon="📈" valueColor={IC.primary} />
-        <StatCard label="Total Dividends" value={fmtSGD(totals.dividends)} sub="Paid to date" icon="🎁" valueColor={IC.red} />
+        <StatCard label="Total Dividends" value={fmtSGD(totals.dividends)} sub={overviewPeriod === "all" ? "Paid to date" : overviewPeriod === "thisYear" ? "This year" : "This month"} icon="🎁" valueColor={IC.red} />
       </StatRow>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 16 }}>
