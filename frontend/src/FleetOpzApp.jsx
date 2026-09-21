@@ -54,11 +54,24 @@ const FieldErr = ({ msg }) =>
 // A person's name: letters (incl. accented), spaces, and the handful of
 // punctuation marks real names actually use (O'Brien, Al-Amin, Mary Ann).
 // No digits and no other symbols — rejects "43433" and stray special
-// characters alike. Shared by Customer Name and every Additional Driver name.
+// characters alike. Used for Customer Name.
 const NAME_REGEX = /^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ .'-]*$/;
 const isValidPersonName = (v) => NAME_REGEX.test((v || "").trim());
 const NAME_ERROR = "Please enter a valid customer name.";
+
+// Additional Driver Name — deliberately stricter than Customer Name above:
+// letters and spaces only, no digits and no punctuation at all (so
+// "John Smith" passes but "John123" and "John@Smith" don't).
+const DRIVER_NAME_REGEX = /^[A-Za-z]+(?: [A-Za-z]+)*$/;
+const isValidDriverName = (v) => DRIVER_NAME_REGEX.test((v || "").trim());
 const DRIVER_NAME_ERROR = "Please enter a valid driver name.";
+
+// Additional Driver's Driving License No. — letters and numbers only, no
+// spaces and no special characters ("S1234567A" passes; "S123 4567A" and
+// "S123@567A" don't).
+const DRIVER_LICENSE_ALNUM_RE = /^[A-Za-z0-9]+$/;
+const isValidDriverLicenseChars = (v) => DRIVER_LICENSE_ALNUM_RE.test((v || "").trim());
+const DRIVER_LICENSE_CHARS_ERROR = "Driving License No. must contain only letters and numbers.";
 
 // Rental/Home Address cap — enforced only in validation (never via a hard
 // maxLength on the input), so a long paste is never silently truncated;
@@ -841,15 +854,15 @@ export default function FleetOpzApp() {
       const dName = (d.name || "").trim();
       if (!dName) {
         errors[`driver_${d.id}_name`] = "Driver name is required.";
-      } else if (!isValidPersonName(dName)) {
+      } else if (!isValidDriverName(dName)) {
         errors[`driver_${d.id}_name`] = DRIVER_NAME_ERROR;
       }
 
       const dLicense = (d.license || "").trim();
       if (!dLicense) {
         errors[`driver_${d.id}_license`] = "Driving License No. is required.";
-      } else if (!isValidEmiratesIdOrPassport(dLicense)) {
-        errors[`driver_${d.id}_license`] = "Enter a valid Driving License Number.";
+      } else if (!isValidDriverLicenseChars(dLicense)) {
+        errors[`driver_${d.id}_license`] = DRIVER_LICENSE_CHARS_ERROR;
       } else {
         const restrictedMatch = restrictedLicenses.find(
           r => normalizeLicense(r.licenseNumber) === normalizeLicense(dLicense)
