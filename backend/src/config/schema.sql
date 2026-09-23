@@ -184,8 +184,9 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   PRIMARY KEY (role, module)
 );
 
--- Seed the default grid (Admin = full, Staff = daily-ops subset). Safe to
--- re-run; existing edits are preserved by ON CONFLICT DO NOTHING.
+-- Seed the default grid (Admin = full, Staff = full CRUD on daily-ops
+-- modules, no access to finance modules). Safe to re-run; existing edits are
+-- preserved by ON CONFLICT DO NOTHING.
 INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_delete) VALUES
   ('Admin','Dashboard',true,true,true,true),
   ('Admin','Fleet',    true,true,true,true),
@@ -194,11 +195,11 @@ INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_
   ('Admin','Expenses', true,true,true,true),
   ('Admin','P&L',      true,true,true,true),
   ('Admin','Alerts',   true,true,true,true),
-  ('Staff','Dashboard',true,false,false,false),
-  ('Staff','Fleet',    true,false,false,false),
-  ('Staff','Bookings', true,true,true,false),
+  ('Staff','Dashboard',true,true,true,true),
+  ('Staff','Fleet',    true,true,true,true),
+  ('Staff','Bookings', true,true,true,true),
   ('Staff','Earnings', false,false,false,false),
-  ('Staff','Expenses', true,true,false,false),
+  ('Staff','Expenses', false,false,false,false),
   ('Staff','P&L',      false,false,false,false),
   ('Staff','Alerts',   true,false,false,false)
 ON CONFLICT (role, module) DO NOTHING;
@@ -207,8 +208,10 @@ ON CONFLICT (role, module) DO NOTHING;
 -- operations sidebar (Car Availability, Customers, Today's Operations,
 -- Ledger, Cash Flow, Deposit Refunds — Investors is seeded separately below).
 -- Admin gets full access to each by default, matching every other Admin row
--- above; Staff gets the same view-only-on-operational/false-on-finance shape
--- already used for Earnings/P&L. Safe to re-run — existing edits preserved.
+-- above; Staff gets full CRUD on the daily-ops modules (Car Availability,
+-- Customers, Today's Operations, Deposit Refunds) and no access to the
+-- finance-reporting ones (Ledger, Cash Flow) — same shape as
+-- Earnings/Expenses/P&L above. Safe to re-run — existing edits preserved.
 INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_delete) VALUES
   ('Admin','Car Availability',   true,true,true,true),
   ('Admin','Customers',          true,true,true,true),
@@ -216,12 +219,12 @@ INSERT INTO role_permissions (role, module, can_view, can_create, can_edit, can_
   ('Admin','Ledger',             true,true,true,true),
   ('Admin','Cash Flow',          true,true,true,true),
   ('Admin','Deposit Refunds',    true,true,true,true),
-  ('Staff','Car Availability',   true,false,false,false),
-  ('Staff','Customers',          true,true,true,false),
-  ('Staff','Today''s Operations',true,true,true,false),
+  ('Staff','Car Availability',   true,true,true,true),
+  ('Staff','Customers',          true,true,true,true),
+  ('Staff','Today''s Operations',true,true,true,true),
   ('Staff','Ledger',             false,false,false,false),
   ('Staff','Cash Flow',          false,false,false,false),
-  ('Staff','Deposit Refunds',    false,false,false,false)
+  ('Staff','Deposit Refunds',    true,true,true,true)
 ON CONFLICT (role, module) DO NOTHING;
 
 -- Audit trail — one row per recorded action (user CRUD, permission changes,

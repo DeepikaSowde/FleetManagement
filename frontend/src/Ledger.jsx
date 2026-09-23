@@ -39,12 +39,27 @@ const Ledger = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
   onUpdateCar, onOpenBooking,
+  // Role & Permission grants Ledger and Deposit Refunds as two independent
+  // rows even though Deposits lives inside this same page (see FleetOpzApp's
+  // NAV_VIEW_CHECK — the page is reachable if either is granted). Defaulting
+  // both to true keeps this functional if ever rendered standalone.
+  canViewLedger = true, canViewDepositRefunds = true,
 }) => {
-  const [view, setView] = useState("dashboard"); // "dashboard" | "ledger"
+  const [view, setView] = useState(canViewLedger ? "dashboard" : "ledger"); // "dashboard" | "ledger"
   // Sub-tab inside the "ledger" view — the Deposits tab shows the same
   // Deposit Refunds screen that used to be its own sidebar module, moved
   // here as-is (see DepositRefunds.jsx); nothing about its flow changed.
-  const [ledgerView, setLedgerView] = useState("all"); // "all" | "deposits"
+  const [ledgerView, setLedgerView] = useState(canViewLedger ? "all" : "deposits"); // "all" | "deposits"
+
+  // Keeps view/ledgerView valid if permissions change between mounts (e.g.
+  // after a relogin picks up a new Role & Permission grant) — a role with
+  // only Deposit Refunds lands straight on Deposits with no Dashboard/Ledger
+  // chrome; a role that loses Deposit Refunds falls back to All Transactions.
+  useEffect(() => {
+    if (!canViewLedger && view !== "ledger") setView("ledger");
+    if (!canViewLedger && ledgerView !== "deposits") setLedgerView("deposits");
+    if (!canViewDepositRefunds && ledgerView === "deposits") setLedgerView("all");
+  }, [canViewLedger, canViewDepositRefunds]); // eslint-disable-line react-hooks/exhaustive-deps
   const [period, setPeriod] = useState("all");   // "all" | "YYYY-MM"
   const [vehicle, setVehicle] = useState("all");  // "all" | plate
   const [type, setType] = useState("all");        // "all" | "Rental Income" | "Expense"
@@ -147,25 +162,33 @@ const Ledger = ({
 
   return (
     <div>
-      {/* Header: title + Dashboard / Ledger toggle */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>
-            {view === "dashboard" ? "Financial Dashboard" : "Financial Ledger"}
+      {/* Header: title + Dashboard / Ledger toggle — only shown at all when
+          the role actually has Ledger access; a Deposit-Refunds-only role
+          goes straight to Deposits below with no Dashboard/Ledger chrome. */}
+      {canViewLedger && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>
+              {view === "dashboard" ? "Financial Dashboard" : "Financial Ledger"}
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>
+              {view === "dashboard"
+                ? "Balances, income & expense analysis, and vehicle profitability"
+                : "All money movements — rental income and expenses — with a running balance"}
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: C.textMuted }}>
-            {view === "dashboard"
-              ? "Balances, income & expense analysis, and vehicle profitability"
-              : "All money movements — rental income and expenses — with a running balance"}
+          <div style={{ display: "flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10 }}>
+            <button style={toggleBtn(view === "dashboard")} onClick={() => setView("dashboard")}>📊 Dashboard</button>
+            <button style={toggleBtn(view === "ledger")} onClick={() => setView("ledger")}>📒 Ledger</button>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10 }}>
-          <button style={toggleBtn(view === "dashboard")} onClick={() => setView("dashboard")}>📊 Dashboard</button>
-          <button style={toggleBtn(view === "ledger")} onClick={() => setView("ledger")}>📒 Ledger</button>
-        </div>
-      </div>
+      )}
 
-      {view === "dashboard" ? (
+      {!canViewLedger ? (
+        // Deposit-Refunds-only role — this is the only thing this page can
+        // show them, so skip straight to it with no other chrome.
+        <DepositRefunds bookings={bookings} fleet={fleet} onOpenBooking={onOpenBooking} />
+      ) : view === "dashboard" ? (
         <LedgerDashboard
           earnings={earnings}
           expenses={expenses}
@@ -188,11 +211,13 @@ const Ledger = ({
         <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, marginBottom: 6 }}>Ledger View</div>
         <div style={{ display: "inline-flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10 }}>
           <button style={toggleBtn(ledgerView === "all")} onClick={() => setLedgerView("all")}>All Transactions</button>
-          <button style={toggleBtn(ledgerView === "deposits")} onClick={() => setLedgerView("deposits")}>Deposits</button>
+          {canViewDepositRefunds && (
+            <button style={toggleBtn(ledgerView === "deposits")} onClick={() => setLedgerView("deposits")}>Deposits</button>
+          )}
         </div>
       </div>
 
-      {ledgerView === "deposits" ? (
+      {ledgerView === "deposits" && canViewDepositRefunds ? (
         <DepositRefunds bookings={bookings} fleet={fleet} onOpenBooking={onOpenBooking} />
       ) : (
       <>

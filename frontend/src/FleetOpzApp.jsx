@@ -520,6 +520,78 @@ export default function FleetOpzApp() {
   // Initialize fleet data management hook
   const fleetData = useFleetData();
 
+  // ── ROLE & PERMISSION ENFORCEMENT ─────────────────────────────────────────
+  // Single source of truth for "can this role do X on module Y" — reads the
+  // same rolePermissions grid User Management → Role & Permission edits, so a
+  // toggle there takes effect here on the very next render (no separate
+  // fetch/cache to go stale). Used below to filter the sidebar, block page
+  // access, and guard every Create/Edit/Delete action, so a permission change
+  // applies everywhere at once instead of each surface needing its own check.
+  // Defaults OPEN while rolePermissions hasn't loaded yet (null) — the very
+  // first render, before the initial fetch resolves — rather than flashing
+  // every module as denied for an instant.
+  const can = (moduleName, action = "view") => {
+    const rp = fleetData.rolePermissions;
+    if (!rp) return true;
+    return !!rp[currentUserRole]?.[moduleName]?.[action];
+  };
+
+  // A sidebar item/page can be reached if ANY permission that gates it is
+  // granted — some pages bundle more than one Role & Permission row: Ledger
+  // hosts the Deposit Refunds sub-tab, P&L hosts the Earnings/Expenses
+  // sub-tabs. "usermgmt"/"settings"/"alerts" are deliberately outside the
+  // permission grid (see UserManagement.jsx) and stay unconditionally visible.
+  const NAV_VIEW_CHECK = {
+    dashboard: () => can("Dashboard"),
+    fleet: () => can("Fleet"),
+    "car-availability": () => can("Car Availability"),
+    bookings: () => can("Bookings"),
+    customers: () => can("Customers"),
+    "today-ops": () => can("Today's Operations"),
+    ledger: () => can("Ledger") || can("Deposit Refunds"),
+    investors: () => can("Investors"),
+    pl: () => can("P&L") || can("Earnings") || can("Expenses"),
+    "cash-flow": () => can("Cash Flow"),
+  };
+  const canViewNav = (id) => (NAV_VIEW_CHECK[id] ? NAV_VIEW_CHECK[id]() : true);
+
+  // Wraps a mutation so it only runs when the current role actually has that
+  // permission — the real enforcement point for Create/Edit/Delete, since it
+  // sits under every button that can trigger the action (including ones
+  // reached from more than one screen, e.g. Fleet's onUpdateCar is also used
+  // from Ledger/Cash Flow). The backend enforces the same rule independently
+  // (see backend/src/middleware/permission.js) — this is what gives the user
+  // an immediate, friendly message instead of a failed network request.
+  const guarded = (moduleName, action, fn) => (...args) => {
+    if (!can(moduleName, action)) {
+      alert(`Your role does not have ${action} access to ${moduleName}.`);
+      return undefined;
+    }
+    return fn(...args);
+  };
+  const gAddFleet = guarded("Fleet", "create", fleetData.addFleet);
+  const gUpdateFleet = guarded("Fleet", "edit", fleetData.updateFleet);
+  const gDeleteFleet = guarded("Fleet", "delete", fleetData.deleteFleet);
+  const gAddBooking = guarded("Bookings", "create", fleetData.addBooking);
+  const gUpdateBooking = guarded("Bookings", "edit", fleetData.updateBooking);
+  const gDeleteBooking = guarded("Bookings", "delete", fleetData.deleteBooking);
+  const gSaveCustomer = guarded("Customers", "create", fleetData.saveCustomer);
+  const gUpdateCustomer = guarded("Customers", "edit", fleetData.updateCustomer);
+  const gDeleteCustomer = guarded("Customers", "delete", fleetData.deleteCustomer);
+  // Recording an expense is gated by the "Expenses" permission regardless of
+  // which screen triggers it (Fleet's vehicle expense form, Today's
+  // Operations) — matches backend/src/routes/expenseRoutes.js, which guards
+  // POST /api/expenses the same way no matter the caller.
+  const gAddExpense = guarded("Expenses", "create", fleetData.addExpense);
+  const gUpdateExpense = guarded("Expenses", "edit", fleetData.updateExpense);
+  const gDeleteExpense = guarded("Expenses", "delete", fleetData.deleteExpense);
+  const gAddEarning = guarded("Earnings", "create", fleetData.addEarning);
+  const gUpdateEarning = guarded("Earnings", "edit", fleetData.updateEarning);
+  const gDeleteEarning = guarded("Earnings", "delete", fleetData.deleteEarning);
+  const gCreateInvestor = guarded("Investors", "create", fleetData.createInvestor);
+  const gUpdateInvestor = guarded("Investors", "edit", fleetData.updateInvestor);
+  const gDeleteInvestor = guarded("Investors", "delete", fleetData.deleteInvestor);
+
   // Driving-license blocklist now lives in the backend (persisted), served
   // through useFleetData like every other entity. Booking creation reads it to
   // block restricted licenses; Settings (admin) manages it.
@@ -590,7 +662,7 @@ export default function FleetOpzApp() {
     additionalDrivers: [], // [{ id, name, license, licenseExpiry, contact }] — optional
     license: "",
     licenseExpiry: "",
-    attachments: [],    // [{ name, type, size, dataUrl }, ...] — one or more chosen files
+    attachments: [],    // [{ name, type, size, url }, ...] — one or more files, already uploaded to object storage
     comments: "",
     // Payment (Step 4) fields — collected at booking time, separate from the
     // pricing breakdown computed in Step 3. amountCollected defaults to "0"
@@ -636,6 +708,7 @@ export default function FleetOpzApp() {
     fuelIn: "Full",
   });
   const [attachmentError, setAttachmentError] = useState("");
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   // Inline error for the Contact Number field (Step 1) only — deliberately
   // never surfaced via alert() or in the Review & Confirm step, so the
   // indication always stays right next to the field that's actually wrong.
@@ -1370,13 +1443,16 @@ export default function FleetOpzApp() {
     fleet: (
       <Fleet
         fleet={fleetData.fleet}
-        onAddFleet={fleetData.addFleet}  // ✅ CRITICAL FIX: Pass the actual handler that will be called by AddCarWizard
-        onUpdateCar={fleetData.updateFleet}
-        onDeleteCar={fleetData.deleteFleet}
+        onAddFleet={gAddFleet}  // ✅ CRITICAL FIX: Pass the actual handler that will be called by AddCarWizard
+        onUpdateCar={gUpdateFleet}
+        onDeleteCar={gDeleteFleet}
+        canCreate={can("Fleet", "create")}
+        canEdit={can("Fleet", "edit")}
+        canDelete={can("Fleet", "delete")}
         calculateCarMetrics={fleetData.calculateCarMetrics}
         bookings={fleetData.bookings}
         expenses={fleetData.expenses}
-        onAddExpense={fleetData.addExpense}
+        onAddExpense={gAddExpense}
         onCompleteMaintenanceCar={fleetData.completeMaintenance}
         customers={fleetData.customers}
         initialEditPlate={renewPlate}
@@ -1400,9 +1476,12 @@ export default function FleetOpzApp() {
         bookings={fleetData.bookings}
         fleet={fleetData.fleet}
         onNewBooking={openNewBookingModal}
-        onAddBooking={fleetData.addBooking}
-        onUpdateBooking={fleetData.updateBooking}
-        onDeleteBooking={fleetData.deleteBooking}
+        onAddBooking={gAddBooking}
+        onUpdateBooking={gUpdateBooking}
+        onDeleteBooking={gDeleteBooking}
+        canCreate={can("Bookings", "create")}
+        canEdit={can("Bookings", "edit")}
+        canDelete={can("Bookings", "delete")}
         detailBookingId={detailBookingId}
         onDetailBookingIdHandled={() => setDetailBookingId(null)}
         onEditBooking={openEditBookingModal}
@@ -1414,9 +1493,12 @@ export default function FleetOpzApp() {
       <Customers
         customers={fleetData.customers}
         bookings={fleetData.bookings}
-        onSaveCustomer={fleetData.saveCustomer}
-        onUpdateCustomer={fleetData.updateCustomer}
-        onDeleteCustomer={fleetData.deleteCustomer}
+        onSaveCustomer={gSaveCustomer}
+        onUpdateCustomer={gUpdateCustomer}
+        onDeleteCustomer={gDeleteCustomer}
+        canCreate={can("Customers", "create")}
+        canEdit={can("Customers", "edit")}
+        canDelete={can("Customers", "delete")}
         currentUserRole={currentUserRole}
         restrictedLicenses={restrictedLicenses}
         onAddRestrictedLicense={addRestrictedLicense}
@@ -1431,8 +1513,8 @@ export default function FleetOpzApp() {
         bookings={fleetData.bookings}
         fleet={fleetData.fleet}
         employees={activeStaffAssignees}
-        onUpdateBooking={fleetData.updateBooking}
-        onAddExpense={fleetData.addExpense}
+        onUpdateBooking={gUpdateBooking}
+        onAddExpense={gAddExpense}
         onNewBooking={openNewBookingModal}
         onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
       />
@@ -1449,16 +1531,18 @@ export default function FleetOpzApp() {
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
         getExpensesByCategory={fleetData.getExpensesByCategory}
-        onUpdateCar={fleetData.updateFleet}
+        onUpdateCar={gUpdateFleet}
         onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
+        canViewLedger={can("Ledger")}
+        canViewDepositRefunds={can("Deposit Refunds")}
       />
     ),
     investors: (
       <Investors
         investors={fleetData.investorsWithTx}
-        onCreateInvestor={fleetData.createInvestor}
-        onUpdateInvestor={fleetData.updateInvestor}
-        onDeleteInvestor={fleetData.deleteInvestor}
+        onCreateInvestor={gCreateInvestor}
+        onUpdateInvestor={gUpdateInvestor}
+        onDeleteInvestor={gDeleteInvestor}
         onCreateTransaction={fleetData.createInvestorTransaction}
         ownershipEvents={fleetData.ownershipEvents}
         ownershipMode={fleetData.ownershipMode}
@@ -1481,7 +1565,7 @@ export default function FleetOpzApp() {
         expenses={fleetData.expenses}
         bookings={fleetData.bookings}
         investors={fleetData.investorsWithTx}
-        onUpdateCar={fleetData.updateFleet}
+        onUpdateCar={gUpdateFleet}
         calculateCarMonthlyTarget={fleetData.calculateCarMonthlyTarget}
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}
       />
@@ -1493,14 +1577,17 @@ export default function FleetOpzApp() {
         earnings={fleetData.earnings}
         fleet={fleetData.fleet}
         bookings={fleetData.bookings}
-        onAddEarning={fleetData.addEarning}
-        onUpdateEarning={fleetData.updateEarning}
-        onDeleteEarning={fleetData.deleteEarning}
+        onAddEarning={gAddEarning}
+        onUpdateEarning={gUpdateEarning}
+        onDeleteEarning={gDeleteEarning}
         onLockEarning={fleetData.lockEarning}
         expenses={fleetData.expenses}
-        onAddExpense={fleetData.addExpense}
-        onUpdateExpense={fleetData.updateExpense}
-        onDeleteExpense={fleetData.deleteExpense}
+        onAddExpense={gAddExpense}
+        onUpdateExpense={gUpdateExpense}
+        onDeleteExpense={gDeleteExpense}
+        canViewEarnings={can("Earnings")}
+        canViewExpenses={can("Expenses")}
+        canViewPl={can("P&L")}
         calculateMetrics={fleetData.calculateMetrics}
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
@@ -1543,11 +1630,13 @@ export default function FleetOpzApp() {
   const ALLOWED_ATTACHMENT_EXTENSIONS = ["jpg", "jpeg", "png", "pdf", "doc", "docx", "xls", "xlsx"];
   const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB
 
-  // Reads one file, resolving to its attachment record — or rejecting with
-  // the same per-file validation message handleAttachmentChange showed
-  // before multiple files were supported. Every file is still checked
-  // individually against the same type/size rules (nothing loosened for a
-  // multi-file selection).
+  // Validates one file, then uploads it to object storage — resolving to its
+  // attachment record ({ name, type, size, url }, url pointing at the
+  // bucket) or rejecting with the same per-file validation message
+  // handleAttachmentChange showed before multiple files were supported.
+  // Every file is still checked individually against the same type/size
+  // rules (nothing loosened for a multi-file selection); the backend
+  // re-checks both too, since this is a network call a request can bypass.
   const readAttachmentFile = (file) => new Promise((resolve, reject) => {
     const ext = file.name.split(".").pop().toLowerCase();
     if (!ALLOWED_ATTACHMENT_EXTENSIONS.includes(ext)) {
@@ -1558,38 +1647,42 @@ export default function FleetOpzApp() {
       reject(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 5MB.`);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, type: file.type, size: file.size, dataUrl: reader.result });
-    reader.onerror = () => reject(`Couldn't read "${file.name}".`);
-    reader.readAsDataURL(file);
+    api.upload("/uploads/attachments", file)
+      .then((uploaded) => resolve(uploaded))
+      .catch(() => reject(`Couldn't upload "${file.name}". Please try again.`));
   });
 
   // Multiple files can be selected at once (or the picker used repeatedly to
   // add more) — each accepted file is appended to the existing list rather
-  // than replacing it. If any file in the batch fails validation, the whole
-  // batch is rejected and nothing is added, so a bad file never silently
-  // drops the good ones next to it without explanation.
+  // than replacing it. If any file in the batch fails validation/upload, the
+  // whole batch is rejected and nothing is added, so a bad file never
+  // silently drops the good ones next to it without explanation.
   const handleAttachmentChange = (e) => {
     const files = Array.from(e.target.files || []);
     e.target.value = ""; // reset so choosing the same file(s) again still fires onChange
     if (files.length === 0) return;
 
+    setAttachmentError("");
+    setUploadingAttachments(true);
     Promise.all(files.map(readAttachmentFile))
       .then((newAttachments) => {
-        setAttachmentError("");
         setNewBookingData(prev => ({
           ...prev,
           attachments: [...(prev.attachments || []), ...newAttachments],
         }));
       })
-      .catch((message) => setAttachmentError(message));
+      .catch((message) => setAttachmentError(message))
+      .finally(() => setUploadingAttachments(false));
   };
 
   const removeAttachment = (index) => {
-    setNewBookingData(prev => ({
-      ...prev,
-      attachments: prev.attachments.filter((_, i) => i !== index),
-    }));
+    setNewBookingData(prev => {
+      const att = prev.attachments[index];
+      // Best-effort: freeing the bucket object should never block removing
+      // the attachment from the form, so a failed delete is just logged.
+      if (att?.url) api.del(`/uploads/attachments?url=${encodeURIComponent(att.url)}`).catch(() => {});
+      return { ...prev, attachments: prev.attachments.filter((_, i) => i !== index) };
+    });
   };
 
   // Accepts either a 15-digit UAE Emirates ID (784-YYYY-NNNNNNN-N) or a
@@ -1624,6 +1717,14 @@ export default function FleetOpzApp() {
 
   const handleNewBookingSubmit = (e) => {
     e.preventDefault();
+
+    // Guard before any of the step validation/creation logic below runs —
+    // covers both branches this function ends in: the create path and the
+    // edit/extend path (editingBookingId set).
+    if (!can("Bookings", editingBookingId ? "edit" : "create")) {
+      setWizardNotice(`Your role does not have ${editingBookingId ? "edit" : "create"} access to Bookings.`);
+      return;
+    }
 
     // Re-run every step's validation in one pass — not just whatever step
     // Review happens to be reached from. This catches anything left broken
@@ -1923,6 +2024,10 @@ export default function FleetOpzApp() {
   // Completed/Closed status derivation and payment logic are untouched.
   const handleCompleteHandover = () => {
     if (!editingBookingId) return;
+    if (!can("Bookings", "edit")) {
+      setWizardNotice("Your role does not have edit access to Bookings.");
+      return;
+    }
     const errors = validateHandoverFields();
     setFieldErrors(prev => ({ ...prev, startingMileage: undefined, staffToCustomerKm: undefined, fuelLevel: undefined, ...errors }));
     if (Object.keys(errors).length) return;
@@ -2062,7 +2167,7 @@ export default function FleetOpzApp() {
         {/* Nav */}
         <nav style={{ flex: 1, overflowY: "auto", paddingBottom: 10, marginTop: 6 }}>
           <div style={{ padding: "10px 20px 4px", fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Operations</div>
-          {NAV.slice(0, 6).map(n => (
+          {NAV.slice(0, 6).filter(n => canViewNav(n.id)).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
@@ -2071,7 +2176,7 @@ export default function FleetOpzApp() {
           ))}
 
           <div style={{ padding: "10px 20px 4px", marginTop: 10, fontSize: 9, fontWeight: 600, letterSpacing: 1.8, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" }}>Finance</div>
-          {NAV.slice(6, 10).map(n => (
+          {NAV.slice(6, 10).filter(n => canViewNav(n.id)).map(n => (
             <div key={n.id} id={`nav-${n.id}`} data-testid={`nav-${n.id}`} onClick={() => { setActive(n.id); setDrawerOpen(false); }}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 20px", cursor: "pointer", fontSize: 12.5, fontWeight: active === n.id ? 600 : 400, color: active === n.id ? "#fff" : "rgba(255,255,255,0.55)", background: active === n.id ? "rgba(10,140,126,0.2)" : "transparent", borderLeft: `3px solid ${active === n.id ? C.tealLight : "transparent"}`, transition: "all 0.15s" }}>
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, flexShrink: 0 }}><n.icon size={16} strokeWidth={2} /></span>
@@ -2124,7 +2229,19 @@ export default function FleetOpzApp() {
         {/* Content — never scrolls horizontally (wide tables scroll in their
             own containers); prevents any stray element forcing a sideways page. */}
         <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "16px" : "24px", minWidth: 0 }}>
-          {TAB_CONTENT[active]}
+          {/* Page-level access guard — mirrors the sidebar filter above, so a
+              tab reached any other way (a dashboard link, a deep-link left
+              over from before a permission was revoked, etc.) can never show
+              content the current role's View permission doesn't allow. */}
+          {canViewNav(active) ? TAB_CONTENT[active] : (
+            <div style={{ maxWidth: 420, margin: "60px auto", textAlign: "center" }}>
+              <div style={{ width: 48, height: 48, borderRadius: "50%", background: C.redFaint, color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, margin: "0 auto 14px" }}>🔒</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.navy, marginBottom: 6 }}>Access restricted</div>
+              <div style={{ fontSize: 12.5, color: C.textMuted, lineHeight: 1.5 }}>
+                Your role ({currentUserRole}) doesn't have view access to this page. Ask an Admin to grant it under User Management → Role &amp; Permission.
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
@@ -2819,15 +2936,23 @@ export default function FleetOpzApp() {
                       accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx"
                       multiple
                       onChange={handleAttachmentChange}
+                      disabled={uploadingAttachments}
                       style={{ fontSize: 12, fontFamily: "inherit", width: "100%" }}
                     />
+
+                    {uploadingAttachments && (
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>Uploading…</div>
+                    )}
 
                     {newBookingData.attachments.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
                         {newBookingData.attachments.map((att, idx) => (
                           <div key={`${att.name}-${idx}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: C.bg }}>
                             {att.type.startsWith("image/") ? (
-                              <img src={att.dataUrl} alt="attachment preview" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }} />
+                              // att.url is the object-storage link for anything uploaded from
+                              // now on; att.dataUrl is only ever present on attachments saved
+                              // by an older build, before uploads moved to object storage.
+                              <img src={att.url || att.dataUrl} alt="attachment preview" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }} />
                             ) : (
                               <div style={{ width: 40, height: 40, borderRadius: 6, background: C.tealFaint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>📄</div>
                             )}

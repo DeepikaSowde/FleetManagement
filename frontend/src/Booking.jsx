@@ -2645,7 +2645,14 @@ const BkPageBtn = ({ children, active, disabled, onClick }) => (
   }}>{children}</button>
 );
 
-const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, onExtendBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System" }) => {
+const Booking = ({
+  bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, onExtendBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System",
+  // Role & Permission (User Management → Role & Permission → Bookings). The
+  // actual add/update/delete calls are already blocked centrally in
+  // FleetOpzApp regardless of this prop — canCreate just hides the "New
+  // Booking" button so the UI doesn't offer an action the role can't perform.
+  canCreate = true, canEdit = true, canDelete = true,
+}) => {
   const bkHistEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
   const [filter, setFilter] = useState("All");
   const [timelinePlate, setTimelinePlate] = useState(null);
@@ -2766,7 +2773,7 @@ const Booking = ({ bookings = [], fleet = [], onNewBooking, onAddBooking, onUpda
             <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 2 }}>Manage all vehicle bookings and reservations</div>
           </div>
         </div>
-        <Btn primary id="booking-new" onClick={onNewBooking}>＋ New Booking</Btn>
+        {canCreate && <Btn primary id="booking-new" onClick={onNewBooking}>＋ New Booking</Btn>}
       </div>
 
       {/* Toolbar — search + filters + sort + list/grid view toggle */}

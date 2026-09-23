@@ -87,6 +87,11 @@ const Customers = ({
   currentUserRole = "Staff",
   restrictedLicenses = [], onAddRestrictedLicense, onUpdateRestrictedLicense, onDeleteRestrictedLicense,
   openAddOnEntry, onOpenAddOnEntryHandled,
+  // Role & Permission (User Management → Role & Permission → Customers). The
+  // actual save/update/delete calls are already blocked centrally in
+  // FleetOpzApp regardless of this prop — canCreate just hides the "Add New
+  // Customer" button so the UI doesn't offer an action the role can't perform.
+  canCreate = true, canEdit = true, canDelete = true,
 }) => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // all | active | inactive | pending
@@ -337,7 +342,7 @@ const Customers = ({
       {/* Action row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>Customer Overview</div>
-        <Btn primary id="customers-add" onClick={openAdd}>＋ Add New Customer</Btn>
+        {canCreate && <Btn primary id="customers-add" onClick={openAdd}>＋ Add New Customer</Btn>}
       </div>
 
       {/* KPI strip */}

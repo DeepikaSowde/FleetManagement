@@ -23,13 +23,27 @@ const PLModule = ({
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics,
   plInitialView, onPlInitialViewConsumed,
   expenseOpenAddOnEntry, onExpenseOpenAddOnEntryHandled,
+  // Role & Permission grants Earnings/Expenses/P&L as three independent
+  // rows even though all three live as Level 1 tabs of this one page/sidebar
+  // item (see FleetOpzApp's NAV_VIEW_CHECK — the page is reachable if any of
+  // the three is granted). Defaulting all to true keeps this functional if
+  // ever rendered standalone.
+  canViewEarnings = true, canViewExpenses = true, canViewPl = true,
 }) => {
-  const [tab, setTab] = useState(initialTab);
+  const CAN_VIEW_TAB = { earnings: canViewEarnings, expenses: canViewExpenses, pl: canViewPl };
+  const visibleTabs = TABS.filter((t) => CAN_VIEW_TAB[t.key]);
+  const [tab, setTab] = useState(CAN_VIEW_TAB[initialTab] ? initialTab : (visibleTabs[0]?.key || initialTab));
   // Same one-shot hand-off pattern PlReport itself already uses for
   // initialView below — consumed once on mount so a later plain sidebar
   // click doesn't get stuck reopening whichever tab a dashboard link last
   // requested.
   useEffect(() => { onInitialTabConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Falls back to the first still-allowed tab if the current one loses its
+  // permission (e.g. after a relogin picks up a new Role & Permission grant).
+  useEffect(() => {
+    if (!CAN_VIEW_TAB[tab] && visibleTabs.length) setTab(visibleTabs[0].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewEarnings, canViewExpenses, canViewPl]);
 
   return (
     <div>
@@ -39,7 +53,7 @@ const PLModule = ({
           <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Track your earnings, expenses and profitability.</div>
         </div>
         <div style={{ display: "flex", gap: 4, background: C.bg, padding: 4, borderRadius: 10 }}>
-          {TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: "9px 20px", fontSize: 12.5, fontWeight: 700, borderRadius: 8, border: "none", cursor: "pointer",
               background: tab === t.key ? C.teal : "transparent", color: tab === t.key ? "#fff" : C.textSec,
@@ -50,7 +64,7 @@ const PLModule = ({
         </div>
       </div>
 
-      {tab === "earnings" && (
+      {tab === "earnings" && canViewEarnings && (
         <Earning
           earnings={earnings}
           fleet={fleet}
@@ -62,7 +76,7 @@ const PLModule = ({
         />
       )}
 
-      {tab === "expenses" && (
+      {tab === "expenses" && canViewExpenses && (
         <Expenses
           expenses={expenses}
           fleet={fleet}
@@ -74,7 +88,7 @@ const PLModule = ({
         />
       )}
 
-      {tab === "pl" && (
+      {tab === "pl" && canViewPl && (
         <PlReport
           fleet={fleet}
           bookings={bookings}

@@ -666,6 +666,12 @@ const Fleet = ({
   onCompleteMaintenanceCar,
   initialEditPlate, onInitialEditPlateHandled, initialViewPlate, onInitialViewPlateHandled,
   openAddOnEntry, onOpenAddOnEntryHandled,
+  // Role & Permission (User Management → Role & Permission → Fleet). The
+  // actual add/update/delete calls are already blocked centrally in
+  // FleetOpzApp regardless of this prop — canCreate/canEdit/canDelete just
+  // hide the corresponding buttons so the UI doesn't offer actions the
+  // current role can't actually perform.
+  canCreate = true, canEdit = true, canDelete = true,
 }) => {
   // Which car's details modal is open, keyed by plate (not a row index) so it
   // stays correct across pagination/filtering/sorting.
@@ -846,7 +852,7 @@ const Fleet = ({
             <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 2 }}>Manage your vehicles, investment, and registration status</div>
           </div>
         </div>
-        <Btn primary id="fleet-add-car" onClick={() => setWizardOpen(true)}>＋ Add New Car</Btn>
+        {canCreate && <Btn primary id="fleet-add-car" onClick={() => setWizardOpen(true)}>＋ Add New Car</Btn>}
       </div>
 
       {/* Add Car Wizard Modal */}
