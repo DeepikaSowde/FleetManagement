@@ -57,7 +57,7 @@ export const fmt = (n) => `SGD ${n.toLocaleString()}`;
 // app — Booking Payment, Ledger/Transactions, and the Agreement PDF all
 // offer exactly these four, so a method recorded in one place always means
 // the same thing wherever it's shown or filtered.
-export const TRANSACTION_METHODS = ["Cash", "Card", "PayNow", "Bank Transfer"];
+export const TRANSACTION_METHODS = ["Cash", "Card", "PayNow", "Bank Transfer", "Payment Gateway"];
 // Total Investment for one car = Purchase + Purchase Advance + Insurance +
 // Registration + Other Charges. Every field is guarded so a null column from
 // the DB can't turn the whole sum into NaN.

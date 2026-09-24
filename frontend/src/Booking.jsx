@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { CalendarDays, CreditCard, User, Car as CarIcon, Ban } from "lucide-react";
 import { C, mono, fmt, TRANSACTION_METHODS } from "./theme";
+import { validatePaymentReference, REFERENCE_LABEL, referencePlaceholder, referenceMaxLength, referenceRequired } from "./paymentReference";
+import PaymentRefError from "./PaymentRefError";
 import { DATE_MIN, DATE_MAX } from "./validation";
 import { Card, Btn, StatusTag } from "./components";
 import { STATUS_PILL_COLORS, STATUS_PILL_FAINT } from "./Fleet";
@@ -596,6 +598,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [showRefund, setShowRefund] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("");
+  const [refundMethod, setRefundMethod] = useState("Cash");
+  const [refundRef, setRefundRef] = useState("");
   // Rent collected at pickup (deposit-first flow): the rental amount is now taken
   // at Vehicle Handover. It's optional here — handover is NOT blocked when it's
   // unpaid (staff may settle it another way or at return) — but this is the
@@ -647,6 +651,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const [cancelReason, setCancelReason] = useState("");
   const [cancelDepositOut, setCancelDepositOut] = useState("");
   const [cancelRefundRef, setCancelRefundRef] = useState("");
+  const [cancelRefundMethod, setCancelRefundMethod] = useState("Cash");
   // Who cancelled: "company" → deposit is refunded (amount editable, partial ok);
   // "customer" → deposit is forfeited (kept as income, no refund).
   const [cancelBy, setCancelBy] = useState("company");
@@ -722,9 +727,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // as the one deliberate gate on handover. Unlike rent, this is NOT optional:
     // no partial top-up, no skipping it.
     const depositShortfall = Math.max(0, inv.deposit - inv.depositPaid);
-    if (depositShortfall > 0 && depositTopUpMethod !== "Cash" && !depositTopUpReference.trim()) {
-      setHandoverNotice("Enter the Transaction ID for the security deposit (required unless the payment method is Cash).");
-      return;
+    if (depositShortfall > 0) {
+      const refErr = validatePaymentReference(depositTopUpMethod, depositTopUpReference);
+      if (refErr) { setHandoverNotice(`Security deposit: ${refErr}`); return; }
     }
 
     // Rent at pickup — optional, not a gate. Clamp to Balance Due (no overpay);
@@ -734,9 +739,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const rentAmt = Math.min(Math.max(0, Number(rentAtPickup) || 0), inv.balanceDue);
     // Transaction ID is mandatory for every payment method EXCEPT Cash (for
     // Cash it's optional, since there's no transaction reference).
-    if (rentAmt > 0 && rentMethod !== "Cash" && !rentReference.trim()) {
-      setHandoverNotice("Enter the Transaction ID (required unless the payment method is Cash).");
-      return;
+    if (rentAmt > 0) {
+      const refErr = validatePaymentReference(rentMethod, rentReference);
+      if (refErr) { setHandoverNotice(refErr); return; }
     }
     if (rentAmt > 0 && (!rentDate || !rentTime)) { setHandoverNotice("Enter the rent payment date & time"); return; }
 
@@ -785,10 +790,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   const handleCollectNow = () => {
     if (inv.balanceDue <= 0) return;
     // Transaction ID is mandatory for every payment method EXCEPT Cash.
-    if (rentMethod !== "Cash" && !rentReference.trim()) {
-      alert("Enter the Transaction ID (required unless the payment method is Cash).");
-      return;
-    }
+    const refErr = validatePaymentReference(rentMethod, rentReference);
+    if (refErr) { alert(refErr); return; }
     if (!rentDate || !rentTime) {
       alert("Enter the payment date & time");
       return;
@@ -820,10 +823,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const sched = booking.rentSchedule || [];
     const row = sched[idx];
     if (!row || row.paid) return;
-    if (rentMethod !== "Cash" && !rentReference.trim()) {
-      alert("Enter the Transaction ID (required unless the payment method is Cash).");
-      return;
-    }
+    const refErr = validatePaymentReference(rentMethod, rentReference);
+    if (refErr) { alert(refErr); return; }
     if (!rentDate || !rentTime) { alert("Enter the payment date & time"); return; }
     const amt = Number(row.amount) || 0;
     const at = `${rentDate}T${rentTime}`;
@@ -845,6 +846,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     setCancelDepositOut(String(Number(booking.depositPaid) || Number(booking.deductible) || 0));
     setCancelReason("");
     setCancelRefundRef("");
+    setCancelRefundMethod("Cash");
     setCancelDate(new Date().toISOString().slice(0, 10));
     setCancelTime(new Date().toTimeString().slice(0, 5));
     setShowCancelForm(true);
@@ -866,6 +868,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       ? Math.min(Math.max(0, Number(cancelDepositOut) || 0), depositHeld)
       : 0;
     const forfeited = Math.max(0, depositHeld - refundAmount);
+    // A refund that actually moves money needs a valid Transaction ID / Reference
+    // Number for its method (Cash: optional); a forfeit or 0 refund has no payment.
+    if (refundAmount > 0) {
+      const refErr = validatePaymentReference(cancelRefundMethod, cancelRefundRef);
+      if (refErr) { alert(`Refund: ${refErr}`); return; }
+    }
     // The car is returned as part of the cancellation, so record the actual
     // Return Date & Time as actualReturnAt — the single field computeBookingInvoice
     // uses as the effective end (recalculates duration/charges, and shows in
@@ -884,6 +892,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       returnedAt: new Date().toISOString(),
       cancelReason: cancelReason.trim(),
       depositRefundRef: cancelRefundRef.trim(),
+      depositRefundMethod: refundAmount > 0 ? cancelRefundMethod : "",
       depositRefunded: true,
       depositRefundedAmount: refundAmount,
       depositRefundedAt: cancelDate,
@@ -1062,6 +1071,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     // deposit — you can only return money you received (partial deposit).
     setRefundAmount(String(inv.depositPaid));
     setRefundReason("");
+    setRefundMethod("Cash");
+    setRefundRef("");
     setShowRefund(true);
   };
 
@@ -1081,9 +1092,15 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       alert("Enter the reason for returning less than the full deposit.");
       return;
     }
+    if (amount > 0) {
+      const refErr = validatePaymentReference(refundMethod, refundRef);
+      if (refErr) { alert(refErr); return; }
+    }
     onUpdateBooking(booking.id, {
       depositRefunded: true,
       depositRefundedAmount: amount,
+      depositRefundMethod: amount > 0 ? refundMethod : "",
+      depositRefundRef: amount > 0 ? refundRef.trim() : "",
       depositRefundedReason: isPartial ? reason : "",
       depositRefundedAt: new Date().toISOString(),
       history: withHistory(histEntry("deposit", `Returned ${fmt(amount)} of ${fmt(inv.depositPaid)} held${isPartial ? ` (partial) — ${reason}` : ""}`)),
@@ -1120,9 +1137,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       return;
     }
     // Transaction ID is mandatory for every method except Cash.
-    if (paymentMethod !== "Cash" && !paymentReference.trim()) {
-      alert("Enter the Transaction ID (required unless the payment method is Cash).");
-      return;
+    {
+      const refErr = validatePaymentReference(paymentMethod, paymentReference);
+      if (refErr) { alert(refErr); return; }
     }
     const newPayment = {
       id: `${Date.now()}`,
@@ -1179,9 +1196,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     }
     // Transaction ID stays mandatory for every non-cash method, matching every
     // other payment entry point in the app.
-    if (paymentMethod !== "Cash" && !paymentReference.trim()) {
-      alert("Enter the Transaction ID (required unless the payment method is Cash).");
-      return;
+    {
+      const refErr = validatePaymentReference(paymentMethod, paymentReference);
+      if (refErr) { alert(refErr); return; }
     }
     const clearsBalance = amtCents >= balanceDueCents;
     const remarks = kind === "monthly"
@@ -1220,7 +1237,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // Export one collection type's rows to a CSV the browser downloads.
   const exportCollectionsCsv = (kind, rows) => {
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const header = ["Date & Time", "Amount (SGD)", "Method", "Transaction ID", "Remarks"];
+    const header = ["Date & Time", "Amount (SGD)", "Method", "Transaction ID / Reference Number", "Remarks"];
     const body = rows.map(r => [formatDateTime(r.addedAt) || "", Number(r.amount) || 0, r.method || "", r.reference || "", r.remarks || ""]);
     const csv = [header, ...body].map(a => a.map(esc).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -1526,8 +1543,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             </select>
                           </div>
                           <div style={{ flex: "1 1 160px" }}>
-                            <div style={detailFieldLabelStyle}>Transaction ID{depositTopUpMethod === "Cash" ? "" : " *"}</div>
-                            <input type="text" value={depositTopUpReference} onChange={(e) => setDepositTopUpReference(e.target.value)} placeholder={depositTopUpMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
+                            <div style={detailFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(depositTopUpMethod) ? " *" : ""}</div>
+                            <input type="text" value={depositTopUpReference} onChange={(e) => setDepositTopUpReference(e.target.value)} placeholder={referencePlaceholder(depositTopUpMethod)} maxLength={referenceMaxLength(depositTopUpMethod)} style={detailInputStyle} />
+                            <PaymentRefError method={depositTopUpMethod} value={depositTopUpReference} />
                           </div>
                         </div>
                       </div>
@@ -1561,8 +1579,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             <input type="time" value={rentTime} onChange={(e) => setRentTime(e.target.value)} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 160px" }}>
-                            <div style={detailFieldLabelStyle}>Transaction ID{rentMethod === "Cash" ? "" : " *"}</div>
-                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder={rentMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
+                            <div style={detailFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(rentMethod) ? " *" : ""}</div>
+                            <input type="text" value={rentReference} onChange={(e) => { setRentReference(e.target.value); setFullyCollectedNotice(false); }} placeholder={referencePlaceholder(rentMethod)} maxLength={referenceMaxLength(rentMethod)} style={detailInputStyle} />
+                            <PaymentRefError method={rentMethod} value={rentReference} />
                           </div>
                         </div>
                         {(() => {
@@ -1773,8 +1792,13 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                 <input type="number" min="0" max={depositHeld} value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
                               </div>
                               <div style={{ flex: "1.3 1 160px" }}>
-                                <div style={detailFieldLabelStyle}>Refund Reference</div>
-                                <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
+                                <div style={detailFieldLabelStyle}>Refund Method</div>
+                                <select value={cancelRefundMethod} onChange={(e) => setCancelRefundMethod(e.target.value)} style={{ ...detailInputStyle, marginBottom: 8 }}>
+                                  {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                <div style={detailFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(cancelRefundMethod) && (Number(cancelDepositOut) || 0) > 0 ? " *" : ""}</div>
+                                <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder={referencePlaceholder(cancelRefundMethod)} maxLength={referenceMaxLength(cancelRefundMethod)} style={detailInputStyle} />
+                                <PaymentRefError method={cancelRefundMethod} value={cancelRefundRef} />
                               </div>
                             </>
                           ) : (
@@ -2209,8 +2233,13 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                             <input type="number" min="0" value={cancelDepositOut} onChange={(e) => setCancelDepositOut(e.target.value)} placeholder="0.00" style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 150px" }}>
-                            <div style={detailFieldLabelStyle}>Refund Reference</div>
-                            <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder="e.g. bank txn / PayNow ref" style={detailInputStyle} />
+                            <div style={detailFieldLabelStyle}>Refund Method</div>
+                            <select value={cancelRefundMethod} onChange={(e) => setCancelRefundMethod(e.target.value)} style={{ ...detailInputStyle, marginBottom: 8 }}>
+                              {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                            <div style={detailFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(cancelRefundMethod) && (Number(cancelDepositOut) || 0) > 0 ? " *" : ""}</div>
+                            <input type="text" value={cancelRefundRef} onChange={(e) => setCancelRefundRef(e.target.value)} placeholder={referencePlaceholder(cancelRefundMethod)} maxLength={referenceMaxLength(cancelRefundMethod)} style={detailInputStyle} />
+                            <PaymentRefError method={cancelRefundMethod} value={cancelRefundRef} />
                           </div>
                           <div style={{ flex: "1 1 100%" }}>
                             <div style={detailFieldLabelStyle}>Reason</div>
@@ -2264,8 +2293,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                                 </select>
                               </div>
                               <div style={{ flex: "1 1 140px" }}>
-                                <div style={detailFieldLabelStyle}>Transaction ID{rentMethod === "Cash" ? "" : " *"}</div>
-                                <input type="text" value={rentReference} onChange={(e) => setRentReference(e.target.value)} placeholder={rentMethod === "Cash" ? "Optional for Cash" : "Required"} style={detailInputStyle} />
+                                <div style={detailFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(rentMethod) ? " *" : ""}</div>
+                                <input type="text" value={rentReference} onChange={(e) => setRentReference(e.target.value)} placeholder={referencePlaceholder(rentMethod)} maxLength={referenceMaxLength(rentMethod)} style={detailInputStyle} />
+                                <PaymentRefError method={rentMethod} value={rentReference} />
                               </div>
                               <div style={{ flex: "1 1 120px" }}>
                                 <div style={detailFieldLabelStyle}>Date</div>
@@ -2482,6 +2512,21 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   <input type="number" min="0" max={inv.depositPaid} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} style={detailInputStyle} autoFocus />
                   <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{fmt(inv.depositPaid)} for a full refund, a lower amount for a partial refund, or 0 to forfeit.</div>
                 </div>
+                {validNum && amount > 0 && (
+                  <>
+                    <div>
+                      <div style={detailFieldLabelStyle}>Refund Method</div>
+                      <select value={refundMethod} onChange={(e) => setRefundMethod(e.target.value)} style={detailInputStyle}>
+                        {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={detailFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(refundMethod) ? <span style={{ color: C.red }}> *</span> : ""}</div>
+                      <input type="text" value={refundRef} onChange={(e) => setRefundRef(e.target.value)} placeholder={referencePlaceholder(refundMethod)} maxLength={referenceMaxLength(refundMethod)} style={detailInputStyle} />
+                      <PaymentRefError method={refundMethod} value={refundRef} />
+                    </div>
+                  </>
+                )}
                 {isPartial && (
                   <div>
                     <div style={detailFieldLabelStyle}>Reason for reduced refund <span style={{ color: C.red }}>*</span></div>
@@ -2537,8 +2582,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 </div>
               </div>
               <div style={{ marginBottom: 12 }}>
-                <div style={detailFieldLabelStyle}>Transaction ID {paymentMethod && paymentMethod !== "Cash" ? <span style={{ color: C.red }}>*</span> : "(Optional)"}</div>
-                <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={paymentMethod && paymentMethod !== "Cash" ? "Required" : "Optional for Cash"} style={detailInputStyle} />
+                <div style={detailFieldLabelStyle}>{REFERENCE_LABEL} {referenceRequired(paymentMethod) ? <span style={{ color: C.red }}>*</span> : "(Optional)"}</div>
+                <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder={referencePlaceholder(paymentMethod)} maxLength={referenceMaxLength(paymentMethod)} style={detailInputStyle} />
+                <PaymentRefError method={paymentMethod} value={paymentReference} />
               </div>
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.bg, padding: "9px 12px", fontSize: 12, color: C.textSec }}>
                 Current Balance Due: <span style={{ fontWeight: 700, color: balanceColor, ...mono }}>{fmt(inv.balanceDue)}</span>
@@ -2600,7 +2646,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 ) : (
                   <>
                     <div style={{ display: "grid", gridTemplateColumns: grid, columnGap: 8, borderBottom: `1px solid ${C.border}` }}>
-                      {["Date & Time", "Amount", "Method", "Transaction ID", "Remarks"].map((h, i) => (
+                      {["Date & Time", "Amount", "Method", "Transaction ID / Reference No.", "Remarks"].map((h, i) => (
                         <span key={h} style={{ ...hcell, textAlign: i === 1 ? "right" : "left" }}>{h}</span>
                       ))}
                     </div>

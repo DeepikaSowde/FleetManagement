@@ -248,7 +248,9 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
   // matches the same TRANSACTION_METHODS set the Payment stage offers. Older
   // bookings recorded before PayNow replaced "Online" still tick the PayNow
   // box, since that's what "Online" meant.
-  const paymentOptions = TRANSACTION_METHODS;
+  // "Payment Gateway" is left off the printed checkbox row: it has no box in
+  // the agreement layout, and adding one would crowd the Total column.
+  const paymentOptions = TRANSACTION_METHODS.filter((m) => m !== "Payment Gateway");
   const selectedMethod = (() => {
     const s = (booking.paymentMethod || "").trim().toLowerCase();
     return (s === "online" || s === "pay now") ? "paynow" : s;

@@ -5,6 +5,8 @@ import {
   UserCog, Settings as SettingsIcon, Bell,
 } from "lucide-react";
 import { C, TRANSACTION_METHODS, mono, FONT_FAMILY } from "./theme";
+import { validatePaymentReference, REFERENCE_LABEL, referencePlaceholder, referenceMaxLength, referenceRequired } from "./paymentReference";
+import PaymentRefError from "./PaymentRefError";
 import { DATE_MIN, DATE_MAX } from "./validation";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
 import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
@@ -1056,14 +1058,13 @@ export default function FleetOpzApp() {
     }
     // Transaction ID is mandatory for non-cash payments — the rental advance and
     // the deposit are each only checked when money is actually being collected.
-    if (amountCollectedNow > 0 && (newBookingData.paymentMethod || "").trim().toLowerCase() !== "cash"
-      && !(newBookingData.referenceCode || "").trim()) {
-      errors.referenceCode = "Transaction ID is required unless the payment method is Cash.";
+    if (amountCollectedNow > 0) {
+      const refErr = validatePaymentReference(newBookingData.paymentMethod, newBookingData.referenceCode);
+      if (refErr) errors.referenceCode = refErr;
     }
-    if (depositAmount > 0
-      && (newBookingData.depositCollectedMethod || "").trim().toLowerCase() !== "cash"
-      && !(newBookingData.depositReference || "").trim()) {
-      errors.depositReference = "Deposit Reference is required unless the deposit method is Cash.";
+    if (depositAmount > 0) {
+      const refErr = validatePaymentReference(newBookingData.depositCollectedMethod, newBookingData.depositReference);
+      if (refErr) errors.depositReference = refErr;
     }
     return errors;
   };
@@ -1867,10 +1868,9 @@ export default function FleetOpzApp() {
         // it appends to Payment History and reduces the overall Balance Due.
         const extRentCollected = Number(newBookingData.amountCollected) || 0;
         // Transaction ID is mandatory for non-cash extension payments.
-        if (extRentCollected > 0 && (newBookingData.paymentMethod || "").trim().toLowerCase() !== "cash"
-          && !(newBookingData.referenceCode || "").trim()) {
-          setWizardNotice("Enter the Transaction ID (required unless the payment method is Cash).");
-          return;
+        if (extRentCollected > 0) {
+          const refErr = validatePaymentReference(newBookingData.paymentMethod, newBookingData.referenceCode);
+          if (refErr) { setWizardNotice(refErr); return; }
         }
         if (extRentCollected > 0) {
           const addedAt = (newBookingData.amountCollectedDate && newBookingData.amountCollectedTime)
@@ -1882,7 +1882,7 @@ export default function FleetOpzApp() {
             // this against the extension's own Balance specifically, instead
             // of the original booking's — see extensionPaid/extensionBalance
             // there.
-            { id: `pay-${Date.now()}`, amount: extRentCollected, method: newBookingData.paymentMethod || "Cash", reference: newBookingData.referenceCode || "", addedAt, by: actorName, origin: "extension" },
+            { id: `pay-${Date.now()}`, amount: extRentCollected, method: newBookingData.paymentMethod || "Cash", reference: (newBookingData.referenceCode || "").trim(), addedAt, by: actorName, origin: "extension" },
           ];
           historyEntries.push(auditEntry("payment", `${formatSGD(extRentCollected)} · ${newBookingData.paymentMethod || "Cash"}${newBookingData.referenceCode ? ` · ${newBookingData.referenceCode}` : ""} (extension rent)`));
         }
@@ -1935,7 +1935,7 @@ export default function FleetOpzApp() {
           id: "initial",
           amount: amountCollectedNow,
           method: newBookingData.paymentMethod,
-          reference: newBookingData.referenceCode || "",
+          reference: (newBookingData.referenceCode || "").trim(),
           addedAt: `${newBookingData.amountCollectedDate}T${newBookingData.amountCollectedTime}`,
           by: actorName,
         }]
@@ -3222,8 +3222,8 @@ export default function FleetOpzApp() {
                         </select>
                       </div>
                       <div>
-                        <label style={bookingFieldLabelStyle}>Transaction ID{newBookingData.paymentMethod === "Cash" ? "" : " *"}</label>
-                        <input type="text" value={newBookingData.referenceCode} onChange={(e) => { clearFieldError("referenceCode"); setNewBookingData({ ...newBookingData, referenceCode: e.target.value }); }} placeholder={newBookingData.paymentMethod === "Cash" ? "Optional for Cash" : "Required"} style={bookingFieldInputStyle(false, !!fieldErrors.referenceCode)} />
+                        <label style={bookingFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(newBookingData.paymentMethod) ? " *" : ""}</label>
+                        <input type="text" value={newBookingData.referenceCode} onChange={(e) => { clearFieldError("referenceCode"); setNewBookingData({ ...newBookingData, referenceCode: e.target.value }); }} placeholder={referencePlaceholder(newBookingData.paymentMethod)} maxLength={referenceMaxLength(newBookingData.paymentMethod)} style={bookingFieldInputStyle(false, !!fieldErrors.referenceCode)} />
                         <FieldErr msg={fieldErrors.referenceCode} />
                       </div>
                       <div>
@@ -3305,12 +3305,13 @@ export default function FleetOpzApp() {
                             </select>
                           </div>
                           <div>
-                            <label style={bookingFieldLabelStyle}>Deposit Reference{newBookingData.depositCollectedMethod === "Cash" ? "" : " *"}</label>
+                            <label style={bookingFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(newBookingData.depositCollectedMethod) ? " *" : ""}</label>
                             <input
                               type="text"
                               value={newBookingData.depositReference}
                               onChange={(e) => { clearFieldError("depositReference"); setNewBookingData({ ...newBookingData, depositReference: e.target.value }); }}
-                              placeholder={newBookingData.depositCollectedMethod === "Cash" ? "Optional for Cash" : "Required"}
+                              placeholder={referencePlaceholder(newBookingData.depositCollectedMethod)}
+                              maxLength={referenceMaxLength(newBookingData.depositCollectedMethod)}
                               style={bookingFieldInputStyle(false, !!fieldErrors.depositReference)}
                             />
                             <FieldErr msg={fieldErrors.depositReference} />
@@ -3390,14 +3391,16 @@ export default function FleetOpzApp() {
                             </div>
                           </div>
                           <div style={{ marginBottom: 16 }}>
-                            <label style={bookingFieldLabelStyle}>Transaction ID{newBookingData.paymentMethod === "Cash" ? "" : " *"}</label>
+                            <label style={bookingFieldLabelStyle}>{REFERENCE_LABEL}{referenceRequired(newBookingData.paymentMethod) ? " *" : ""}</label>
                             <input
                               type="text"
                               value={newBookingData.referenceCode}
                               onChange={(e) => setNewBookingData({ ...newBookingData, referenceCode: e.target.value })}
-                              placeholder={newBookingData.paymentMethod === "Cash" ? "Optional for Cash" : "Required"}
+                              placeholder={referencePlaceholder(newBookingData.paymentMethod)}
+                              maxLength={referenceMaxLength(newBookingData.paymentMethod)}
                               style={bookingFieldInputStyle(false)}
                             />
+                            <PaymentRefError method={newBookingData.paymentMethod} value={newBookingData.referenceCode} />
                           </div>
                           <div style={{ border: `1px solid ${C.tealFaint}`, borderRadius: 10, padding: "14px 16px", background: C.tealFaint, display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: C.navy }}>Rent balance after this</span>
