@@ -13,10 +13,14 @@ export default function Login() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (busy) return; // one sign-in request at a time
     setError("");
     setBusy(true);
     try {
-      await login(username, password);
+      // Only the username is trimmed (matching is case-insensitive on the
+      // server); the password is sent exactly as typed — it is case- and
+      // whitespace-sensitive.
+      await login(username.trim(), password);
     } catch (err) {
       setError(err.message || "Something went wrong");
     } finally {

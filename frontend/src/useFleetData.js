@@ -1349,15 +1349,16 @@ export const useFleetData = () => {
   // guess. It also appends an audit-log entry — pull the fresh log after writes.
   const refreshAuditLogs = () => api.get("/audit-logs").then(setAuditLogs).catch(() => {});
 
+  // addUser/updateUser deliberately do NOT swallow errors: User Management
+  // awaits them so a rejected save (validation, duplicate username) keeps the
+  // modal open with the user's input and shows the server's actual message.
   const addUser = (u) =>
     api.post("/users", u)
-      .then(created => { setUsers(prev => [...prev, created]); refreshAuditLogs(); })
-      .catch(onWriteError);
+      .then(created => { setUsers(prev => [...prev, created]); refreshAuditLogs(); });
 
   const updateUser = (id, updates) =>
     api.put(`/users/${id}`, updates)
-      .then(updated => { setUsers(prev => prev.map(x => x.id === id ? updated : x)); refreshAuditLogs(); })
-      .catch(onWriteError);
+      .then(updated => { setUsers(prev => prev.map(x => x.id === id ? updated : x)); refreshAuditLogs(); });
 
   const deleteUser = (id) => {
     setUsers(prev => prev.filter(u => u.id !== id)); // optimistic

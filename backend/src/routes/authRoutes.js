@@ -1,6 +1,7 @@
 const express = require("express");
 const { register, login, me } = require("../controllers/authController");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { loginLimiter } = require("../middleware/loginLimiter");
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const router = express.Router();
 // very first admin is seeded directly into the database.
 router.post("/register", requireAuth, requireRole("admin"), register);
 
-router.post("/login", login);         // POST /api/auth/login
+router.post("/login", loginLimiter, login);         // POST /api/auth/login
 router.get("/me", requireAuth, me);   // GET  /api/auth/me  (needs token)
 
 module.exports = router;

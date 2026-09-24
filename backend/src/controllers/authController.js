@@ -4,6 +4,12 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/userModel");
 const audit = require("../models/auditLogModel");
+const { validateName, validateUsername, validatePassword, validateRole } = require("../utils/userValidation");
+
+// Compared against when the username does not exist, so an unknown user costs
+// the same bcrypt time as a wrong password (no timing tell).
+const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 10);
+const INVALID = "Invalid username or password.";
 
 function signToken(user) {
   return jwt.sign(
@@ -15,23 +21,23 @@ function signToken(user) {
 
 async function register(req, res, next) {
   try {
-    const { name, username, password, role, investorId } = req.body;
-    if (!name || !username || !password) {
-      return res.status(400).json({ message: "name, username and password are required" });
+    const { name: rawName, username: rawUsername, password, role: rawRole, investorId } = req.body;
+    const n = validateName(rawName), u = validateUsername(rawUsername), p = validatePassword(password), r = validateRole(rawRole || "staff");
+    const bad = [n, u, p, r].find((v) => v.error);
+    if (bad) return res.status(400).json({ message: bad.error });
+    if (await User.findByUsername(u.value)) {
+      return res.status(409).json({ message: "This username is already taken" });
     }
-    const existing = await User.findByUsername(username);
-    if (existing) {
-      return res.status(409).json({ message: "Username already taken" });
-    }
-    const passwordHash = await bcrypt.hash(password, 10);
     // An investor login is meaningless without the investor it belongs to.
-    if (String(role).toLowerCase() === "investor" && !investorId) {
+    if (r.value === "investor" && !investorId) {
       return res.status(400).json({ message: "An Investor login must be linked to an investor" });
     }
-    const user = await User.createUser({ name, username, passwordHash, role, investorId: investorId ?? null });
+    const passwordHash = await bcrypt.hash(p.value, 10);
+    const user = await User.createUser({ name: n.value, username: u.value, passwordHash, role: r.value, investorId: investorId ?? null });
     const token = signToken(user);
     res.status(201).json({ token, user });
   } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ message: "This username is already taken" });
     next(err);
   }
 }
@@ -40,13 +46,18 @@ async function login(req, res, next) {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ message: "username and password are required" });
+      return res.status(400).json({ message: INVALID });
     }
-    const user = await User.findByUsername(username);
-    if (!user) return res.status(401).json({ message: "Invalid credentials" });
-
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(401).json({ message: "Invalid credentials" });
+    const user = await User.findByUsername(String(username).trim());
+    // Username match is case-insensitive (in the model); the password compare
+    // is bcrypt, which is case-sensitive. Both failure paths return the same
+    // message so a caller can't tell which half was wrong.
+    const ok = await bcrypt.compare(String(password), user ? user.password : DUMMY_HASH);
+    if (!user || !ok) {
+      req.loginFailed?.();
+      return res.status(401).json({ message: INVALID });
+    }
+    req.loginSucceeded?.();
 
     // Stamp last login + record a login audit entry (both best-effort).
     User.touchLastLogin(user.id).catch(() => {});

@@ -18,7 +18,9 @@ async function createUser({ name, username, email = null, passwordHash, role, st
 // Returns the full row INCLUDING the password hash — used only by login to
 // verify the password. Never send this object straight to the client.
 async function findByUsername(username) {
-  const { rows } = await db.query("SELECT * FROM users WHERE username = $1", [username]);
+  // Case-insensitive: "dinesh", "Dinesh" and "DINESH" are the same login
+  // handle (backed by the users_username_lower_uniq index).
+  const { rows } = await db.query("SELECT * FROM users WHERE lower(username) = lower($1)", [username]);
   return rows[0] || null;
 }
 

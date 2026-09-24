@@ -171,6 +171,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email      VARCHAR(160);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status     VARCHAR(20) DEFAULT 'Active';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
 
+-- Usernames are unique regardless of case ("dinesh" and "Dinesh" are the same
+-- login). The plain UNIQUE on username is case-sensitive, so this is the real
+-- guard against case-variant duplicates, enforced by the database itself.
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_uniq ON users (lower(username));
+
 -- Role-based permission grid — one shared row per (role, module). Editing a
 -- role here applies to every user with that role. Roles/modules are stored in
 -- the UI's canonical form ("Admin"/"Staff"; "Dashboard","Fleet",...).

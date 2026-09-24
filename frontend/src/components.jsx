@@ -119,7 +119,7 @@ export const PLRow = ({ label, value, positive, bold, divider }) => (
   </>
 );
 
-export const Modal = ({ open, title, children, onClose, onSubmit, submitText = "Save", testId = "modal" }) => {
+export const Modal = ({ open, title, children, onClose, onSubmit, submitText = "Save", testId = "modal", submitDisabled = false }) => {
   if (!open) return null;
   return (
     <>
@@ -137,7 +137,7 @@ export const Modal = ({ open, title, children, onClose, onSubmit, submitText = "
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "20px 24px", borderTop: `1px solid ${C.border}` }}>
           <Btn secondary id={`${testId}-cancel`} onClick={onClose}>Cancel</Btn>
-          <Btn primary id={`${testId}-submit`} onClick={onSubmit}>{submitText}</Btn>
+          <Btn primary id={`${testId}-submit`} onClick={onSubmit} disabled={submitDisabled} style={submitDisabled ? { opacity: 0.6, cursor: "default" } : undefined}>{submitText}</Btn>
         </div>
       </div>
     </>

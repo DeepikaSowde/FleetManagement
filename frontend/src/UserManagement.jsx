@@ -2,6 +2,7 @@ import { useState } from "react";
 import { C } from "./theme";
 import { Card, CardHeader, Btn, Badge, Modal, Input, Select } from "./components";
 import { DATE_MIN, DATE_MAX } from "./validation";
+import { validateName, validateUsername, validatePassword, normalizeName, PASSWORD_HINT } from "./userValidation";
 
 // ── STATIC REFERENCE DATA ───────────────────────────────────────────────────
 // Role metadata (icon/description) for the Role & Permission tab's role
@@ -183,9 +184,16 @@ const UserManagement = ({
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(EMPTY_USER_DRAFT());
+  // Per-field validation messages, a server-side rejection message, and a
+  // saving flag that blocks a second submit while the request is in flight.
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [submitError, setSubmitError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const openAddUser = () => { setDraft(EMPTY_USER_DRAFT()); setEditingId(null); setShowUserModal(true); };
+  const resetModalFeedback = () => { setFieldErrors({}); setSubmitError(""); setSaving(false); };
+  const openAddUser = () => { setDraft(EMPTY_USER_DRAFT()); setEditingId(null); resetModalFeedback(); setShowUserModal(true); };
   const openEditUser = (u) => {
+    resetModalFeedback();
     setDraft({
       name: u.name || "",
       username: u.username || "",
@@ -196,44 +204,65 @@ const UserManagement = ({
     setEditingId(u.id);
     setShowUserModal(true);
   };
-  const closeUserModal = () => { setShowUserModal(false); setEditingId(null); setDraft(EMPTY_USER_DRAFT()); };
+  const closeUserModal = () => { setShowUserModal(false); setEditingId(null); setDraft(EMPTY_USER_DRAFT()); resetModalFeedback(); };
 
-  const submitUserModal = () => {
+  // Clears just the edited field's message as the user types, so a stale
+  // error doesn't linger next to a field they've already fixed.
+  const setField = (key, value) => {
+    setDraft(d => ({ ...d, [key]: value }));
+    setFieldErrors(fe => (fe[key] ? { ...fe, [key]: "" } : fe));
+    setSubmitError("");
+  };
+
+  const submitUserModal = async () => {
+    if (saving) return; // ignore a double-click while the first request is in flight
+    const name = normalizeName(draft.name);
     const username = draft.username.trim();
-    if (!draft.name.trim() || !username) {
-      alert("Please enter a name and username.");
-      return;
-    }
-    // The username is the login handle, so it has to be unique. Checked here
-    // for an instant, friendly message; the DB's UNIQUE constraint (and the
-    // API's 409) stay the real backstop.
-    if (users.some(u => u.id !== editingId && (u.username || "").trim().toLowerCase() === username.toLowerCase())) {
-      alert(`The username "${username}" is already taken. Please choose a different one.`);
-      return;
+    const existing = editingId ? users.find(u => u.id === editingId) : null;
+
+    const errs = {};
+    const nameErr = validateName(name);
+    if (nameErr) errs.name = nameErr;
+    // An unchanged username on an existing account is exempt so accounts that
+    // predate these rules stay editable (the server applies the same rule).
+    const usernameErr = existing && username === existing.username ? "" : validateUsername(username);
+    if (usernameErr) errs.username = usernameErr;
+    else if (users.some(u => u.id !== editingId && (u.username || "").trim().toLowerCase() === username.toLowerCase())) {
+      errs.username = "This username is already taken.";
     }
     // Password is required when creating a user, optional when editing —
     // leaving it blank on Edit keeps the user's current password.
-    if (!editingId && !draft.password.trim()) {
-      alert("Please set a password for this user.");
-      return;
+    if (!editingId || draft.password) {
+      const pwErr = validatePassword(draft.password);
+      if (pwErr) errs.password = pwErr;
     }
+    if (!draft.role) errs.role = "Role is required.";
     // An Investor login is a view onto one investor's record, so it is
     // meaningless — and the server refuses it — without that link.
-    if (draft.role === "Investor" && !draft.investorId) {
-      alert("Choose which investor this login belongs to.");
-      return;
-    }
+    if (draft.role === "Investor" && !draft.investorId) errs.investorId = "Choose which investor this login belongs to.";
+    setFieldErrors(errs);
+    if (Object.keys(errs).length) return;
+
     const payload = {
-      ...draft, name: draft.name.trim(), username,
+      ...draft, name, username,
       investorId: draft.role === "Investor" ? draft.investorId : null,
     };
-    if (editingId) {
-      const { password, ...rest } = payload;
-      onUpdateUser(editingId, password.trim() ? { ...rest, password } : rest);
-    } else {
-      onAddUser(payload);
+    setSaving(true);
+    setSubmitError("");
+    try {
+      if (editingId) {
+        const { password, ...rest } = payload;
+        await onUpdateUser(editingId, password ? { ...rest, password } : rest);
+      } else {
+        await onAddUser(payload);
+      }
+      closeUserModal();
+    } catch (err) {
+      // Keep the modal open with everything the user typed, and surface the
+      // server's real reason (e.g. duplicate username, weak password).
+      setSubmitError(err?.message || "Couldn't save this user. Please try again.");
+      setSaving(false);
     }
-    closeUserModal();
   };
 
   const handleDeleteUser = (u) => {
@@ -606,28 +635,36 @@ const UserManagement = ({
       {/* ADD / EDIT USER MODAL — permissions aren't set here anymore; the
           user just gets a role, and that role's permissions (edited in the
           Role & Permission tab) apply automatically. */}
-      <Modal testId="user-modal" open={showUserModal} title={editingId ? "Edit User" : "Add New User"} onClose={closeUserModal} onSubmit={submitUserModal} submitText={editingId ? "Save Changes" : "Add User"}>
-        <Input id="user-name" label="Full Name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g., Nur Aisyah" />
-        <Input id="user-username" label="Username *" value={draft.username} onChange={e => setDraft(d => ({ ...d, username: e.target.value }))} placeholder="e.g.,john.smith" />
+      <Modal testId="user-modal" open={showUserModal} title={editingId ? "Edit User" : "Add New User"} onClose={closeUserModal} onSubmit={submitUserModal} submitText={saving ? "Saving…" : editingId ? "Save Changes" : "Add User"} submitDisabled={saving}>
+        {submitError && (
+          <div id="user-form-error" style={{ background: C.redFaint, color: C.red, fontSize: 12.5, padding: "10px 12px", borderRadius: 8, marginBottom: 14 }}>{submitError}</div>
+        )}
+        <Input id="user-name" label="Full Name *" value={draft.name} onChange={e => setField("name", e.target.value)} placeholder="e.g., Nur Aisyah" error={fieldErrors.name} />
+        <Input id="user-username" label="Username *" value={draft.username} onChange={e => setField("username", e.target.value)} placeholder="e.g.,john.smith" autoCapitalize="none" autoCorrect="off" maxLength={30} error={fieldErrors.username} />
         <Input
           id="user-password"
           label={editingId ? "Password" : "Password *"}
           type="password"
           value={draft.password}
-          onChange={e => setDraft(d => ({ ...d, password: e.target.value }))}
+          onChange={e => setField("password", e.target.value)}
           placeholder={editingId ? "Leave blank to keep current password" : "Set a password"}
+          autoComplete="new-password"
+          error={fieldErrors.password}
         />
-        <Select id="user-role" label="Role" value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value }))}
+        {!fieldErrors.password && <div style={{ fontSize: 11, color: C.textMuted, marginTop: -10, marginBottom: 14 }}>{PASSWORD_HINT}</div>}
+        <Select id="user-role" label="Role *" value={draft.role} onChange={e => setField("role", e.target.value)}
           options={ROLE_META.map(r => ({ value: r.id, label: r.name }))} />
+        {fieldErrors.role && <div style={{ fontSize: 11, color: C.red, marginTop: -10, marginBottom: 14 }}>{fieldErrors.role}</div>}
         {draft.role === "Investor" ? (
           <>
             <Select
               id="user-investor"
               label="Which investor is this?"
               value={draft.investorId || ""}
-              onChange={e => setDraft(d => ({ ...d, investorId: e.target.value }))}
+              onChange={e => setField("investorId", e.target.value)}
               options={investors.map(i => ({ value: i.id, label: i.name }))}
             />
+            {fieldErrors.investorId && <div style={{ fontSize: 11, color: C.red, marginTop: -10, marginBottom: 8 }}>{fieldErrors.investorId}</div>}
             <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: -8, marginBottom: 4 }}>
               They will sign in to their own screen showing their holding, the changes waiting on
               their agreement, and the full ownership history — and nothing else in FleetOpz.
