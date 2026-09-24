@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { fmt, FONT_FAMILY } from "./theme";
 import { computeBookingInvoice } from "./useFleetData";
 import { forfeitedDepositIncome } from "./ledgerUtils";
+import { buildOps, summarizeOps, todayOpsDate } from "./todayOpsUtils";
 import { useViewport } from "./useViewport";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -244,30 +245,15 @@ const Dashboard = ({
   ];
 
   // ── Today's Operations ──────────────────────────────────────────────────────
-  const isReturned = (b) => b.forceCompleted || b.status === "Completed" || b.status === "Closed";
-  const startToday = bookings.filter((b) => b.start && b.start.slice(0, 10) === todayStr);
-  const endToday = bookings.filter((b) => b.end && b.end.slice(0, 10) === todayStr);
+  // Same shared code as the Today's Operations module (todayOpsUtils.js): same
+  // date, same pickup/return rules, same status mapping, same counts — with
+  // the module's own labels. Salary is intentionally not part of this widget.
+  const opsSummary = summarizeOps(buildOps(bookings, fleet, todayOpsDate()));
   const ops = [
-    {
-      icon: "🚗", color: D.blue, bg: D.blueSoft, label: "Pickups",
-      done: startToday.filter((b) => b.handoverAt).length,
-      pending: startToday.filter((b) => !b.handoverAt && !b.cancelled).length,
-    },
-    {
-      icon: "🔑", color: D.green, bg: D.greenSoft, label: "Returns",
-      done: endToday.filter(isReturned).length,
-      pending: endToday.filter((b) => !isReturned(b) && !b.cancelled).length,
-    },
-    {
-      icon: "✅", color: D.teal, bg: D.tealSoft, label: "Completed Rentals",
-      done: bookings.filter((b) => isReturned(b) && b.end && b.end.slice(0, 10) === todayStr).length,
-      pending: null,
-    },
-    {
-      icon: "⏰", color: D.orange, bg: D.orangeSoft, label: "Pending Returns",
-      done: null,
-      pending: bookings.filter((b) => (b.status === "Ending Today") || (b.status === "Overdue") || (b.end && b.end.slice(0, 10) < todayStr && !isReturned(b) && !b.cancelled)).length,
-    },
+    { icon: "🚗", color: D.blue, bg: D.blueSoft, label: "Pickups", done: opsSummary.pickupCompleted, pending: opsSummary.pickupPending },
+    { icon: "🔑", color: D.green, bg: D.greenSoft, label: "Returns", done: opsSummary.returnCompleted, pending: opsSummary.returnPending },
+    { icon: "⏰", color: D.orange, bg: D.orangeSoft, label: "Pending", done: null, pending: opsSummary.pending.length },
+    { icon: "✅", color: D.teal, bg: D.tealSoft, label: "Completed", done: opsSummary.completed.length, pending: null },
   ];
 
   // ── P&L Summary (this month, vs previous month) ─────────────────────────────

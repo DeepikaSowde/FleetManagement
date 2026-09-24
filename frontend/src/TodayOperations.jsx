@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { C, mono, fmt } from "./theme";
 import { Card, Btn } from "./components";
 import { DATE_MIN, DATE_MAX } from "./validation";
+import { buildOps, summarizeOps, todayOpsDate } from "./todayOpsUtils";
 
 // Today's Operations — the day's pickups & returns, derived from bookings.
 //   • Pickup  = a booking starting on the selected date
@@ -14,9 +15,6 @@ const VIZ = { blue: "#2563EB", green: "#16A34A", amber: "#D97706", violet: "#8B5
 const tint = (hex) => `${hex}1A`;
 const cardStyle = { background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)" };
 
-const toDateStr = (v) => { const d = new Date(v); return isNaN(d) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10); };
-const timeStr = (v) => { const d = new Date(v); return isNaN(d) ? "--" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
-const shortDate = (v) => { const d = new Date(v); return isNaN(d) ? String(v).slice(0, 10) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); };
 const prettyDate = (ymd) => { const d = new Date(ymd + "T00:00:00"); return isNaN(d) ? ymd : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 const STATUS_STYLE = {
@@ -26,7 +24,7 @@ const STATUS_STYLE = {
 };
 
 const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBooking, onOpenBooking, onNewBooking, onAddExpense }) => {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => todayOpsDate());
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");     // all | Pickup | Return
   const [statusFilter, setStatusFilter] = useState("all"); // all | Pending | Assigned | Completed
@@ -36,50 +34,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
   const empName = (id) => employees.find((e) => String(e.id) === String(id))?.name || null;
 
   // Build the operations for the selected date from bookings.
-  const allOps = useMemo(() => {
-    const ops = [];
-    const makeOp = (b, type, when) => {
-      const car = fleet.find((c) => c.plate === b.plate);
-      const model = car ? `${car.make} ${car.model}` : (b.plate || "—");
-      const state = (type === "Pickup" ? b.opPickup : b.opReturn) || {};
-      // Booking is the source of truth for whether this pickup/return has
-      // actually happened (Vehicle Handover / Confirm Return in Booking.jsx).
-      // `done` always wins: once it's true the operation reads Completed no
-      // matter what's stored, and while it's false the operation can never
-      // read Completed even if a stale/invalid "Completed" was written to
-      // state.status before this sync rule existed — see setStatus below,
-      // which also stops that from being written going forward.
-      const done = type === "Pickup" ? !!b.handoverAt : (!!b.returnedAt || !!b.mileageIn);
-      const status = done
-        ? "Completed"
-        : (state.status === "Completed" ? (state.assignedTo ? "Assigned" : "Pending") : (state.status || (state.assignedTo ? "Assigned" : "Pending")));
-      return {
-        key: `${b.id}-${type}`,
-        bookingId: b.id,
-        type,
-        time: timeStr(when),
-        timeVal: new Date(when).getTime() || 0,
-        vehicle: model,
-        plate: b.plate || "—",
-        contract: `${shortDate(b.start)} – ${shortDate(b.end)}`,
-        remark: state.remark ?? b.comments ?? "",
-        place: state.place ?? (type === "Pickup" ? (b.pickup || "") : (b.drop || "")),
-        customer: b.customer || "—",
-        contact: b.contact || "",
-        assignedTo: state.assignedTo ?? null,
-        status,
-        done,
-        stateKey: type === "Pickup" ? "opPickup" : "opReturn",
-        raw: state,
-      };
-    };
-    bookings.forEach((b) => {
-      if (b.cancelled) return;
-      if (b.start && toDateStr(b.start) === date) ops.push(makeOp(b, "Pickup", b.start));
-      if (b.end && toDateStr(b.end) === date) ops.push(makeOp(b, "Return", b.end));
-    });
-    return ops.sort((a, b) => a.timeVal - b.timeVal);
-  }, [bookings, fleet, date]);
+  const allOps = useMemo(() => buildOps(bookings, fleet, date), [bookings, fleet, date]);
 
   // Persist a change to an operation onto its booking.
   const patchOp = (op, patch) => onUpdateBooking(op.bookingId, { [op.stateKey]: { ...op.raw, ...patch } });
@@ -123,28 +78,20 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
     patchOp(op, { salary: String(amount), salaryLogged: true });
   };
 
-  // KPI figures. "Completed" here means VALIDLY completed — status is
-  // Completed (already gated to a real Booking handover/return, per the sync
-  // rule in makeOp) AND a real employee is assigned. An Unassigned operation
-  // is never counted as Completed, even if the underlying booking event has
-  // physically happened.
-  const isValidCompleted = (o) => o.status === "Completed" && !!o.assignedTo;
-  const pickups = allOps.filter((o) => o.type === "Pickup");
-  const returns = allOps.filter((o) => o.type === "Return");
-  const pending = allOps.filter((o) => o.status === "Pending");
-  const completed = allOps.filter(isValidCompleted);
+  // KPI figures come from the same shared summary the Dashboard widget uses.
+  const { pickups, returns, pending, completed, pickupCompleted, returnCompleted } = summarizeOps(allOps);
   const salaryTotal = allOps.reduce((s, o) => s + (Number(o.raw.salary) || 0), 0);
   const salaryLoggedCount = allOps.filter((o) => o.raw.salaryLogged).length;
   const kpis = [
-    { label: "Pickup Today", value: pickups.length, sub: `${pickups.filter(isValidCompleted).length} Completed`, color: VIZ.green, icon: "🚗" },
-    { label: "Return Today", value: returns.length, sub: `${returns.filter(isValidCompleted).length} Completed`, color: VIZ.blue, icon: "🔄" },
+    { label: "Pickup Today", value: pickups.length, sub: `${pickupCompleted} Completed`, color: VIZ.green, icon: "🚗" },
+    { label: "Return Today", value: returns.length, sub: `${returnCompleted} Completed`, color: VIZ.blue, icon: "🔄" },
     { label: "Pending", value: pending.length, sub: `${pending.length} Awaiting`, color: VIZ.amber, icon: "⏱️" },
     { label: "Completed", value: completed.length, sub: "Today's Completed", color: VIZ.violet, icon: "✅" },
     { label: "Salary Today", value: fmt(salaryTotal), sub: `${salaryLoggedCount} logged to Expenses`, color: VIZ.red, icon: "💵" },
   ];
 
   // Upcoming in next 2 hours (only meaningful when viewing today).
-  const isToday = date === new Date().toISOString().slice(0, 10);
+  const isToday = date === todayOpsDate();
   const upcoming = useMemo(() => {
     if (!isToday) return [];
     const now = Date.now(); const in2h = now + 2 * 3600 * 1000;
@@ -345,7 +292,7 @@ const TodayOperations = ({ bookings = [], fleet = [], employees = [], onUpdateBo
             <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 4 }}>There are no operations scheduled for {prettyDate(date)}.</div>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 18 }}>
               <Btn primary onClick={onNewBooking}>＋ Add Operation</Btn>
-              <Btn onClick={() => setDate(new Date().toISOString().slice(0, 10))}>🗓 View Calendar</Btn>
+              <Btn onClick={() => setDate(todayOpsDate())}>🗓 View Calendar</Btn>
             </div>
           </div>
         )}
