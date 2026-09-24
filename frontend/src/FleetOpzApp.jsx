@@ -1435,6 +1435,14 @@ export default function FleetOpzApp() {
           if (page === "pl") { setPlModuleInitialTab("pl"); setPlInitialView(view || "fleet"); setActive("pl"); return; }
           setActive(page);
         }}
+        quickActionAccess={{
+          booking: can("Bookings", "create"),
+          vehicle: can("Fleet", "view") && can("Fleet", "create"),
+          customer: can("Customers", "view") && can("Customers", "create"),
+          // The Record Expense form lives in the P&L page's Expenses tab.
+          expense: can("Expenses", "view") && can("Expenses", "create"),
+          calendar: can("Car Availability", "view"),
+        }}
         onAddVehicle={() => { setFleetOpenAddOnEntry(true); setActive("fleet"); }}
         onAddCustomer={() => { setCustomerOpenAddOnEntry(true); setActive("customers"); }}
         onRecordExpense={() => { setExpenseOpenAddOnEntry(true); setPlModuleInitialTab("expenses"); setActive("pl"); }}

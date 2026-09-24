@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { Zap, ChevronDown, ChevronRight } from "lucide-react";
 import { fmt, FONT_FAMILY } from "./theme";
 import { computeBookingInvoice } from "./useFleetData";
 import { forfeitedDepositIncome } from "./ledgerUtils";
@@ -110,6 +111,9 @@ const Dashboard = ({
   calculateMetrics, calculateMonthlyMetrics, calculateMonthlyTarget,
   getExpensesByCategory, onNewBooking, onNavigate,
   onAddVehicle, onAddCustomer, onRecordExpense,
+  // Which Quick Actions the current role may use (Role & Permission). Omitted
+  // = all allowed, so the widget still works standalone.
+  quickActionAccess = {},
 }) => {
   const [revPeriod, setRevPeriod] = useState("Month");
   const { isMobile, isDesktop } = useViewport();
@@ -311,16 +315,49 @@ const Dashboard = ({
     return { plate: c.plate, name: `${c.make} ${c.model}`, targetDays, rentedDays, util, st: statusFor(util) };
   }).sort((a, b) => b.util - a.util);
 
+  // Each action reuses the existing flow — nothing here is a second copy of a
+  // form. Booking opens the New Booking wizard at Customer Details; Vehicle,
+  // Customer and Expense navigate to their module and open its own Add form on
+  // arrival (see FleetOpzApp.jsx); Calendar opens the Car Availability calendar.
   const quickActions = [
-    { label: "New Booking", icon: "＋", color: D.green, bg: D.greenSoft, onClick: () => onNewBooking?.() },
-    // These three open their form/modal directly on arrival, instead of just
-    // switching to the page and leaving the user to find the button again —
-    // see onAddVehicle/onAddCustomer/onRecordExpense in FleetOpzApp.jsx.
-    { label: "Add Vehicle", icon: "＋", color: D.blue, bg: D.blueSoft, onClick: () => onAddVehicle?.() },
-    { label: "Add Customer", icon: "＋", color: D.purple, bg: D.purpleSoft, onClick: () => onAddCustomer?.() },
-    { label: "Record Expense", icon: "＋", color: D.orange, bg: D.orangeSoft, onClick: () => onRecordExpense?.() },
-    { label: "Calendar", icon: "📅", color: D.blue, bg: D.blueSoft, onClick: () => onNavigate?.("car-availability") },
-  ];
+    { key: "booking", label: "Add Booking", sub: "Create a new rental booking", icon: "🚗", color: D.green, bg: D.greenSoft, onClick: () => onNewBooking?.() },
+    { key: "vehicle", label: "Add Vehicle", sub: "Add a vehicle to your fleet", icon: "🚙", color: D.blue, bg: D.blueSoft, onClick: () => onAddVehicle?.() },
+    { key: "customer", label: "Add Customer", sub: "Register a new customer", icon: "👤", color: D.purple, bg: D.purpleSoft, onClick: () => onAddCustomer?.() },
+    { key: "expense", label: "Record Expense", sub: "Record a fleet expense", icon: "💰", color: D.orange, bg: D.orangeSoft, onClick: () => onRecordExpense?.() },
+    { key: "calendar", label: "Calendar", sub: "View bookings and schedules", icon: "📅", color: D.teal, bg: D.tealSoft, onClick: () => onNavigate?.("car-availability") },
+  ].filter((a) => quickActionAccess[a.key] !== false);
+
+  const [qaOpen, setQaOpen] = useState(false);
+  const [qaHover, setQaHover] = useState(null);
+  const qaRef = useRef(null);
+  useEffect(() => {
+    if (!qaOpen) return undefined;
+    const onDown = (e) => { if (qaRef.current && !qaRef.current.contains(e.target)) setQaOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setQaOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [qaOpen]);
+  const qaTile = (a, full) => (
+    <button key={a.key} type="button" role="menuitem" id={`quick-action-${a.key}`}
+      onClick={() => { setQaOpen(false); a.onClick(); }}
+      onMouseEnter={() => setQaHover(a.key)} onMouseLeave={() => setQaHover(null)}
+      style={{
+        gridColumn: full ? "1 / -1" : undefined, display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+        padding: "10px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+        border: `1px solid ${qaHover === a.key ? a.color + "55" : D.line}`,
+        background: qaHover === a.key ? a.bg : D.card,
+        boxShadow: qaHover === a.key ? "0 4px 12px rgba(15,23,42,0.08)" : "none",
+        transform: qaHover === a.key ? "translateY(-1px)" : "none", transition: "all 0.15s ease",
+      }}>
+      <span style={{ width: 34, height: 34, borderRadius: 10, background: a.bg, color: a.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{a.icon}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: D.ink }}>{a.label}</span>
+        <span style={{ display: "block", fontSize: 10.5, color: D.faint, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.sub}</span>
+      </span>
+      <ChevronRight size={15} color={D.faint} style={{ flexShrink: 0 }} />
+    </button>
+  );
 
   const chartTint = D.green;
   const selStyle = {
@@ -368,6 +405,33 @@ const Dashboard = ({
           sub={urgentAlerts > 0 ? "Requires attention" : "All clear"} subColor={urgentAlerts > 0 ? D.red : D.green}
           link="View Alerts" onLink={() => onNavigate?.("alerts")} />
       </div>
+
+      {/* ── QUICK ACTIONS (compact trigger + floating popover) ─────────────── */}
+      {quickActions.length > 0 && (
+        <div ref={qaRef} style={{ position: "relative", display: "inline-block", marginBottom: 16 }}>
+          <button id="quick-actions-trigger" type="button" aria-haspopup="menu" aria-expanded={qaOpen} onClick={() => setQaOpen((o) => !o)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 9, padding: "7px 12px 7px 8px", borderRadius: 10, cursor: "pointer",
+              fontFamily: "inherit", background: D.card, border: `1px solid ${qaOpen ? D.green : D.line}`,
+              boxShadow: qaOpen ? "0 0 0 3px rgba(22,163,74,0.12)" : "0 1px 2px rgba(15,23,42,0.05)", transition: "all 0.15s ease",
+            }}>
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: D.greenSoft, color: D.green, display: "flex", alignItems: "center", justifyContent: "center" }}><Zap size={14} /></span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: D.ink }}>Quick Actions</span>
+            <ChevronDown size={15} color={D.faint} style={{ transform: qaOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }} />
+          </button>
+          {qaOpen && (
+            <div role="menu" style={{
+              position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 60,
+              width: isMobile ? "min(320px, calc(100vw - 32px))" : 430, maxWidth: "calc(100vw - 32px)", boxSizing: "border-box",
+              padding: 10, background: D.card, border: `1px solid ${D.line}`, borderRadius: 14,
+              boxShadow: "0 18px 40px -8px rgba(15,23,42,0.22), 0 4px 12px rgba(15,23,42,0.08)",
+              display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8,
+            }}>
+              {quickActions.map((a) => qaTile(a, a.key === "calendar"))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── ROW 1: Revenue Overview · Fleet Status · Today's Operations ────── */}
       <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "2fr minmax(0,1fr) minmax(0,1fr)" : "minmax(0, 1fr)", gap: 16, marginBottom: 16 }}>
@@ -608,23 +672,6 @@ const Dashboard = ({
           </div>
         </Card>
       </div>
-
-      {/* ── QUICK ACTIONS ─────────────────────────────────────────────────── */}
-      <Card style={{ padding: 18 }}>
-        <div style={{ fontSize: 15.5, fontWeight: 700, color: D.ink, marginBottom: 14 }}>Quick Actions</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
-          {quickActions.map((a) => (
-            <button key={a.label} onClick={a.onClick} style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              padding: "14px 10px", borderRadius: 10, border: `1px solid ${a.color}22`,
-              background: a.bg, color: a.color, fontSize: 13, fontWeight: 700,
-              cursor: "pointer", fontFamily: "inherit",
-            }}>
-              <span style={{ fontSize: 16 }}>{a.icon}</span> {a.label}
-            </button>
-          ))}
-        </div>
-      </Card>
     </div>
   );
 };
