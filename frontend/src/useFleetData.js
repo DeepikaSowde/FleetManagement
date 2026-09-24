@@ -1146,22 +1146,25 @@ export const useFleetData = () => {
   // confirmed the row exists — callers that need to reference the investor's
   // id in a follow-up write (e.g. an ownership event's holdings, which has its
   // own FK to investors) must await this rather than assume it landed.
-  const createInvestor = (data) => {
-    const investor = {
-      id: nextSeqId("INV", investors),
-      name: data.name,
-      status: data.status || "Active",
-      investorSince: data.since || null,
-      investorCode: data.investorId || null,
-    };
+  //
+  // The Investor ID (INV-001, INV-002, ...) is assigned by the SERVER when the
+  // row is saved — never generated here — so it can't collide, is never reused,
+  // and isn't consumed by a draft that gets cancelled. Nothing is added locally
+  // until the server has confirmed the investor and told us what it's called.
+  const createInvestor = async (data) => {
+    let investor;
+    try {
+      investor = await api.post("/investors", {
+        name: data.name,
+        status: data.status || "Active",
+        investorSince: data.since || null,
+      });
+    } catch (err) { onWriteError(err); throw err; }
     setInvestors(prev => [...prev, investor]);
 
-    // Build the first transactions locally (ids + optimistic state) but DON'T
-    // post them yet: investor_transactions has a foreign key to investors(id),
-    // so posting concurrently with the investor can lose the race and be
-    // rejected ("Related record not found"), which would trip onWriteError and
-    // wipe the just-added investor on the resync. Post them only after the
-    // investor row is confirmed to exist.
+    // The first transactions can only be posted now: investor_transactions has a
+    // foreign key to investors(id), so they need the investor row (and its real
+    // id) to exist first.
     let txList = investorTx;
     const newTxs = (data.transactions || []).map((t) => {
       const tx = buildInvestorTx(investor.id, txList, t);
@@ -1169,19 +1172,16 @@ export const useFleetData = () => {
       return tx;
     });
     if (newTxs.length) setInvestorTx(prev => [...prev, ...newTxs]);
-
-    return api.post("/investors", investor)
-      .then(() => {
-        newTxs.forEach((tx) => api.post("/investor-transactions", tx).catch(onWriteError));
-        return investor;
-      })
-      .catch((err) => { onWriteError(err); throw err; });
+    newTxs.forEach((tx) => api.post("/investor-transactions", tx).catch(onWriteError));
+    return investor;
   };
 
-  // Partial update from the edit modal: { name, investorId, status }.
+  // Partial update from the edit modal: { name, status }. The Investor ID is
+  // permanent, so it's never part of an update.
   const updateInvestor = (investorId, fields) => {
     const mapped = { ...fields };
-    if ("investorId" in mapped) { mapped.investorCode = mapped.investorId; delete mapped.investorId; }
+    delete mapped.investorId;
+    delete mapped.investorCode;
     if ("since" in mapped) { mapped.investorSince = mapped.since; delete mapped.since; }
     setInvestors(prev => prev.map(i => i.id === investorId ? { ...i, ...mapped } : i));
     api.put(`/investors/${investorId}`, mapped).catch(onWriteError);

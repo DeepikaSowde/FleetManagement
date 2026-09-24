@@ -27,17 +27,40 @@ async function getById(id) {
   return toInvestor(rows[0]);
 }
 
+const formatInvestorId = (n) => "INV-" + String(n).padStart(3, "0");
+
+// What the NEXT investor will be called, without using it up — this feeds the
+// read-only Investor ID on the Add Investor form. It's only a preview: the ID
+// is really allocated by create(), the moment the investor is actually saved.
+async function peekNextId() {
+  const { rows } = await db.query("SELECT last_value, is_called FROM investor_id_seq");
+  const { last_value, is_called } = rows[0];
+  return formatInvestorId(is_called ? Number(last_value) + 1 : Number(last_value));
+}
+
+// The server owns the ID: whatever the client sent is ignored. It's drawn from
+// the sequence (so it is never reused) and doubles as the display code, and a
+// collision with an existing row just draws the next number.
 async function create(i) {
-  const { rows } = await db.query(
-    `INSERT INTO investors (id, name, status, investor_since, investor_code, pan, email, phone, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     RETURNING *`,
-    [
-      i.id, i.name, i.status ?? "Active", i.investorSince ?? null, i.investorCode ?? null,
-      i.pan ?? null, i.email ?? null, i.phone ?? null, i.notes ?? null,
-    ]
-  );
-  return toInvestor(rows[0]);
+  for (let attempt = 0; ; attempt++) {
+    const { rows: seq } = await db.query("SELECT nextval('investor_id_seq') AS n");
+    const id = formatInvestorId(Number(seq[0].n));
+    try {
+      const { rows } = await db.query(
+        `INSERT INTO investors (id, name, status, investor_since, investor_code, pan, email, phone, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [
+          id, i.name, i.status ?? "Active", i.investorSince ?? null, id,
+          i.pan ?? null, i.email ?? null, i.phone ?? null, i.notes ?? null,
+        ]
+      );
+      return toInvestor(rows[0]);
+    } catch (err) {
+      if (err.code === "23505" && attempt < 5) continue;
+      throw err;
+    }
+  }
 }
 
 // Read-merge-write so a partial update changes only what was sent.
@@ -65,4 +88,4 @@ async function remove(id) {
   return rowCount > 0;
 }
 
-module.exports = { getAll, getById, create, update, remove };
+module.exports = { getAll, getById, peekNextId, create, update, remove };

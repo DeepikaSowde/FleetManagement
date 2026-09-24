@@ -407,17 +407,21 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 // starts from the table as it actually stands rather than from whatever was
 // half-typed last time.
 
-function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }) {
+function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, onSave }) {
   const hasPriorTable = currentHoldings.length > 0;
+
+  // Arriving back from Step 1 (Add Investor's ← Back, then Continue again):
+  // `restore` carries what was already typed here, so nothing has to be re-entered.
+  const restore = prefill?.restore;
 
   // A first-ever table has nothing to dilute, so the money ratio IS the split
   // and there is no valuation to agree yet.
-  const [entryMode, setEntryMode] = useState("valuation");
+  const [entryMode, setEntryMode] = useState(restore?.entryMode ?? "valuation");
 
-  const [type, setType] = useState(prefill?.type || "New Investor");
-  const [effectiveDate, setEffectiveDate] = useState(prefill?.effectiveDate || todayIso());
-  const [reason, setReason] = useState("");
-  const [preMoney, setPreMoney] = useState("");
+  const [type, setType] = useState(restore?.type ?? prefill?.type ?? "New Investor");
+  const [effectiveDate, setEffectiveDate] = useState(restore?.effectiveDate ?? prefill?.effectiveDate ?? todayIso());
+  const [reason, setReason] = useState(restore?.reason ?? "");
+  const [preMoney, setPreMoney] = useState(restore?.preMoney ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -428,6 +432,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
     if (prefill?.newMoneyInvestorId && prefill?.newMoneyAmount) {
       next[prefill.newMoneyInvestorId] = String(prefill.newMoneyAmount);
     }
+    if (restore?.contribs) Object.keys(next).forEach((id) => { if (id in restore.contribs) next[id] = restore.contribs[id]; });
     return next;
   });
 
@@ -438,6 +443,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
       const row = currentHoldings.find((h) => h.investorId === inv.id);
       next[inv.id] = row ? String(Number(row.pct)) : "";
     });
+    if (restore?.pcts) Object.keys(next).forEach((id) => { if (id in restore.pcts) next[id] = restore.pcts[id]; });
     return next;
   });
 
@@ -767,6 +773,11 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onSave }
         </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "20px 24px", borderTop: `1px solid ${C.border}` }}>
+          {/* Add Investor's Step 2 only: back to Step 1 without losing anything typed. */}
+          {prefill?.context === "add-investor" && onBack && (
+            <Btn secondary disabled={saving} style={{ marginRight: "auto" }}
+              onClick={() => onBack({ entryMode, type, effectiveDate, reason, preMoney, contribs, pcts })}>← Back</Btn>
+          )}
           <Btn secondary onClick={onClose}>Cancel</Btn>
           <Btn primary onClick={submit} disabled={saving || !balanced}>
             {saving ? "Saving…" : prefill?.context === "add-investor" ? "Add Investor & Record Ownership" : "Save as draft"}
@@ -1036,6 +1047,7 @@ export default function Ownership({
   // recording a reinvestment, so the change is part-filled rather than retyped.
   prefill = null,
   onPrefillConsumed,
+  onPrefillBack,
   // One agreed figure for the whole business; every stake is a share of it.
   companyValuation = null,
   valuationHistory = [],
@@ -1323,6 +1335,7 @@ export default function Ownership({
           currentHoldings={current}
           prefill={prefill}
           onClose={() => { setShowForm(false); onPrefillConsumed?.(); }}
+          onBack={onPrefillBack ? (step2State) => { setShowForm(false); onPrefillBack(step2State); } : undefined}
           onSave={onCreateEvent}
         />
       )}

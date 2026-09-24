@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import api from "./services/api";
 import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag, Pagination } from "./components";
 import Ownership, { holdingsAsOf } from "./Ownership";
@@ -510,17 +511,50 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
 }
 
 /* ========================================================================= modals === */
-function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinvestExisting }) {
+// Step 1 rules — one function so the messages shown under each field and the
+// check that gates "Continue to Ownership" can never disagree.
+function validateInvestorForm(f, isEdit) {
+  const errs = {};
+  const name = f.name.trim();
+  if (!name) errs.name = "Investor name is required.";
+  else if (!/^[A-Za-z ]+$/.test(name)) errs.name = "Name can contain letters and spaces only.";
+
+  if (!isEdit) {
+    const raw = String(f.firstAmount).trim();
+    if (!raw) errs.firstAmount = "First investment amount is required.";
+    else if (!/^(\d+(\.\d+)?|\.\d+)$/.test(raw)) errs.firstAmount = "Enter a valid number, e.g. 25000 or 25000.50.";
+    else if (!(Number(raw) > 0)) errs.firstAmount = "Amount must be greater than 0.";
+
+    if (!f.firstDate) errs.firstDate = "First investment date is required.";
+    else if (isNaN(new Date(f.firstDate + "T00:00:00"))) errs.firstDate = "Enter a valid date.";
+    else if (f.firstDate > todayISO()) errs.firstDate = "Date cannot be in the future.";
+  }
+  return errs;
+}
+
+// `initial` is the Step 1 draft when arriving here via Step 2's Back button, so
+// nothing typed is lost. Investors.jsx mounts this with a new `key` on every
+// open, so an ordinary "Add Investor" always starts from a completely blank
+// form — nothing from an earlier, abandoned attempt can reappear.
+function InvestorFormModal({ open, investor, investors, initial, nextId, onClose, onSave, onReinvestExisting }) {
   const isEdit = !!investor;
   const [form, setForm] = useState(() => ({
-    name: investor?.name || "",
-    investorId: investor?.investorId || "",
-    status: investor?.status || "Active",
-    firstAmount: "",
-    firstDate: todayISO(),
+    name: initial?.name ?? investor?.name ?? "",
+    status: initial?.status ?? investor?.status ?? "Active",
+    firstAmount: initial ? String(initial.transactions?.[0]?.amount ?? "") : "",
+    firstDate: initial?.since || todayISO(),
   }));
+  // Messages appear once Continue/Save has been tried, then follow each edit.
+  const [errors, setErrors] = useState({});
+  const [showErrors, setShowErrors] = useState(false);
 
   if (!open) return null;
+
+  const update = (patch) => {
+    const next = { ...form, ...patch };
+    setForm(next);
+    if (showErrors) setErrors(validateInvestorForm(next, isEdit));
+  };
 
   const duplicateMatch =
     !isEdit && form.name.trim()
@@ -528,26 +562,28 @@ function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinv
       : null;
 
   const submit = () => {
-    if (!form.name.trim()) { alert("Please enter the investor's name."); return; }
-    if (!form.investorId.trim()) { alert("Please enter the investor ID."); return; }
+    const errs = validateInvestorForm(form, isEdit);
+    setErrors(errs);
+    setShowErrors(true);
+    if (Object.keys(errs).length) return; // stay on Step 1 until every field is valid
 
     if (isEdit) {
-      onSave({ name: form.name.trim(), investorId: form.investorId.trim(), status: form.status });
+      onSave({ name: form.name.trim(), status: form.status });
       return;
     }
 
     const amt = Number(form.firstAmount);
-    if (!amt || amt <= 0) { alert("Please enter a valid first investment amount greater than 0."); return; }
-    if (!form.firstDate) { alert("Please select the first investment date."); return; }
-
+    // No Investor ID here on purpose: it is assigned by the server at the moment
+    // the investor is finally saved, never at draft time.
     onSave({
       name: form.name.trim(),
-      investorId: form.investorId.trim(),
       status: form.status,
       since: form.firstDate,
       transactions: [{ id: uid("txn"), type: TXN_TYPES.FIRST_INVESTMENT, date: form.firstDate, amount: amt, description: "" }],
     });
   };
+
+  const lockedField = { background: C.bg, color: C.textMuted, cursor: "not-allowed" };
 
   return (
     <Modal open={open} title={investor ? "Edit Investor" : "Add Investor"} onClose={onClose} onSubmit={submit} submitText={investor ? "Save Changes" : "Continue to Ownership →"}>
@@ -558,7 +594,7 @@ function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinv
           <span>Step 2 — Initial Ownership</span>
         </div>
       )}
-      <Input label="Investor Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g., Investor A" />
+      <Input label="Investor Name" value={form.name} onChange={(e) => update({ name: e.target.value })} placeholder="e.g., Investor A" error={errors.name} />
       {duplicateMatch && (
         <div style={{ fontSize: 11.5, color: C.textSec, background: IC.amberLight, border: `1px solid ${IC.amber}33`, borderRadius: 8, padding: "10px 12px", marginTop: -8, marginBottom: 14, lineHeight: 1.6 }}>
           <b>"{duplicateMatch.name}"</b> already exists as an investor. If this is the same person putting in more money, add it as a <b>Reinvestment</b> instead of a new investor.
@@ -567,11 +603,25 @@ function InvestorFormModal({ open, investor, investors, onClose, onSave, onReinv
           </div>
         </div>
       )}
-      <Input label="Investor ID" value={form.investorId} onChange={(e) => setForm({ ...form, investorId: e.target.value })} placeholder="e.g., INV-001" />
+      {/* Read-only: the ID is handed out by the server. For a new investor this is
+          only a preview of the next number — it isn't used up until they're saved. */}
+      <Input
+        label="Investor ID"
+        value={isEdit ? (investor.investorId || investor.id) : (nextId || "")}
+        readOnly
+        tabIndex={-1}
+        placeholder={isEdit ? "" : "Generating…"}
+        style={lockedField}
+      />
+      {!isEdit && (
+        <div style={{ fontSize: 11, color: C.textMuted, marginTop: -8, marginBottom: 14 }}>
+          Assigned automatically — it is only confirmed once the investor is saved.
+        </div>
+      )}
       {!isEdit && (
         <>
-          <Input label="First Investment Amount (SGD)" type="number" value={form.firstAmount} onChange={(e) => setForm({ ...form, firstAmount: e.target.value })} placeholder="e.g., 100000" />
-          <Input label="First Investment Date" type="date" value={form.firstDate} onChange={(e) => setForm({ ...form, firstDate: e.target.value })} min={DATE_MIN} max={DATE_MAX} />
+          <Input label="First Investment Amount (SGD)" type="text" inputMode="decimal" value={form.firstAmount} onChange={(e) => update({ firstAmount: e.target.value })} placeholder="e.g., 100000" error={errors.firstAmount} />
+          <Input label="First Investment Date" type="date" value={form.firstDate} onChange={(e) => update({ firstDate: e.target.value })} min={DATE_MIN} max={todayISO()} error={errors.firstDate} />
         </>
       )}
     </Modal>
@@ -808,7 +858,7 @@ function SummaryLine({ label, value, bold, valueColor }) {
 /* ================================================================= INVESTOR LIST === */
 function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAddInvestor, onReinvest, onExport }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("Active");
   const [sortKey, setSortKey] = useState("currentValueDesc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -858,7 +908,8 @@ function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAdd
       </div>
 
       <StatRow>
-        <StatCard label="Total Investors (Active)" value={investors.filter((i) => i.status === "Active").length} icon="👥" />
+        <StatCard label="Total Investors (Active)" value={investors.filter((i) => i.status !== "Inactive").length} icon="👥" />
+        <StatCard label="Inactive Investors" value={investors.filter((i) => i.status === "Inactive").length} sub="Exited — history kept" icon="🚪" />
         <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub="Capital in" icon="💰" />
         <StatCard label="Total Dividends (OUT)" value={fmtSGD(totals.dividends)} sub="All Time" icon="🎁" valueColor={IC.red} />
       </StatRow>
@@ -989,14 +1040,21 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
     color: [IC.primary, IC.green, IC.purple, "#F97316", "#0EA5E9", "#DB2777"][i % 6],
   }));
 
+  // An investor who has completed their Exit is Inactive: they drop out of the
+  // active count and list here (their history is untouched, and they're still
+  // under All Investors → Status: Inactive).
+  const activeInvestors = investors.filter((inv) => inv.status !== "Inactive");
+  const inactiveCount = investors.length - activeInvestors.length;
+
   const filtered = useMemo(() => {
-    const list = investors.filter((inv) => inv.name.toLowerCase().includes(search.toLowerCase()));
+    const list = activeInvestors.filter((inv) => inv.name.toLowerCase().includes(search.toLowerCase()));
     return [...list].sort((a, b) => {
       const ma = metricsById[a.id], mb = metricsById[b.id];
       if (sortKey === "currentValueDesc") return (mb.currentValue || 0) - (ma.currentValue || 0);
       if (sortKey === "totalInvestedDesc") return mb.totalInvested - ma.totalInvested;
       return a.name.localeCompare(b.name);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [investors, search, sortKey, metricsById]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const curPage = Math.min(page, totalPages);
@@ -1023,7 +1081,7 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
       </div>
 
       <StatRow>
-        <StatCard label="Total Investors" value={investors.length} sub="Active Investors" icon="👥" />
+        <StatCard label="Total Investors" value={activeInvestors.length} sub={inactiveCount ? `Active Investors · ${inactiveCount} inactive` : "Active Investors"} icon="👥" />
         <StatCard label="Total Invested" value={fmtSGD(totals.invested)} sub={overviewPeriod === "all" ? "Capital in" : overviewPeriod === "thisYear" ? "This year" : "This month"} icon="💰" />
         <StatCard label="Current Value" value={fmtSGD(totalCurrentValue)} sub="Portfolio Value" icon="📈" valueColor={IC.primary} />
         <StatCard label="Total Dividends" value={fmtSGD(totals.dividends)} sub={overviewPeriod === "all" ? "Paid to date" : overviewPeriod === "thisYear" ? "This year" : "This month"} icon="🎁" valueColor={IC.red} />
@@ -1078,8 +1136,11 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
             </select>
           </div>
         </div>
-        {investors.length === 0 ? (
-          <EmptyState title="No investors yet" message="Add your first investor to see the summary here." />
+        {activeInvestors.length === 0 ? (
+          <EmptyState
+            title={investors.length === 0 ? "No investors yet" : "No active investors"}
+            message={investors.length === 0 ? "Add your first investor to see the summary here." : "Everyone has exited — see All Investors → Status: Inactive."}
+          />
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -1194,11 +1255,74 @@ export default function Investors({
   const [draftInvestor, setDraftInvestor] = useState(null);
   const DRAFT_INVESTOR_ID = "__draft_investor__";
 
-  const openAddInvestor = () => { setEditingInvestor(null); setShowInvestorModal(true); };
-  const openEditInvestor = (inv) => { setEditingInvestor(inv); setShowInvestorModal(true); };
+  // Step 2's typed figures, parked while the user is back on Step 1 so that
+  // going Back and forward again doesn't wipe what they entered on Step 2.
+  const [step2Snapshot, setStep2Snapshot] = useState(null);
+
+  // The form is remounted (new key) on every open — that, plus the explicit
+  // clearing below, is what guarantees "Add Investor" always starts blank.
+  const [investorModalKey, setInvestorModalKey] = useState(0);
+  const [modalInitial, setModalInitial] = useState(null); // Step 1 draft, only when returning via Back
+  const [nextIdPreview, setNextIdPreview] = useState(null);
+
+  // The Investor ID shown on a new-investor form is a PREVIEW of the next number.
+  // It is not reserved — the server allocates the real ID when the investor is
+  // finally saved, so abandoning the form never uses one up.
+  const localNextId = () => {
+    const highest = investors.reduce((mx, i) => Math.max(mx, parseInt(String(i.id).replace(/\D/g, ""), 10) || 0), 0);
+    return "INV-" + String(highest + 1).padStart(3, "0");
+  };
+  const loadNextIdPreview = () => {
+    setNextIdPreview(null);
+    api.get("/investors/next-id").then((r) => setNextIdPreview(r.id)).catch(() => setNextIdPreview(localNextId()));
+  };
+
+  // Throw away everything staged for an unsaved investor.
+  const clearDraft = () => {
+    setDraftInvestor(null);
+    setStep2Snapshot(null);
+    setModalInitial(null);
+    setOwnershipPrefill(null);
+  };
+
+  const openAddInvestor = () => {
+    clearDraft();
+    setEditingInvestor(null);
+    setInvestorModalKey((k) => k + 1);
+    loadNextIdPreview();
+    setShowInvestorModal(true);
+  };
+  const openEditInvestor = (inv) => {
+    clearDraft();
+    setEditingInvestor(inv);
+    setInvestorModalKey((k) => k + 1);
+    setShowInvestorModal(true);
+  };
+  // Cancel / ✕ on Step 1 abandons the whole draft.
+  const closeInvestorModal = () => {
+    setShowInvestorModal(false);
+    setEditingInvestor(null);
+    clearDraft();
+  };
+  // ← Back on Step 2: reopen Step 1 pre-filled with the draft, keeping Step 2's
+  // typed figures aside. Nothing is saved and no ID is used.
+  const backToStep1 = (step2State) => {
+    if (!draftInvestor) return;
+    setStep2Snapshot({
+      state: step2State,
+      step1: { amount: draftInvestor.transactions?.[0]?.amount ?? null, date: draftInvestor.since },
+    });
+    setOwnershipPrefill(null);
+    setEditingInvestor(null);
+    setModalInitial(draftInvestor);
+    setInvestorModalKey((k) => k + 1);
+    loadNextIdPreview();
+    setShowInvestorModal(true);
+  };
+
   const saveInvestor = (data) => {
     if (editingInvestor) {
-      onUpdateInvestor?.(editingInvestor.id, { name: data.name, investorId: data.investorId, status: data.status });
+      onUpdateInvestor?.(editingInvestor.id, { name: data.name, status: data.status });
       setShowInvestorModal(false);
       setEditingInvestor(null);
       return;
@@ -1206,9 +1330,27 @@ export default function Investors({
 
     setShowInvestorModal(false);
     setEditingInvestor(null);
+    setModalInitial(null);
+
+    // Coming forward again after a Back: keep what was typed on Step 2, except
+    // where Step 1 itself was changed (the amount or date), which wins.
+    const newAmount = data.transactions?.[0]?.amount || null;
+    let restore = null;
+    if (step2Snapshot) {
+      const s = step2Snapshot.state;
+      restore = {
+        ...s,
+        contribs: {
+          ...s.contribs,
+          ...(newAmount !== step2Snapshot.step1.amount ? { [DRAFT_INVESTOR_ID]: newAmount ? String(newAmount) : "" } : {}),
+        },
+        effectiveDate: data.since !== step2Snapshot.step1.date ? data.since : s.effectiveDate,
+      };
+    }
 
     setDraftInvestor(data);
     setOwnershipPrefill({
+      restore,
       // The very first entry is the opening table; after that, a new investor
       // joining an existing one. `context` is what lets Step 2's form show the
       // "Step 2 — Initial Ownership" framing and the "Add Investor & Record
@@ -1227,8 +1369,8 @@ export default function Investors({
   // real row — this merges the not-yet-created draft into the list it renders,
   // display-only, purely so Step 2 can show them and take their contribution.
   const investorsForOwnership = useMemo(
-    () => (draftInvestor ? [...investors, { id: DRAFT_INVESTOR_ID, name: draftInvestor.name, status: draftInvestor.status }] : investors),
-    [investors, draftInvestor]
+    () => (draftInvestor && ownershipPrefill ? [...investors, { id: DRAFT_INVESTOR_ID, name: draftInvestor.name, status: draftInvestor.status }] : investors),
+    [investors, draftInvestor, ownershipPrefill]
   );
 
   // What actually commits Step 1: only reached when Step 2's "Save as draft"
@@ -1254,6 +1396,7 @@ export default function Investors({
     try {
       const event = await onCreateOwnershipEvent(resolvedPayload);
       setDraftInvestor(null);
+      setStep2Snapshot(null);
       return event;
     } catch (err) {
       onDeleteInvestor?.(created.id);
@@ -1400,7 +1543,8 @@ export default function Investors({
           onCreateValuation={onCreateValuation}
           onDeleteValuation={onDeleteValuation}
           prefill={ownershipPrefill}
-          onPrefillConsumed={() => { setOwnershipPrefill(null); setDraftInvestor(null); }}
+          onPrefillConsumed={clearDraft}
+          onPrefillBack={backToStep1}
         />
       )}
 
@@ -1416,14 +1560,19 @@ export default function Investors({
         />
       )}
 
-      <InvestorFormModal
-        open={showInvestorModal}
-        investor={editingInvestor}
-        investors={investors}
-        onClose={() => { setShowInvestorModal(false); setEditingInvestor(null); }}
-        onSave={saveInvestor}
-        onReinvestExisting={openReinvest}
-      />
+      {showInvestorModal && (
+        <InvestorFormModal
+          key={investorModalKey}
+          open={showInvestorModal}
+          investor={editingInvestor}
+          investors={investors}
+          initial={modalInitial}
+          nextId={nextIdPreview}
+          onClose={closeInvestorModal}
+          onSave={saveInvestor}
+          onReinvestExisting={openReinvest}
+        />
+      )}
 
       <TransactionFormModal
         key={`${txnTargetId || "none"}-${txnPreset}`}

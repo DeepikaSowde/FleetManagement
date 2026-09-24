@@ -263,6 +263,28 @@ CREATE TABLE IF NOT EXISTS investors (
 -- Idempotent so an existing investors table picks up the display-id column.
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS investor_code VARCHAR(40);
 
+-- Investor IDs (INV-001, INV-002, ...) come from a sequence, so an ID is never
+-- reused: not after an investor exits (they stay on file as Inactive), and not
+-- after a delete or a rolled-back save either, because a sequence never moves
+-- backwards. The block below only ever fast-forwards it past any INV-nnn
+-- already in use (GREATEST with its own position keeps a boot from rewinding it).
+CREATE SEQUENCE IF NOT EXISTS investor_id_seq;
+SELECT setval('investor_id_seq', v) FROM (
+  SELECT GREATEST(
+    (SELECT COALESCE(MAX(NULLIF(regexp_replace(id, '\D', '', 'g'), '')::int), 0) FROM investors),
+    (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM investor_id_seq)
+  ) AS v
+) t WHERE v >= 1;
+
+-- Two investors can never share a display ID. Skipped (not fatal) if legacy
+-- data already has a duplicate code, so an old database still boots.
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS investors_investor_code_uniq
+    ON investors (investor_code) WHERE investor_code IS NOT NULL;
+EXCEPTION WHEN unique_violation THEN
+  RAISE NOTICE 'investors_investor_code_uniq skipped: duplicate investor_code values exist';
+END $$;
+
 -- ── INVESTOR TRANSACTIONS — the unified dated money ledger ───────────────────
 -- One row per money movement. `type` is Investment | Reinvestment | Dividend |
 -- Exit | Withdrawal; `flow` (IN|OUT) is derived from type and stored for cheap
