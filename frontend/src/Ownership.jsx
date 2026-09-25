@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
 import { Btn, Input, Select, Pagination } from "./components";
-import { splitFromValuation } from "./capTableMath";
+import { splitFromValuation, roundTo100 } from "./capTableMath";
 import { DATE_MIN, DATE_MAX } from "./validation";
 
 /* =====================================================================================
@@ -407,7 +407,7 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 // starts from the table as it actually stands rather than from whatever was
 // half-typed last time.
 
-function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, onSave }) {
+function EventFormModal({ investors, currentHoldings, companyValuation, prefill, onClose, onBack, onSave }) {
   const hasPriorTable = currentHoldings.length > 0;
 
   // Arriving back from Step 1 (Add Investor's ← Back, then Continue again):
@@ -484,6 +484,32 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, 
   const total = rows.reduce((s, r) => s + (Number.isFinite(r.after) ? r.after : 0), 0);
   const balanced = Math.abs(total - 100) <= 0.01;
 
+  // ── Exit ──────────────────────────────────────────────────────────────────
+  // A full exit: the leaver drops to 0% and everyone still holding is scaled up
+  // in proportion so the table stays at 100%. The payout defaults to their
+  // share of the agreed company valuation (the same Holding % x valuation that
+  // Current Value uses) and can be overtyped when the group agreed another
+  // figure. Publishing records the payout in the investor's own ledger and
+  // marks them Inactive — see ownershipModel.applyPublishEffects.
+  const isExit = type === "Exit";
+  const [exitInvestorId, setExitInvestorId] = useState("");
+  const [exitAmountTyped, setExitAmountTyped] = useState(null); // null = still using the default
+  const exitHolders = currentHoldings.filter((h) => Number(h.pct) > 0);
+  const exitPct = Number(exitHolders.find((h) => h.investorId === exitInvestorId)?.pct) || 0;
+  const exitRemaining = exitHolders.filter((h) => h.investorId !== exitInvestorId);
+  const exitAfter = useMemo(() => {
+    if (!exitInvestorId || exitPct <= 0 || exitPct >= 100 || exitRemaining.length === 0) return null;
+    const raw = {};
+    exitRemaining.forEach((h) => { raw[h.investorId] = (Number(h.pct) / (100 - exitPct)) * 100; });
+    return roundTo100(raw);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exitInvestorId, JSON.stringify(currentHoldings)]);
+  const exitDefaultAmount = companyValuation?.amount ? Math.round((exitPct / 100) * Number(companyValuation.amount) * 100) / 100 : null;
+  const exitAmountText = exitAmountTyped !== null ? exitAmountTyped : (exitDefaultAmount === null ? "" : String(exitDefaultAmount));
+  const exitAmountNum = parseFloat(exitAmountText);
+  const exitReady = !!exitAfter && Number.isFinite(exitAmountNum) && exitAmountNum >= 0;
+  const nameOfInv = (id) => investors.find((i) => i.id === id)?.name || id;
+
   // Moving to manual carries the computed numbers across, so the group can
   // nudge one figure without losing the valuation's work.
   const switchToManual = () => {
@@ -507,6 +533,28 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, 
           : "Enter what each investor is putting in."
       );
     }
+    if (isExit) {
+      if (!exitInvestorId) return setError("Choose the investor who is exiting.");
+      if (exitPct >= 100 || exitRemaining.length === 0) return setError("The only remaining holder cannot exit — record a different change instead.");
+      if (!Number.isFinite(exitAmountNum) || exitAmountNum < 0) return setError("Enter the exit payout amount (0 or more).");
+      setSaving(true);
+      try {
+        await onSave({
+          type,
+          effectiveDate,
+          reason: reason || null,
+          exitInvestorId,
+          exitAmount: exitAmountNum,
+          holdings: Object.entries(exitAfter).map(([investorId, pct]) => ({ investorId, pct })),
+        });
+        onClose();
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!balanced) return setError(`Holdings must total 100% — this table totals ${total.toFixed(2)}%.`);
 
     const holdings = rows
@@ -527,6 +575,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, 
         preMoneyValuation: entryMode === "valuation" && V > 0 ? V : null,
         newMoneyAmount: moneyIn > 0 ? moneyIn : null,
         newMoneyInvestorId: contributors.length === 1 ? contributors[0].id : null,
+        linkedTxId: prefill?.linkedTxId || null,
         holdings,
       });
       onClose();
@@ -601,7 +650,78 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, 
           <Input label="Reason — in the group's own words" value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="e.g., Agreed on the call, 28 Mar — fleet grew to 9 vehicles" />
 
+          {isExit && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Select
+                  label="Investor exiting"
+                  value={exitInvestorId}
+                  onChange={(e) => { setExitInvestorId(e.target.value); setExitAmountTyped(null); }}
+                  options={[{ value: "", label: "Select an investor…" }, ...exitHolders.map((h) => ({ value: h.investorId, label: `${nameOfInv(h.investorId)} — ${fmtPct(Number(h.pct))}` }))]}
+                />
+                <Input
+                  label="Exit payout (SGD)"
+                  type="number" min="0" value={exitAmountText}
+                  onChange={(e) => setExitAmountTyped(e.target.value)}
+                  placeholder={exitDefaultAmount === null ? "Enter the agreed payout" : ""}
+                />
+              </div>
+              {exitInvestorId && exitDefaultAmount !== null && (
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: -8, marginBottom: 12 }}>
+                  Prefilled as {fmtPct(exitPct)} of the agreed company valuation ({fmtSGD(Number(companyValuation.amount))}) — change it if the group agreed a different payout.
+                </div>
+              )}
+              {exitInvestorId && exitDefaultAmount === null && (
+                <div style={{ fontSize: 11, color: C.amber, marginTop: -8, marginBottom: 12 }}>
+                  No company valuation has been agreed yet, so there is nothing to prefill — enter the payout the group agreed.
+                </div>
+              )}
+              {exitAfter ? (
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflowX: "auto", marginBottom: 8 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Investor</th>
+                        <th style={{ ...th, textAlign: "right" }}>Now</th>
+                        <th style={{ ...th, textAlign: "right" }}>After exit</th>
+                        <th style={{ ...th, textAlign: "right" }}>Change</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={td}>{nameOfInv(exitInvestorId)} <span style={{ color: C.textMuted, fontSize: 11 }}>(exiting)</span></td>
+                        <td style={{ ...td, textAlign: "right", color: C.textMuted }}>{fmtPct(exitPct)}</td>
+                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtPct(0)}</td>
+                        <td style={{ ...td, textAlign: "right", color: C.red }}>-{exitPct.toFixed(2)}</td>
+                      </tr>
+                      {exitRemaining.map((h) => {
+                        const after = exitAfter[h.investorId] ?? 0;
+                        const d = after - Number(h.pct);
+                        return (
+                          <tr key={h.investorId}>
+                            <td style={td}>{nameOfInv(h.investorId)}</td>
+                            <td style={{ ...td, textAlign: "right", color: C.textMuted }}>{fmtPct(Number(h.pct))}</td>
+                            <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtPct(after)}</td>
+                            <td style={{ ...td, textAlign: "right", color: d > 0 ? C.green : C.textMuted }}>{(d > 0 ? "+" : "") + d.toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 6 }}>
+                  {exitInvestorId ? "This investor is the only remaining holder, so they cannot exit." : "Choose who is exiting to see everyone's new share."}
+                </div>
+              )}
+              <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 4 }}>
+                A full exit: the investor goes to 0% and becomes Inactive from the effective date, everyone else is scaled up in proportion to total 100%. Their history stays on file. For a partial sale use Transfer or Buyback.
+              </div>
+            </>
+          )}
+
           {/* ── How the split is being decided ── */}
+          {!isExit && (<>
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             <button type="button" style={tabBtn(entryMode === "valuation")}
               onClick={() => setEntryMode("valuation")}>
@@ -764,6 +884,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, 
               </div>
             </>
           )}
+          </>)}
 
           {error && (
             <div style={{ background: C.redFaint, color: C.red, fontSize: 12, padding: "9px 12px", borderRadius: 8, marginTop: 10 }}>
@@ -779,7 +900,7 @@ function EventFormModal({ investors, currentHoldings, prefill, onClose, onBack, 
               onClick={() => onBack({ entryMode, type, effectiveDate, reason, preMoney, contribs, pcts })}>← Back</Btn>
           )}
           <Btn secondary onClick={onClose}>Cancel</Btn>
-          <Btn primary onClick={submit} disabled={saving || !balanced}>
+          <Btn primary onClick={submit} disabled={saving || (isExit ? !exitReady : !balanced)}>
             {saving ? "Saving…" : prefill?.context === "add-investor" ? "Add Investor & Record Ownership" : "Save as draft"}
           </Btn>
         </div>
@@ -1333,6 +1454,7 @@ export default function Ownership({
         <EventFormModal
           investors={investors}
           currentHoldings={current}
+          companyValuation={companyValuation}
           prefill={prefill}
           onClose={() => { setShowForm(false); onPrefillConsumed?.(); }}
           onBack={onPrefillBack ? (step2State) => { setShowForm(false); onPrefillBack(step2State); } : undefined}

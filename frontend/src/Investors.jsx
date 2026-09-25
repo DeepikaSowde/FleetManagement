@@ -149,6 +149,11 @@ export function buildValueProgressSeries(investors, granularity = "monthly") {
     (inv.transactions || []).forEach((t) => {
       if (IN_TYPES.includes(t.type)) {
         events.push({ date: t.date, amount: Number(t.amount || 0), investor: inv.name, type: t.type });
+      } else if (t.type === TXN_TYPES.EXIT) {
+        // An Exit pays capital back out at its effective date, so it lowers the
+        // running capital from that period on (dividends are income, not capital,
+        // and stay off this chart).
+        events.push({ date: t.date, amount: Number(t.amount || 0), investor: inv.name, type: t.type });
       }
     });
   });
@@ -164,10 +169,11 @@ export function buildValueProgressSeries(investors, granularity = "monthly") {
   const buckets = new Map();
   events.forEach((e) => {
     const key = periodKey(e.date);
-    if (!buckets.has(key)) buckets.set(key, { key, injected: 0, count: 0, investments: 0, reinvestments: 0 });
+    if (!buckets.has(key)) buckets.set(key, { key, injected: 0, exits: 0, count: 0, investments: 0, reinvestments: 0 });
     const b = buckets.get(key);
-    b.injected += e.amount;
     b.count += 1;
+    if (e.type === TXN_TYPES.EXIT) { b.exits += e.amount; return; }
+    b.injected += e.amount;
     if (e.type === TXN_TYPES.REINVESTMENT) b.reinvestments += e.amount;
     else b.investments += e.amount;
   });
@@ -177,8 +183,8 @@ export function buildValueProgressSeries(investors, granularity = "monthly") {
   return sortedKeys.map((key, idx) => {
     const b = buckets.get(key);
     const before = running;
-    running += b.injected;
-    return { idx, key, label: periodLabel(key), before, injected: b.injected, after: running, count: b.count, investments: b.investments, reinvestments: b.reinvestments };
+    running += b.injected - b.exits;
+    return { idx, key, label: periodLabel(key), before, injected: b.injected, exits: b.exits, after: running, count: b.count, investments: b.investments, reinvestments: b.reinvestments };
   });
 }
 
@@ -395,6 +401,7 @@ function fmtSGDCompact(n) {
 // Grouped bar chart - three bars per event (Value Before / Investment-Reinvestment /
 // Value After), using this app's own light theme colors.
 function ValueProgressChart({ data, height = 300, granularity, onGranularityChange }) {
+  const hasExits = data.some((d) => d.exits > 0);
   const toggleBtn = (key, label) => (
     <button
       key={key}
@@ -429,6 +436,12 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
           <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, background: IC.purple }} />
           Value After
         </span>
+        {hasExits && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, background: IC.red }} />
+            Exit / Payout
+          </span>
+        )}
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         {toggleBtn("monthly", "Monthly")}
@@ -448,7 +461,8 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
 
   const barW = 22;
   const barGap = 6;
-  const groupW = barW * 3 + barGap * 2;
+  const barCount = hasExits ? 4 : 3;
+  const groupW = barW * barCount + barGap * (barCount - 1);
   const groupGap = 26;
   const width = Math.max(520, data.length * (groupW + groupGap) + groupGap);
   // padL is wide enough that even a compact "SGD 1.23M" label (text-anchor
@@ -457,7 +471,7 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
-  const maxRaw = Math.max(1, ...data.map((d) => d.before), ...data.map((d) => d.injected), ...data.map((d) => d.after));
+  const maxRaw = Math.max(1, ...data.map((d) => d.before), ...data.map((d) => d.injected), ...data.map((d) => d.exits || 0), ...data.map((d) => d.after));
   const maxVal = niceAxisMax(maxRaw * 1.15);
 
   const yFor = (v) => padT + plotH - (Math.max(0, v) / maxVal) * plotH;
@@ -486,6 +500,7 @@ function ValueProgressChart({ data, height = 300, granularity, onGranularityChan
             { key: "before", value: d.before, color: "#3B82F6", label: "Value Before" },
             { key: "injected", value: d.injected, color: IC.green, label: "Investment / Reinvestment" },
             { key: "after", value: d.after, color: IC.purple, label: "Value After" },
+            ...(hasExits ? [{ key: "exits", value: d.exits || 0, color: IC.red, label: "Exit / Payout" }] : []),
           ];
           return (
             <g key={d.key}>
@@ -1034,7 +1049,11 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
 
   const progressSeries = useMemo(() => buildValueProgressSeries(investors, progressGranularity), [investors, progressGranularity]);
 
-  const donutSegments = investors.map((inv, i) => ({
+  // Current ownership only: an investor who has exited (Inactive, and 0% in the
+  // cap table in force today) is left out of the chart and its legend. Their
+  // record and history are untouched — see All Investors → Status: Inactive.
+  const allocationInvestors = investors.filter((inv) => inv.status !== "Inactive" && metricsById[inv.id].holdingPct > 0);
+  const donutSegments = allocationInvestors.map((inv, i) => ({
     label: inv.name,
     value: Math.max(metricsById[inv.id].holdingPct, 0),
     color: [IC.primary, IC.green, IC.purple, "#F97316", "#0EA5E9", "#DB2777"][i % 6],
@@ -1100,13 +1119,13 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
         <div style={{ ...cardStyle, padding: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Portfolio Allocation</div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, marginBottom: 8 }}>Ownership distribution among investors</div>
-          {investors.length === 0 ? (
-            <div style={{ padding: "24px 0", textAlign: "center", color: C.textMuted, fontSize: 12.5 }}>No investors yet.</div>
+          {allocationInvestors.length === 0 ? (
+            <div style={{ padding: "24px 0", textAlign: "center", color: C.textMuted, fontSize: 12.5 }}>{investors.length === 0 ? "No investors yet." : "No active ownership to show."}</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
               <DonutChart size={140} thickness={20} segments={donutSegments} centerTitle="Total Ownership" centerValue={fmtPct(donutSegments.reduce((s, d) => s + d.value, 0), 0)} />
               <div style={{ width: "100%" }}>
-                {investors.map((inv, i) => (
+                {allocationInvestors.map((inv, i) => (
                   <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, padding: "3px 0" }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       <span style={{ width: 8, height: 8, borderRadius: 4, background: donutSegments[i].color, display: "inline-block", flexShrink: 0 }} />
@@ -1415,7 +1434,7 @@ export default function Investors({
     openAddTransaction(investorId, TXN_TYPES.REINVESTMENT);
   };
   const saveTransaction = (data) => {
-    onCreateTransaction?.(txnTargetId, data);
+    const savedTx = onCreateTransaction?.(txnTargetId, data);
     setShowTxnModal(false);
 
     // Completing an Exit / Withdrawal means this investor has cashed out —
@@ -1436,6 +1455,9 @@ export default function Investors({
         effectiveDate: data.date,
         newMoneyAmount: Number(data.amount) || null,
         newMoneyInvestorId: txnTargetId,
+        // The ledger row already exists; linking it stops publishing this change
+        // from adding the same money a second time.
+        linkedTxId: savedTx?.id || null,
         note: `${who?.name || "This investor"} reinvested ${fmtSGD(Number(data.amount) || 0)}. If the group agreed this changes the split, set the new percentages here — if it was at their existing share, close this and nothing changes.`,
       });
       setView("ownership");

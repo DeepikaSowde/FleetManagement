@@ -417,6 +417,13 @@ ON CONFLICT (role, module) DO NOTHING;
 -- remain the source of truth; this is the provenance behind them.
 ALTER TABLE ownership_events ADD COLUMN IF NOT EXISTS pre_money_valuation NUMERIC(16,2);
 
+-- An Exit event names who is leaving and what they are paid out. Publishing it
+-- records that payout in the investor's own transaction ledger and, once the
+-- effective date arrives, marks them Inactive (the investor and every
+-- historical record stay on file).
+ALTER TABLE ownership_events ADD COLUMN IF NOT EXISTS exit_investor_id VARCHAR(20) REFERENCES investors(id) ON DELETE SET NULL;
+ALTER TABLE ownership_events ADD COLUMN IF NOT EXISTS exit_amount NUMERIC(14,2);
+
 -- What this investor put in AT this event, which is what lets an existing
 -- investor reinvest at a share different from the one they already hold.
 ALTER TABLE ownership_event_holdings ADD COLUMN IF NOT EXISTS contribution NUMERIC(14,2);

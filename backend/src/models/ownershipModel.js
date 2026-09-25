@@ -41,6 +41,8 @@ function toEvent(r) {
     // derived on its own.
     preMoneyValuation: r.pre_money_valuation === null ? null : Number(r.pre_money_valuation),
     linkedTxId: r.linked_tx_id,
+    exitInvestorId: r.exit_investor_id ?? null,
+    exitAmount: r.exit_amount === null || r.exit_amount === undefined ? null : Number(r.exit_amount),
     attestation: r.attestation,
     attachmentPath: r.attachment_path,
     reversesEventId: r.reverses_event_id,
@@ -101,6 +103,16 @@ async function validateHoldings(holdings) {
     const known = new Set(rows.map((r) => r.id));
     const missing = ids.filter((id) => !known.has(id));
     throw badRequest("Unknown investor(s): " + missing.join(", "));
+  }
+}
+
+// An Exit has to say who is leaving and what they are paid out.
+function validateExit(e) {
+  if (e.type !== "Exit") return;
+  if (!e.exitInvestorId) throw badRequest("An Exit must name the investor who is leaving");
+  const amt = Number(e.exitAmount);
+  if (e.exitAmount === null || e.exitAmount === undefined || !Number.isFinite(amt) || amt < 0) {
+    throw badRequest("An Exit needs the payout amount (0 or more)");
   }
 }
 
@@ -292,6 +304,7 @@ async function create(payload, actor) {
     throw badRequest("type must be one of: " + EVENT_TYPES.join(", "));
   }
   await validateHoldings(holdings);
+  validateExit(payload);
 
   // Exactly one Opening event — the starting cap table is by definition unique.
   if (type === "Opening") {
@@ -309,8 +322,8 @@ async function create(payload, actor) {
       `INSERT INTO ownership_events
          (id, effective_date, type, state, reason, new_money_amount, new_money_investor_id,
           linked_tx_id, attestation, attachment_path, reverses_event_id, created_by,
-          pre_money_valuation)
-       VALUES ($1,$2,$3,'Draft',$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          pre_money_valuation, exit_investor_id, exit_amount)
+       VALUES ($1,$2,$3,'Draft',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         id, effectiveDate, type, payload.reason ?? null,
@@ -318,6 +331,8 @@ async function create(payload, actor) {
         payload.linkedTxId ?? null, payload.attestation ?? null,
         payload.attachmentPath ?? null, payload.reversesEventId ?? null,
         actor ?? null, payload.preMoneyValuation ?? null,
+        type === "Exit" ? payload.exitInvestorId ?? null : null,
+        type === "Exit" ? payload.exitAmount ?? null : null,
       ]
     );
     await writeHoldings(client, id, holdings);
@@ -343,18 +358,22 @@ async function update(id, updates) {
   if (updates.holdings !== undefined) await validateHoldings(updates.holdings);
 
   const e = { ...toEvent(current), ...updates };
+  validateExit(e);
   return inTransaction(async (client) => {
     const { rows } = await client.query(
       `UPDATE ownership_events SET
          effective_date = $2, type = $3, reason = $4, new_money_amount = $5,
          new_money_investor_id = $6, linked_tx_id = $7, attestation = $8,
-         attachment_path = $9, reverses_event_id = $10, pre_money_valuation = $11
+         attachment_path = $9, reverses_event_id = $10, pre_money_valuation = $11,
+         exit_investor_id = $12, exit_amount = $13
        WHERE id = $1
        RETURNING *`,
       [
         id, e.effectiveDate, e.type, e.reason ?? null, e.newMoneyAmount ?? null,
         e.newMoneyInvestorId ?? null, e.linkedTxId ?? null, e.attestation ?? null,
         e.attachmentPath ?? null, e.reversesEventId ?? null, e.preMoneyValuation ?? null,
+        e.type === "Exit" ? e.exitInvestorId ?? null : null,
+        e.type === "Exit" ? e.exitAmount ?? null : null,
       ]
     );
     if (updates.holdings !== undefined) await writeHoldings(client, id, updates.holdings);
@@ -469,14 +488,135 @@ async function publish(id, { attestation } = {}) {
     );
   }
 
-  const { rows } = await db.query(
-    `UPDATE ownership_events
-     SET state = 'Effective', effective_at = now(), attestation = COALESCE($2, attestation)
-     WHERE id = $1
-     RETURNING *`,
-    [id, attestation ?? null]
+  // Publishing is one transaction: the event going Effective and its effect on
+  // the investors' own records (money ledger, status) land together or not at
+  // all, so the cap table and the Investors module can never disagree.
+  return inTransaction(async (client) => {
+    const { rows } = await client.query(
+      `UPDATE ownership_events
+       SET state = 'Effective', effective_at = now(), attestation = COALESCE($2, attestation)
+       WHERE id = $1
+       RETURNING *`,
+      [id, attestation ?? null]
+    );
+    await applyPublishEffects(client, rows[0]);
+    await applyDueExits(client);
+    return toEvent(rows[0]);
+  });
+}
+
+// ── Effects of publishing on the Investors module ───────────────────────────
+// Holdings/percentages are already the source of truth for ownership. What the
+// event ALSO has to do is put the money it describes into each investor's own
+// ledger, so Total Invested, the investment history and the trend chart include
+// it — instead of the ownership screen holding a private copy of the amount.
+
+async function nextTxId(client) {
+  const { rows } = await client.query(
+    "SELECT COALESCE(MAX(NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::int), 0) + 1 AS n FROM investor_transactions"
   );
-  return toEvent(rows[0]);
+  return "ITX-" + String(rows[0].n).padStart(3, "0");
+}
+
+// The transaction-first flow (record a Reinvestment/Exit in the ledger, then
+// agree the ownership change) has already put this money in the ledger. Reuse
+// that row instead of counting the same money twice: explicitly linked, or an
+// unlinked row for the same investor, type, amount and date.
+async function findExistingTx(client, { linkedId, investorId, type, amount, date, eventId }) {
+  if (linkedId) {
+    const { rows } = await client.query("SELECT id FROM investor_transactions WHERE id = $1", [linkedId]);
+    if (rows[0]) return rows[0].id;
+  }
+  const { rows } = await client.query(
+    `SELECT t.id FROM investor_transactions t
+      WHERE t.investor_id = $1 AND t.type = $2 AND t.amount = $3 AND t.date = $4
+        AND NOT EXISTS (SELECT 1 FROM ownership_events e WHERE e.linked_tx_id = t.id AND e.id <> $5)
+      LIMIT 1`,
+    [investorId, type, amount, date, eventId]
+  );
+  return rows[0]?.id || null;
+}
+
+async function ensureTx(client, evt, { investorId, type, flow, amount, description }) {
+  const found = await findExistingTx(client, {
+    linkedId: evt.linked_tx_id, investorId, type, amount, date: evt.effective_date, eventId: evt.id,
+  });
+  if (found) return found;
+  const id = await nextTxId(client);
+  await client.query(
+    `INSERT INTO investor_transactions (id, investor_id, date, type, flow, amount, description)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [id, investorId, evt.effective_date, type, flow, amount, description]
+  );
+  return id;
+}
+
+async function applyPublishEffects(client, evt) {
+  if (evt.type === "Reinvestment") {
+    // Per-investor contributions recorded on the holdings rows; falls back to
+    // the event's single new-money figure when only that was captured.
+    const { rows: hs } = await client.query(
+      "SELECT investor_id, contribution FROM ownership_event_holdings WHERE event_id = $1 AND contribution > 0",
+      [evt.id]
+    );
+    let inflows = hs.map((h) => ({ investorId: h.investor_id, amount: Number(h.contribution) }));
+    if (inflows.length === 0 && Number(evt.new_money_amount) > 0 && evt.new_money_investor_id) {
+      inflows = [{ investorId: evt.new_money_investor_id, amount: Number(evt.new_money_amount) }];
+    }
+    let firstTxId = null;
+    for (const f of inflows) {
+      const txId = await ensureTx(
+        client,
+        { ...evt, linked_tx_id: inflows.length === 1 ? evt.linked_tx_id : null },
+        {
+          investorId: f.investorId, type: "Reinvestment", flow: "IN", amount: f.amount,
+          description: "Reinvestment — ownership change " + evt.id,
+        }
+      );
+      if (!firstTxId) firstTxId = txId;
+    }
+    if (firstTxId && !evt.linked_tx_id) {
+      await client.query("UPDATE ownership_events SET linked_tx_id = $2 WHERE id = $1", [evt.id, firstTxId]);
+    }
+  }
+
+  if (evt.type === "Exit" && evt.exit_investor_id) {
+    const amount = Number(evt.exit_amount) || 0;
+    if (amount > 0) {
+      const txId = await ensureTx(client, evt, {
+        investorId: evt.exit_investor_id, type: "Exit / Withdrawal", flow: "OUT", amount,
+        description: "Exit — ownership change " + evt.id,
+      });
+      if (!evt.linked_tx_id) {
+        await client.query("UPDATE ownership_events SET linked_tx_id = $2 WHERE id = $1", [evt.id, txId]);
+      }
+    }
+  }
+}
+
+// Marks an investor Inactive once an Effective Exit has reached its date AND
+// they no longer hold anything in the table in force today. Run when an event
+// is published and whenever the investor list is read, so an Exit dated in the
+// future takes effect on its date without anyone having to come back for it.
+// Nothing is deleted — status only.
+async function applyDueExits(client = db) {
+  const today = new Date().toISOString().slice(0, 10);
+  await client.query(
+    `UPDATE investors i SET status = 'Inactive'
+      WHERE i.status <> 'Inactive'
+        AND EXISTS (
+          SELECT 1 FROM ownership_events e
+           WHERE e.state = 'Effective' AND e.type = 'Exit'
+             AND e.exit_investor_id = i.id AND e.effective_date <= $1)
+        AND NOT EXISTS (
+          SELECT 1 FROM ownership_event_holdings h
+           WHERE h.investor_id = i.id AND h.pct > 0
+             AND h.event_id = (
+               SELECT id FROM ownership_events
+                WHERE state = 'Effective' AND effective_date <= $1
+                ORDER BY effective_date DESC, created_at DESC LIMIT 1))`,
+    [today]
+  );
 }
 
 // Effective events are permanent; anything else can be discarded.
@@ -556,6 +696,6 @@ async function investorIsInCapTable(investorId) {
 module.exports = {
   getAll, getById, holdingsAsOf, valuationAsOf, valuedHoldingsAsOf,
   create, update, submit, decide, publish, remove, forInvestor,
-  investorIsInCapTable, validateHoldings,
+  investorIsInCapTable, validateHoldings, applyDueExits, applyPublishEffects,
   EVENT_TYPES, STATES, APPROVAL_MODES, SUM_TOLERANCE,
 };

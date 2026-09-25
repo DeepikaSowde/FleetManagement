@@ -17,6 +17,7 @@ function describeHoldings(holdings) {
 
 async function list(req, res, next) {
   try {
+    await Ownership.applyDueExits();
     res.json(await Ownership.getAll());
   } catch (err) {
     next(err);

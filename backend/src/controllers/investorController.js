@@ -4,6 +4,9 @@ const Ownership = require("../models/ownershipModel");
 
 async function list(req, res, next) {
   try {
+    // An Exit dated in the future takes effect on its date: flip anyone whose
+    // Exit has now arrived to Inactive before the list goes out.
+    await Ownership.applyDueExits();
     res.json(await Investor.getAll());
   } catch (err) {
     next(err);

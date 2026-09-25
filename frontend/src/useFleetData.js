@@ -1232,9 +1232,21 @@ export const useFleetData = () => {
   };
 
   // → Effective. From here the table is history and can only be superseded.
+  // Publishing a Reinvestment/Exit also writes to the investors' own records
+  // on the server (the payout/contribution in their ledger, an Exit's Inactive
+  // status), so the investor list and ledger are refetched with the cap table.
+  // That keeps Total Invested, the detail history, the charts and the cap table
+  // reading the same, just-published state.
   const publishOwnershipEvent = async (id, attestation) => {
     const event = await api.post(`/ownership/${id}/publish`, { attestation });
     await refetchOwnership();
+    try {
+      const [inv, itx] = await Promise.all([api.get("/investors"), api.get("/investor-transactions")]);
+      setInvestors(inv);
+      setInvestorTx(itx);
+    } catch (err) {
+      console.warn("FleetOpz: could not refresh investors after publish:", err.message);
+    }
     return event;
   };
 
