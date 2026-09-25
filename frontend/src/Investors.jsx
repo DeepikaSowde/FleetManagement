@@ -643,9 +643,16 @@ function InvestorFormModal({ open, investor, investors, initial, nextId, onClose
   );
 }
 
-function TransactionFormModal({ open, investorName, presetType, editingTxn, onClose, onSave }) {
+// Add Transaction records a DIVIDEND and nothing else. Money in (first
+// investment, reinvestment) and an exit are ownership events — they go through
+// Ownership → Record a change so the cap table and the ledger stay in step. A
+// dividend is only a cash-out: it never touches Holding % or Current Value,
+// which come from the published cap table.
+const TXN_FORM_TYPES = [TXN_TYPES.DIVIDEND];
+
+function TransactionFormModal({ open, investorName, editingTxn, onClose, onSave }) {
   const [form, setForm] = useState(() => ({
-    type: editingTxn?.type || presetType || TXN_TYPES.FIRST_INVESTMENT,
+    type: TXN_TYPES.DIVIDEND,
     date: editingTxn?.date || todayISO(),
     amount: editingTxn?.amount ?? "",
     description: editingTxn?.description || "",
@@ -657,7 +664,7 @@ function TransactionFormModal({ open, investorName, presetType, editingTxn, onCl
     const amt = Number(form.amount);
     if (!amt || amt <= 0) { alert("Please enter a valid amount greater than 0."); return; }
     if (!form.date) { alert("Please select a date."); return; }
-    onSave({ ...form, amount: amt });
+    onSave({ ...form, type: TXN_TYPES.DIVIDEND, description: form.description.trim(), amount: amt });
   };
 
   return (
@@ -672,11 +679,11 @@ function TransactionFormModal({ open, investorName, presetType, editingTxn, onCl
         label="Type"
         value={form.type}
         onChange={(e) => setForm({ ...form, type: e.target.value })}
-        options={Object.values(TXN_TYPES).map((t) => ({ value: t, label: `${t} (${flowForType(t)})` }))}
+        options={TXN_FORM_TYPES.map((t) => ({ value: t, label: `${t} (${flowForType(t)})` }))}
       />
       <Input label="Date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} min={DATE_MIN} max={DATE_MAX} />
-      <Input label="Amount (SGD)" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g., 100000" />
-      <Input label="Description / Reason" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g., Dividend FY 2025-26, Partial Exit, Reinvested returns" />
+      <Input label="Amount (SGD)" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g., 5000" />
+      <Input label="Description / Reason" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g., Dividend FY 2025-26" />
     </Modal>
   );
 }
@@ -741,7 +748,7 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.FIRST_INVESTMENT)}>+ Add Transaction</Btn>
+          <Btn primary onClick={() => onAddTransaction(investor.id, TXN_TYPES.DIVIDEND)}>+ Add Transaction</Btn>
         </div>
       </div>
 
@@ -1244,7 +1251,7 @@ export default function Investors({
 
   const [showTxnModal, setShowTxnModal] = useState(false);
   const [txnTargetId, setTxnTargetId] = useState(null);
-  const [txnPreset, setTxnPreset] = useState(TXN_TYPES.FIRST_INVESTMENT);
+  const [txnPreset, setTxnPreset] = useState(TXN_TYPES.DIVIDEND);
 
   // Holding % is read from the published cap table, and each stake is priced
   // at that share of the one company valuation the group agreed — so every
@@ -1428,40 +1435,31 @@ export default function Investors({
     setTxnPreset(presetType);
     setShowTxnModal(true);
   };
+  // A reinvestment is money in AND a possible change of share, so it is
+  // recorded as an ownership change (Reinvestment): publishing it adds the
+  // amount to the investor's ledger and updates the cap table together.
   const openReinvest = (investorId) => {
     setShowInvestorModal(false);
     setEditingInvestor(null);
-    openAddTransaction(investorId, TXN_TYPES.REINVESTMENT);
+    const who = investors.find((i) => i.id === investorId);
+    setOwnershipPrefill({
+      context: "reinvestment",
+      type: "Reinvestment",
+      effectiveDate: todayISO(),
+      newMoneyAmount: null,
+      newMoneyInvestorId: investorId,
+      note: `${who?.name || "This investor"} is reinvesting. Enter the agreed valuation and the amount they are putting in — the new split is worked out from those, and publishing adds the amount to their investments.`,
+    });
+    setView("ownership");
   };
+  // Only dividends are added here (see TransactionFormModal). The transaction
+  // is written to the investor's ledger and every total that reads it — Total
+  // Dividends, Total Cash Out, Net Cash Flow, Recent Transactions — updates from
+  // that one list. Holding % and Current Value are untouched: they come from the
+  // published cap table, never from cash movements.
   const saveTransaction = (data) => {
-    const savedTx = onCreateTransaction?.(txnTargetId, data);
+    onCreateTransaction?.(txnTargetId, { ...data, type: TXN_TYPES.DIVIDEND });
     setShowTxnModal(false);
-
-    // Completing an Exit / Withdrawal means this investor has cashed out —
-    // move them to Inactive automatically instead of leaving that as a
-    // manual follow-up step someone can forget.
-    if (data.type === TXN_TYPES.EXIT) {
-      const who = investors.find((i) => i.id === txnTargetId);
-      if (who && who.status !== "Inactive") onUpdateInvestor?.(txnTargetId, { status: "Inactive" });
-    }
-
-    // A reinvestment is the other case where money arriving may have been
-    // agreed to buy a different share. Offer the change; don't assume it.
-    if (data.type === TXN_TYPES.REINVESTMENT) {
-      const who = investors.find((i) => i.id === txnTargetId);
-      setOwnershipPrefill({
-        context: "reinvestment",
-        type: "Reinvestment",
-        effectiveDate: data.date,
-        newMoneyAmount: Number(data.amount) || null,
-        newMoneyInvestorId: txnTargetId,
-        // The ledger row already exists; linking it stops publishing this change
-        // from adding the same money a second time.
-        linkedTxId: savedTx?.id || null,
-        note: `${who?.name || "This investor"} reinvested ${fmtSGD(Number(data.amount) || 0)}. If the group agreed this changes the split, set the new percentages here — if it was at their existing share, close this and nothing changes.`,
-      });
-      setView("ownership");
-    }
   };
 
   const viewInvestor = (id) => { setSelectedId(id); setView("detail"); };
@@ -1600,7 +1598,6 @@ export default function Investors({
         key={`${txnTargetId || "none"}-${txnPreset}`}
         open={showTxnModal}
         investorName={targetInvestor?.name}
-        presetType={txnPreset}
         onClose={() => setShowTxnModal(false)}
         onSave={saveTransaction}
       />
