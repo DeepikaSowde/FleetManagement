@@ -27,6 +27,33 @@ export function roundTo100(raw) {
 }
 
 /**
+ * Works out the table after an investor sells back `fraction` (0–1] of their
+ * own holding. The leaver keeps old % × (1 − fraction) — 1 is a full exit to
+ * 0% — and everyone else is scaled up in proportion so the table stays at
+ * 100%. The leaver's figure is rounded on its own and the rounding residual
+ * stays among the others, so a locked "After exit" like 25.00% is exact.
+ */
+export function exitSplit(holdings, leaverId, fraction) {
+  const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const L = Number(holdings.find((h) => h.investorId === leaverId)?.pct) || 0;
+  const others = holdings.filter((h) => h.investorId !== leaverId && Number(h.pct) > 0);
+  const f = Math.min(1, Math.max(0, fraction));
+  if (L <= 0 || L >= 100 || others.length === 0) return null;
+
+  const leaverAfter = r2(L * (1 - f));
+  const room = 100 - leaverAfter;
+  const out = {};
+  others.forEach((h) => { out[h.investorId] = r2((Number(h.pct) / (100 - L)) * room); });
+  const residual = r2(room - others.reduce((s, h) => s + out[h.investorId], 0));
+  if (residual !== 0) {
+    const biggest = others.reduce((a, b) => (out[a.investorId] >= out[b.investorId] ? a : b)).investorId;
+    out[biggest] = r2(out[biggest] + residual);
+  }
+  if (leaverAfter > 0) out[leaverId] = leaverAfter;
+  return out;
+}
+
+/**
  * Works out what everyone holds after money goes in at an agreed valuation.
  *
  *     new % = (old % × pre-money + what they put in now) ÷ post-money

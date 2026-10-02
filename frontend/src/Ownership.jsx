@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
 import { Btn, Input, Select, Pagination } from "./components";
-import { splitFromValuation, roundTo100 } from "./capTableMath";
+import { splitFromValuation, exitSplit } from "./capTableMath";
 import { DATE_MIN, DATE_MAX } from "./validation";
 
 /* =====================================================================================
@@ -484,33 +484,49 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
   const total = rows.reduce((s, r) => s + (Number.isFinite(r.after) ? r.after : 0), 0);
   const balanced = Math.abs(total - 100) <= 0.01;
 
-  // ── Exit ──────────────────────────────────────────────────────────────────
-  // A full exit: the leaver drops to 0% and everyone still holding is scaled up
-  // in proportion so the table stays at 100%. The payout defaults to their
-  // share of the agreed company valuation (the same Holding % x valuation that
-  // Current Value uses) and can be overtyped when the group agreed another
-  // figure. Publishing records the payout in the investor's own ledger and
-  // marks them Inactive — see ownershipModel.applyPublishEffects.
+  // ── Exit (full or partial) ────────────────────────────────────────────────
+  // The Holding value is what THIS investor's whole current stake is worth
+  // (100% of their holding) — not the company valuation shared by everyone.
+  // It defaults to Holding % × the agreed company valuation and can be
+  // overtyped. The payout defaults to that same figure (a full exit).
+  //
+  // "Calculate ownership" turns the payout into a fraction of the holding
+  // (payout ÷ holding value, capped at 1) and LOCKS the resulting table: e.g.
+  // 50% holder, holding value 8,000, payout 4,000 → sells half → keeps 25%.
+  // Editing the payout afterwards only changes the money, never the %. Only a
+  // restart (Recalculate, another investor, or leaving Exit) computes anew.
+  // A leaver left above 0% stays Active; at 0% publishing marks them Inactive
+  // (ownershipModel.applyDueExits). The payout is recorded either way.
   const isExit = type === "Exit";
   const [exitInvestorId, setExitInvestorId] = useState("");
-  // null = still using the default. An overtyped payout is only a temporary
-  // edit until the Exit draft is saved: changing the Type discards it, so
-  // coming back to Exit shows the default payout again (see the Type select).
+  // null = still using the default. Typed values are temporary until the Exit
+  // draft is saved: changing the Type discards them (see the Type select).
   const [exitAmountTyped, setExitAmountTyped] = useState(null);
+  const [exitHoldingTyped, setExitHoldingTyped] = useState(null);
+  const [exitLock, setExitLock] = useState(null); // { fraction, holdingValue, payout } once calculated
+  const resetExit = () => { setExitAmountTyped(null); setExitHoldingTyped(null); setExitLock(null); };
   const exitHolders = currentHoldings.filter((h) => Number(h.pct) > 0);
   const exitPct = Number(exitHolders.find((h) => h.investorId === exitInvestorId)?.pct) || 0;
   const exitRemaining = exitHolders.filter((h) => h.investorId !== exitInvestorId);
-  const exitAfter = useMemo(() => {
-    if (!exitInvestorId || exitPct <= 0 || exitPct >= 100 || exitRemaining.length === 0) return null;
-    const raw = {};
-    exitRemaining.forEach((h) => { raw[h.investorId] = (Number(h.pct) / (100 - exitPct)) * 100; });
-    return roundTo100(raw);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exitInvestorId, JSON.stringify(currentHoldings)]);
-  const exitDefaultAmount = companyValuation?.amount ? Math.round((exitPct / 100) * Number(companyValuation.amount) * 100) / 100 : null;
-  const exitAmountText = exitAmountTyped !== null ? exitAmountTyped : (exitDefaultAmount === null ? "" : String(exitDefaultAmount));
+  const exitCanLeave = !!exitInvestorId && exitPct > 0 && exitPct < 100 && exitRemaining.length > 0;
+  const exitDefaultHolding = companyValuation?.amount ? Math.round((exitPct / 100) * Number(companyValuation.amount) * 100) / 100 : null;
+  const exitHoldingText = exitHoldingTyped !== null ? exitHoldingTyped : (exitDefaultHolding === null ? "" : String(exitDefaultHolding));
+  const exitHoldingNum = parseFloat(exitHoldingText);
+  const exitAmountText = exitAmountTyped !== null ? exitAmountTyped : exitHoldingText;
   const exitAmountNum = parseFloat(exitAmountText);
+  const exitAfter = useMemo(
+    () => (exitLock && exitCanLeave ? exitSplit(exitHolders, exitInvestorId, exitLock.fraction) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [exitLock, exitInvestorId, JSON.stringify(currentHoldings)]
+  );
+  const exitLeaverAfter = exitAfter ? exitAfter[exitInvestorId] ?? 0 : null;
   const exitReady = !!exitAfter && Number.isFinite(exitAmountNum) && exitAmountNum >= 0;
+  const calculateExit = () => {
+    setError("");
+    if (!(exitHoldingNum > 0)) return setError("Enter the value of this investor's whole holding (more than 0).");
+    if (!(exitAmountNum > 0)) return setError("Enter an exit payout above 0 to calculate the ownership sold.");
+    setExitLock({ fraction: Math.min(1, exitAmountNum / exitHoldingNum), holdingValue: exitHoldingNum, payout: exitAmountNum });
+  };
   const nameOfInv = (id) => investors.find((i) => i.id === id)?.name || id;
 
   // Moving to manual carries the computed numbers across, so the group can
@@ -539,6 +555,7 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
     if (isExit) {
       if (!exitInvestorId) return setError("Choose the investor who is exiting.");
       if (exitPct >= 100 || exitRemaining.length === 0) return setError("The only remaining holder cannot exit — record a different change instead.");
+      if (!exitAfter) return setError("Click Calculate ownership to work out the ownership after this exit.");
       if (!Number.isFinite(exitAmountNum) || exitAmountNum < 0) return setError("Enter the exit payout amount (0 or more).");
       setSaving(true);
       try {
@@ -645,7 +662,7 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-            <Select label="Type" value={type} onChange={(e) => { setType(e.target.value); setExitAmountTyped(null); }}
+            <Select label="Type" value={type} onChange={(e) => { setType(e.target.value); resetExit(); }}
               options={EVENT_TYPES.map((t) => ({ value: t, label: t }))} />
             <Input label="Effective date" type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} />
           </div>
@@ -655,28 +672,52 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
 
           {isExit && (
             <>
+              <Select
+                label="Investor exiting"
+                value={exitInvestorId}
+                onChange={(e) => { setExitInvestorId(e.target.value); resetExit(); }}
+                options={[{ value: "", label: "Select an investor…" }, ...exitHolders.map((h) => ({ value: h.investorId, label: `${nameOfInv(h.investorId)} — ${fmtPct(Number(h.pct))}` }))]}
+              />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <Select
-                  label="Investor exiting"
-                  value={exitInvestorId}
-                  onChange={(e) => { setExitInvestorId(e.target.value); setExitAmountTyped(null); }}
-                  options={[{ value: "", label: "Select an investor…" }, ...exitHolders.map((h) => ({ value: h.investorId, label: `${nameOfInv(h.investorId)} — ${fmtPct(Number(h.pct))}` }))]}
+                <Input
+                  label={`Holding value — 100% of ${exitInvestorId ? `${nameOfInv(exitInvestorId)}'s ${fmtPct(exitPct)}` : "their holding"} (SGD)`}
+                  type="number" min="0" value={exitHoldingText}
+                  onChange={(e) => setExitHoldingTyped(e.target.value)}
+                  disabled={!!exitLock}
+                  placeholder={exitDefaultHolding === null ? "What their whole stake is worth" : ""}
                 />
                 <Input
                   label="Exit payout (SGD)"
                   type="number" min="0" value={exitAmountText}
                   onChange={(e) => setExitAmountTyped(e.target.value)}
-                  placeholder={exitDefaultAmount === null ? "Enter the agreed payout" : ""}
+                  placeholder="Enter the agreed payout"
                 />
               </div>
-              {exitInvestorId && exitDefaultAmount !== null && (
+              {exitInvestorId && exitDefaultHolding !== null && !exitLock && (
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: -8, marginBottom: 12 }}>
-                  Prefilled as {fmtPct(exitPct)} of the agreed company valuation ({fmtSGD(Number(companyValuation.amount))}) — change it if the group agreed a different payout.
+                  Holding value prefilled as {fmtPct(exitPct)} of the agreed company valuation ({fmtSGD(Number(companyValuation.amount))}) — this is the value of this investor's stake only. The payout starts at the full holding value (a full exit); lower it for a partial exit.
                 </div>
               )}
-              {exitInvestorId && exitDefaultAmount === null && (
+              {exitInvestorId && exitDefaultHolding === null && !exitLock && (
                 <div style={{ fontSize: 11, color: C.amber, marginTop: -8, marginBottom: 12 }}>
-                  No company valuation has been agreed yet, so there is nothing to prefill — enter the payout the group agreed.
+                  No company valuation has been agreed yet — enter what this investor's whole holding is worth, and the payout the group agreed.
+                </div>
+              )}
+              {exitCanLeave && !exitLock && (
+                <div style={{ marginBottom: 12 }}>
+                  <Btn primary onClick={calculateExit}>Calculate ownership</Btn>
+                </div>
+              )}
+              {exitLock && (
+                <div style={{ fontSize: 11.5, color: C.textSec, background: C.bg, borderRadius: 8, padding: "8px 10px", marginBottom: 10, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <span>
+                    🔒 Calculated from a payout of {fmtSGD(exitLock.payout)} on a {fmtSGD(exitLock.holdingValue)} holding: sells {(exitLock.fraction * 100).toFixed(2)}% of their stake — {fmtPct(exitPct)} → {fmtPct(exitLeaverAfter ?? 0)}
+                    {exitLeaverAfter > 0 ? " (partial exit)" : " (full exit)"}. Changing the payout now won't change these percentages.
+                  </span>
+                  <button type="button" onClick={() => { setExitLock(null); setError(""); }}
+                    style={{ border: "none", background: "none", color: C.teal, fontWeight: 600, fontSize: 11.5, cursor: "pointer" }}>
+                    Recalculate
+                  </button>
                 </div>
               )}
               {exitAfter ? (
@@ -692,10 +733,10 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
                     </thead>
                     <tbody>
                       <tr>
-                        <td style={td}>{nameOfInv(exitInvestorId)} <span style={{ color: C.textMuted, fontSize: 11 }}>(exiting)</span></td>
+                        <td style={td}>{nameOfInv(exitInvestorId)} <span style={{ color: C.textMuted, fontSize: 11 }}>({exitLeaverAfter > 0 ? "partial exit" : "exiting"})</span></td>
                         <td style={{ ...td, textAlign: "right", color: C.textMuted }}>{fmtPct(exitPct)}</td>
-                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtPct(0)}</td>
-                        <td style={{ ...td, textAlign: "right", color: C.red }}>-{exitPct.toFixed(2)}</td>
+                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtPct(exitLeaverAfter)}</td>
+                        <td style={{ ...td, textAlign: "right", color: C.red }}>-{(exitPct - exitLeaverAfter).toFixed(2)}</td>
                       </tr>
                       {exitRemaining.map((h) => {
                         const after = exitAfter[h.investorId] ?? 0;
@@ -714,11 +755,13 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
                 </div>
               ) : (
                 <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 6 }}>
-                  {exitInvestorId ? "This investor is the only remaining holder, so they cannot exit." : "Choose who is exiting to see everyone's new share."}
+                  {!exitInvestorId ? "Choose who is exiting to see everyone's new share."
+                    : !exitCanLeave ? "This investor is the only remaining holder, so they cannot exit."
+                    : "Set the holding value and payout, then Calculate ownership."}
                 </div>
               )}
               <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 4 }}>
-                A full exit: the investor goes to 0% and becomes Inactive from the effective date, everyone else is scaled up in proportion to total 100%. Their history stays on file. For a partial sale use Transfer or Buyback.
+                Payout ÷ holding value is the share of their stake sold back; everyone else is scaled up in proportion to total 100%. A payout equal to the whole holding value is a full exit — the investor goes to 0% and becomes Inactive from the effective date. A partial exit keeps them Active at their remaining share. Their history stays on file.
               </div>
             </>
           )}
