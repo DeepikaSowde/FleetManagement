@@ -493,7 +493,10 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
   // marks them Inactive — see ownershipModel.applyPublishEffects.
   const isExit = type === "Exit";
   const [exitInvestorId, setExitInvestorId] = useState("");
-  const [exitAmountTyped, setExitAmountTyped] = useState(null); // null = still using the default
+  // null = still using the default. An overtyped payout is only a temporary
+  // edit until the Exit draft is saved: changing the Type discards it, so
+  // coming back to Exit shows the default payout again (see the Type select).
+  const [exitAmountTyped, setExitAmountTyped] = useState(null);
   const exitHolders = currentHoldings.filter((h) => Number(h.pct) > 0);
   const exitPct = Number(exitHolders.find((h) => h.investorId === exitInvestorId)?.pct) || 0;
   const exitRemaining = exitHolders.filter((h) => h.investorId !== exitInvestorId);
@@ -642,7 +645,7 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-            <Select label="Type" value={type} onChange={(e) => setType(e.target.value)}
+            <Select label="Type" value={type} onChange={(e) => { setType(e.target.value); setExitAmountTyped(null); }}
               options={EVENT_TYPES.map((t) => ({ value: t, label: t }))} />
             <Input label="Effective date" type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} />
           </div>
