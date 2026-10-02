@@ -878,17 +878,15 @@ export const useFleetData = () => {
   // Every mutation follows the same pattern: update local state immediately
   // (optimistic — the UI feels instant), then persist to the backend; if the
   // write fails, onWriteError reloads authoritative state from the server.
-  // A car's all-in acquisition cost — what it cost to put the vehicle on the
-  // road. Recorded once as a single "Vehicle Purchase" expense per car so the
-  // Expenses/P&L totals reflect the capital deployed on the fleet.
-  const acquisitionCost = (c) =>
-    (parseFloat(c.purchase) || 0) + (parseFloat(c.purchaseAdvance ?? c.purchase_advance) || 0) +
-    (parseFloat(c.insurance) || 0) +
-    (parseFloat(c.reg) || 0) + (parseFloat(c.otherCharges ?? c.other_charges) || 0);
-  // The auto-created purchase expense for a plate (matched by plate + category
-  // so it survives a reload — no extra column needed).
-  const findPurchaseExpense = (plate) =>
-    expenses.find(e => e.plate === plate && e.category === "Vehicle Purchase");
+  // Each car's all-in acquisition cost is recorded as one "Vehicle Purchase"
+  // expense. The SERVER writes it in the same transaction as the car (see
+  // backend fleetModel / expenseModel.syncVehiclePurchase), so it can't go
+  // missing when the second request fails or the user lacks the Expenses
+  // permission. The client just pulls the resulting expense list back down.
+  // A user without Expenses access can't read the list either — that's fine.
+  const refreshExpenses = () =>
+    api.get("/expenses").then(setExpenses).catch(() => {});
+  const PURCHASE_FIELDS = ["purchase", "purchaseAdvance", "insurance", "reg", "otherCharges", "purchaseDate"];
 
   const addFleet = (car) => {
     const newCar = {
@@ -901,54 +899,21 @@ export const useFleetData = () => {
       maint: parseFloat(car.maint),
     };
     setFleet(prev => [...prev, newCar]);
-    api.post("/fleet", newCar).catch(onWriteError);
-    // Auto-post the acquisition cost as a "Vehicle Purchase" expense.
-    const amount = acquisitionCost(newCar);
-    if (amount > 0) {
-      addExpense({
-        plate: newCar.plate,
-        date: newCar.purchaseDate || new Date().toISOString().slice(0, 10),
-        category: "Vehicle Purchase",
-        desc: `${newCar.make || ""} ${newCar.model || ""}`.trim() || "Vehicle acquisition",
-        amount,
-        receipt: false,
-      });
-    }
+    api.post("/fleet", newCar).then(refreshExpenses).catch(onWriteError);
   };
 
   const updateFleet = (plate, updates) => {
     setFleet(prev => prev.map(c => c.plate === plate ? { ...c, ...updates } : c));
-    api.put(`/fleet/${encodeURIComponent(plate)}`, updates).catch(onWriteError);
-    // Keep the auto "Vehicle Purchase" expense in sync when any cost field moves.
-    const costChanged = ["purchase", "purchaseAdvance", "insurance", "reg", "otherCharges"].some(f => f in updates);
-    if (costChanged || "purchaseDate" in updates) {
-      const car = fleet.find(c => c.plate === plate);
-      const merged = { ...car, ...updates };
-      const exp = findPurchaseExpense(plate);
-      const nextAmount = acquisitionCost(merged);
-      if (exp) {
-        updateExpense(exp.id, {
-          amount: nextAmount,
-          ...(("purchaseDate" in updates) && merged.purchaseDate ? { date: merged.purchaseDate } : {}),
-        });
-      } else if (nextAmount > 0) {
-        // Older car with no purchase expense yet — create it now.
-        addExpense({
-          plate, date: merged.purchaseDate || new Date().toISOString().slice(0, 10),
-          category: "Vehicle Purchase",
-          desc: `${merged.make || ""} ${merged.model || ""}`.trim() || "Vehicle acquisition",
-          amount: nextAmount, receipt: false,
-        });
-      }
-    }
+    const req = api.put(`/fleet/${encodeURIComponent(plate)}`, updates);
+    // A cost/date change re-syncs the purchase expense server-side.
+    (PURCHASE_FIELDS.some(f => f in updates) ? req.then(refreshExpenses) : req).catch(onWriteError);
   };
 
   const deleteFleet = (plate) => {
     setFleet(prev => prev.filter(c => c.plate !== plate));
+    // The server deletes the car's purchase expense with it; mirror that locally.
+    setExpenses(prev => prev.filter(e => !(e.plate === plate && e.category === "Vehicle Purchase")));
     api.del(`/fleet/${encodeURIComponent(plate)}`).catch(onWriteError);
-    // Remove the auto-created purchase expense alongside the car.
-    const exp = findPurchaseExpense(plate);
-    if (exp) deleteExpense(exp.id);
   };
 
   // Exposed to the booking form so it can block double-bookings before

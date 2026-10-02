@@ -2,6 +2,10 @@
 // columns and the camelCase field names the React frontend expects, so the
 // rest of the app works with clean JS objects.
 const db = require("../config/db");
+const Expense = require("./expenseModel");
+
+// Fields that feed the car's Vehicle Purchase expense (amount and date).
+const PURCHASE_FIELDS = ["purchase", "purchaseAdvance", "insurance", "reg", "otherCharges", "purchaseDate"];
 
 // DB row (snake_case) -> frontend car object (camelCase).
 function toCar(r) {
@@ -62,31 +66,36 @@ async function findByNormalizedPlate(plate) {
   return toCar(rows[0]);
 }
 
+// The car and its Vehicle Purchase expense are inserted together.
 async function create(car) {
-  const { rows } = await db.query(
-    `INSERT INTO cars (
-       plate, make, model, year, color, fuel_type, transmission, purchase, purchase_advance, insurance,
-       reg, other_charges, purchase_date, insurance_expiry, lta_transfer_date,
-       road_tax_expiry, inspection_expiry, maint, coe, status, min_rate, max_rate,
-       target_rate, running_days_target, profit_pct_target, monthly_forecast, maintenance_start_date,
-       maintenance_completed_at, maintenance_auto_released, manual_value, maintenance_expense_id
-     ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31
-     )
-     RETURNING *`,
-    [
-      car.plate, car.make, car.model, car.year, car.color, car.fuelType ?? null,
-      car.transmission ?? null, car.purchase, car.purchaseAdvance ?? 0, car.insurance, car.reg,
-      car.otherCharges ?? 0, car.purchaseDate, car.insuranceExpiry ?? null,
-      car.ltaTransferDate ?? null, car.roadTaxExpiry ?? null, car.inspectionExpiry ?? null,
-      car.maint, car.coe, car.status || "Available", car.minRate ?? null, car.maxRate ?? null,
-      car.targetRate ?? null, car.runningDaysTarget ?? null, car.profitPctTarget ?? null,
-      car.monthlyForecast ?? null,
-      car.maintenanceStartDate ?? null, car.maintenanceCompletedAt ?? null,
-      car.maintenanceAutoReleased ?? false, car.manualValue ?? null, car.maintenanceExpenseId ?? null,
-    ]
-  );
-  return toCar(rows[0]);
+  return db.withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO cars (
+         plate, make, model, year, color, fuel_type, transmission, purchase, purchase_advance, insurance,
+         reg, other_charges, purchase_date, insurance_expiry, lta_transfer_date,
+         road_tax_expiry, inspection_expiry, maint, coe, status, min_rate, max_rate,
+         target_rate, running_days_target, profit_pct_target, monthly_forecast, maintenance_start_date,
+         maintenance_completed_at, maintenance_auto_released, manual_value, maintenance_expense_id
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31
+       )
+       RETURNING *`,
+      [
+        car.plate, car.make, car.model, car.year, car.color, car.fuelType ?? null,
+        car.transmission ?? null, car.purchase, car.purchaseAdvance ?? 0, car.insurance, car.reg,
+        car.otherCharges ?? 0, car.purchaseDate, car.insuranceExpiry ?? null,
+        car.ltaTransferDate ?? null, car.roadTaxExpiry ?? null, car.inspectionExpiry ?? null,
+        car.maint, car.coe, car.status || "Available", car.minRate ?? null, car.maxRate ?? null,
+        car.targetRate ?? null, car.runningDaysTarget ?? null, car.profitPctTarget ?? null,
+        car.monthlyForecast ?? null,
+        car.maintenanceStartDate ?? null, car.maintenanceCompletedAt ?? null,
+        car.maintenanceAutoReleased ?? false, car.manualValue ?? null, car.maintenanceExpenseId ?? null,
+      ]
+    );
+    const saved = toCar(rows[0]);
+    await Expense.syncVehiclePurchase(client, saved);
+    return saved;
+  });
 }
 
 // Partial update via read-merge-write: fetch the current car, overlay only the
@@ -98,34 +107,45 @@ async function update(plate, updates) {
   const current = await getByPlate(plate);
   if (!current) return null;
   const c = { ...current, ...updates };
-  const { rows } = await db.query(
-    `UPDATE cars SET
-       make = $2, model = $3, year = $4, color = $5, fuel_type = $6, transmission = $7,
-       purchase = $8, purchase_advance = $9, insurance = $10, reg = $11, other_charges = $12,
-       purchase_date = $13, insurance_expiry = $14, lta_transfer_date = $15, road_tax_expiry = $16,
-       inspection_expiry = $17, maint = $18, coe = $19, status = $20, min_rate = $21,
-       max_rate = $22, target_rate = $23, running_days_target = $24, profit_pct_target = $25,
-       monthly_forecast = $26, maintenance_start_date = $27, maintenance_completed_at = $28,
-       maintenance_auto_released = $29, manual_value = $30, maintenance_expense_id = $31
-     WHERE plate = $1
-     RETURNING *`,
-    [
-      plate, c.make, c.model, c.year, c.color, c.fuelType ?? null, c.transmission ?? null,
-      c.purchase, c.purchaseAdvance ?? 0, c.insurance, c.reg, c.otherCharges ?? 0, c.purchaseDate,
-      c.insuranceExpiry ?? null, c.ltaTransferDate ?? null, c.roadTaxExpiry ?? null,
-      c.inspectionExpiry ?? null, c.maint, c.coe, c.status ?? "Available",
-      c.minRate ?? null, c.maxRate ?? null, c.targetRate ?? null,
-      c.runningDaysTarget ?? null, c.profitPctTarget ?? null, c.monthlyForecast ?? null,
-      c.maintenanceStartDate ?? null, c.maintenanceCompletedAt ?? null,
-      c.maintenanceAutoReleased ?? false, c.manualValue ?? null, c.maintenanceExpenseId ?? null,
-    ]
-  );
-  return toCar(rows[0]);
+  // Only a cost/date change touches the purchase expense — frequent status
+  // updates must not overwrite a manual edit to that expense.
+  const purchaseChanged = PURCHASE_FIELDS.some((f) => f in updates);
+  return db.withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `UPDATE cars SET
+         make = $2, model = $3, year = $4, color = $5, fuel_type = $6, transmission = $7,
+         purchase = $8, purchase_advance = $9, insurance = $10, reg = $11, other_charges = $12,
+         purchase_date = $13, insurance_expiry = $14, lta_transfer_date = $15, road_tax_expiry = $16,
+         inspection_expiry = $17, maint = $18, coe = $19, status = $20, min_rate = $21,
+         max_rate = $22, target_rate = $23, running_days_target = $24, profit_pct_target = $25,
+         monthly_forecast = $26, maintenance_start_date = $27, maintenance_completed_at = $28,
+         maintenance_auto_released = $29, manual_value = $30, maintenance_expense_id = $31
+       WHERE plate = $1
+       RETURNING *`,
+      [
+        plate, c.make, c.model, c.year, c.color, c.fuelType ?? null, c.transmission ?? null,
+        c.purchase, c.purchaseAdvance ?? 0, c.insurance, c.reg, c.otherCharges ?? 0, c.purchaseDate,
+        c.insuranceExpiry ?? null, c.ltaTransferDate ?? null, c.roadTaxExpiry ?? null,
+        c.inspectionExpiry ?? null, c.maint, c.coe, c.status ?? "Available",
+        c.minRate ?? null, c.maxRate ?? null, c.targetRate ?? null,
+        c.runningDaysTarget ?? null, c.profitPctTarget ?? null, c.monthlyForecast ?? null,
+        c.maintenanceStartDate ?? null, c.maintenanceCompletedAt ?? null,
+        c.maintenanceAutoReleased ?? false, c.manualValue ?? null, c.maintenanceExpenseId ?? null,
+      ]
+    );
+    const saved = toCar(rows[0]);
+    if (purchaseChanged) await Expense.syncVehiclePurchase(client, saved);
+    return saved;
+  });
 }
 
+// Removing a car removes its Vehicle Purchase expense with it.
 async function remove(plate) {
-  const { rowCount } = await db.query("DELETE FROM cars WHERE plate = $1", [plate]);
-  return rowCount > 0;
+  return db.withTransaction(async (client) => {
+    const { rowCount } = await client.query("DELETE FROM cars WHERE plate = $1", [plate]);
+    if (rowCount > 0) await Expense.removeVehiclePurchase(client, plate);
+    return rowCount > 0;
+  });
 }
 
 module.exports = { getAll, getByPlate, findByNormalizedPlate, create, update, remove, toCar };

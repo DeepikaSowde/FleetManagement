@@ -5,6 +5,8 @@ require("dotenv").config();
 const app = require("./src/app");
 require("./src/config/db"); // opens the PostgreSQL connection pool
 const { initSchema } = require("./src/config/initDb");
+const { backfillVehiclePurchases } = require("./src/models/expenseModel");
+const { toCar } = require("./src/models/fleetModel");
 
 const PORT = process.env.PORT || 5000;
 
@@ -12,6 +14,8 @@ const PORT = process.env.PORT || 5000;
 // is set up and existing ones pick up new columns automatically. If it fails
 // (e.g. the DB is unreachable), log and exit rather than serve a broken API.
 initSchema()
+  // Give any car missing its Vehicle Purchase expense one (idempotent).
+  .then(() => backfillVehiclePurchases(toCar))
   .then(() => {
     app.listen(PORT, () => {
       console.log(`FleetOpz API running on http://localhost:${PORT}`);

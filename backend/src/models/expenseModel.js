@@ -60,4 +60,71 @@ async function remove(id) {
   return rowCount > 0;
 }
 
-module.exports = { getAll, getById, create, update, remove };
+// ── Vehicle Purchase expense — one per car, owned by the server ─────────────
+// Every car's all-in acquisition cost is recorded as a single "Vehicle
+// Purchase" expense (matched by plate + category). It is written in the same
+// transaction as the car itself, so it can't be lost to a failed second
+// request or to the user lacking the Expenses permission (e.g. Staff can add
+// cars but not expenses — previously the car saved and its expense didn't).
+const PURCHASE_CATEGORY = "Vehicle Purchase";
+
+const acquisitionCost = (c) =>
+  (Number(c.purchase) || 0) + (Number(c.purchaseAdvance) || 0) +
+  (Number(c.insurance) || 0) + (Number(c.reg) || 0) + (Number(c.otherCharges) || 0);
+
+// Next "EX-001"-style id (same format the frontend generates). The advisory
+// lock serializes server-side id allocation for the rest of the transaction.
+async function nextId(client) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('expenses.id'))");
+  const { rows } = await client.query(
+    `SELECT COALESCE(MAX(NULLIF(regexp_replace(id, '\\D', '', 'g'), '')::int), 0) + 1 AS n FROM expenses`
+  );
+  return `EX-${String(rows[0].n).padStart(3, "0")}`;
+}
+
+// Creates the car's purchase expense if missing, otherwise brings its amount
+// and date in line with the car. `car` is the camelCase car (fleetModel.toCar).
+async function syncVehiclePurchase(client, car) {
+  const amount = acquisitionCost(car);
+  const date = car.purchaseDate || new Date().toISOString().slice(0, 10);
+  const { rows } = await client.query(
+    "SELECT id FROM expenses WHERE plate = $1 AND category = $2 ORDER BY created_at LIMIT 1",
+    [car.plate, PURCHASE_CATEGORY]
+  );
+  if (rows[0]) {
+    await client.query("UPDATE expenses SET amount = $2, date = $3 WHERE id = $1", [rows[0].id, amount, date]);
+    return;
+  }
+  if (amount <= 0) return;
+  const desc = `${car.make || ""} ${car.model || ""}`.trim() || "Vehicle acquisition";
+  await client.query(
+    `INSERT INTO expenses (id, plate, date, category, "desc", amount, receipt) VALUES ($1,$2,$3,$4,$5,$6,false)`,
+    [await nextId(client), car.plate, date, PURCHASE_CATEGORY, desc, amount]
+  );
+}
+
+async function removeVehiclePurchase(client, plate) {
+  await client.query("DELETE FROM expenses WHERE plate = $1 AND category = $2", [plate, PURCHASE_CATEGORY]);
+}
+
+// Startup self-heal: any car with a cost but no purchase expense (cars added
+// before this fix whose expense write failed) gets one. Idempotent.
+async function backfillVehiclePurchases(toCar) {
+  const { rows } = await db.query(
+    `SELECT c.* FROM cars c
+     WHERE NOT EXISTS (SELECT 1 FROM expenses e WHERE e.plate = c.plate AND e.category = $1)
+     ORDER BY c.created_at`,
+    [PURCHASE_CATEGORY]
+  );
+  for (const r of rows) {
+    const car = toCar(r);
+    if (acquisitionCost(car) <= 0) continue;
+    await db.withTransaction((client) => syncVehiclePurchase(client, car));
+    console.log(`Backfilled Vehicle Purchase expense for ${car.plate}`);
+  }
+}
+
+module.exports = {
+  getAll, getById, create, update, remove,
+  syncVehiclePurchase, removeVehiclePurchase, backfillVehiclePurchases,
+};
