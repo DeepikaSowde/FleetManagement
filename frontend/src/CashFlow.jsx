@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import { C, mono, fmt, daysUntil } from "./theme";
 import { Card, CardHeader, PlateBadge, Badge } from "./components";
-import { buildLedgerRows } from "./ledgerUtils";
+import { buildLedgerRows, cashNet } from "./ledgerUtils";
 
 // Cash Flow Forecast — a rolling projection of cash on hand across future
 // months (like the RDK "Cash Flow reference" sheet). Receipts can be forecast
@@ -107,7 +107,7 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], inv
   // so this number would otherwise disagree with the real Ledger balance.
   const currentBalance = useMemo(() => {
     const rows = buildLedgerRows(earnings, expenses, bookings, investors);
-    return Math.round(rows.reduce((s, r) => s + r.credit - r.debit, 0));
+    return Math.round(rows.reduce((s, r) => s + cashNet(r), 0));
   }, [earnings, expenses, bookings, investors]);
 
   const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));

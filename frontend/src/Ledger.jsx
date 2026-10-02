@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
-import { C, mono, fmt } from "./theme";
+import { C, mono } from "./theme";
 import { Card, CardHeader, Badge, PlateBadge } from "./components";
-import { buildLedgerRows } from "./ledgerUtils";
+import { buildLedgerRows, cashNet } from "./ledgerUtils";
 import LedgerDashboard from "./LedgerDashboard";
 import DepositRefunds from "./DepositRefunds";
 
@@ -86,7 +86,7 @@ const Ledger = ({
     if (!periodStart) return 0;
     return allTx
       .filter((t) => t.date < periodStart)
-      .reduce((s, t) => s + t.credit - t.debit, 0);
+      .reduce((s, t) => s + cashNet(t), 0);
   }, [allTx, periodStart]);
 
   // Rows shown = period + vehicle + type + search filters applied.
@@ -106,14 +106,21 @@ const Ledger = ({
       .reverse(); // newest first for display
   }, [allTx, period, vehicle, type, search]);
 
-  const totalCredit = rows.reduce((s, t) => s + t.credit, 0);
-  const totalDebit = rows.reduce((s, t) => s + t.debit, 0);
+  // Totals are cash movements only: a non-cash Deposit Income row (retained
+  // deposit) is already inside its Deposit IN, so counting it again would
+  // break Credit − Debit = Closing. It is called out under Total Credit.
+  const totalCredit = rows.reduce((s, t) => s + (t.nonCash ? 0 : t.credit), 0);
+  const totalDebit = rows.reduce((s, t) => s + (t.nonCash ? 0 : t.debit), 0);
+  const retainedIncome = rows.reduce((s, t) => s + (t.nonCash ? t.credit : 0), 0);
   const closingBalance = openingBalance + totalCredit - totalDebit;
 
   const periodText = period === "all" ? "All time" : monthLabel(period);
 
   const summary = [
-    { label: "Total Credit", value: totalCredit, color: C.green, icon: "📈", sub: periodText },
+    {
+      label: "Total Credit", value: totalCredit, color: C.green, icon: "📈",
+      sub: retainedIncome > 0 ? `${periodText} · excl. ${num(retainedIncome)} retained deposit (already in Deposit IN)` : periodText,
+    },
     { label: "Total Debit", value: totalDebit, color: C.red, icon: "📉", sub: periodText },
     { label: "Closing Balance", value: closingBalance, color: C.teal, icon: "📘", sub: periodText },
   ];
@@ -266,7 +273,7 @@ const Ledger = ({
                 <span style={{ fontSize: 15 }}>{s.icon}</span>
                 <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>{s.label}</span>
               </div>
-              <div style={{ ...mono, fontSize: 18, fontWeight: 700, color: s.color }}>{fmt(Math.round(s.value))}</div>
+              <div style={{ ...mono, fontSize: 18, fontWeight: 700, color: s.color }}>SGD {num(s.value)}</div>
               <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{s.sub}</div>
             </div>
           </Card>

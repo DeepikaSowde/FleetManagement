@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { C, mono, fmt, totalInv, carAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
-import { buildLedgerRows } from "./ledgerUtils";
+import { buildLedgerRows, cashNet } from "./ledgerUtils";
 import { computeEarningTotal } from "./useFleetData";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
@@ -114,7 +114,7 @@ const LedgerDashboard = ({
   // either way, only the row set is scoped by the Period filter.
   const currentBalance = useMemo(() => {
     const scoped = isAll ? rows : rows.filter((r) => r.date.slice(0, 7) <= period);
-    return scoped.reduce((s, r) => s + r.credit - r.debit, 0);
+    return scoped.reduce((s, r) => s + cashNet(r), 0);
   }, [rows, isAll, period]);
 
   // ── Balance sheet (assets & net worth) ─────────────────────────────────────

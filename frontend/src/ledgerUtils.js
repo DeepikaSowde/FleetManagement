@@ -1,5 +1,15 @@
 import { flowForType } from "./Investors";
 
+// Money is cents-precise; plain subtraction (300 - 290.16) leaves float noise
+// like 9.839999999999975, so derived amounts are rounded to 2 dp.
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// A row's effect on the cash balance. "Deposit Income" for a retained deposit
+// is non-cash: that money already came in with the Deposit IN, so the row only
+// relabels it as income — it is shown with its credit but moves no balance and
+// is left out of cash credit totals. Every balance/total must go through this.
+export const cashNet = (r) => (r.nonCash ? 0 : r.credit - r.debit);
+
 // Income from forfeited security deposits — the part of a deposit that was NOT
 // returned to the customer (deposit − returned). This is real income on top of
 // rental earnings, so the P&L / income totals add it in. Optionally scoped by a
@@ -16,7 +26,7 @@ export const forfeitedDepositIncome = (bookings = [], { prefix = "", plate = nul
       ? Math.max(0, Math.min(Number(b.depositPaid) || 0, depositAgreed))
       : depositAgreed;
     const back = b.depositRefundedAmount ?? deposit;
-    const forfeited = Math.max(0, deposit - back);
+    const forfeited = round2(Math.max(0, deposit - back));
     if (forfeited <= 0) return sum;
     const date = (b.depositRefundedAt || b.end || b.start || "").slice(0, 10);
     if (prefix && !date.startsWith(prefix)) return sum;
@@ -146,7 +156,7 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
     }
     if (b.depositRefunded) {
       const back = b.depositRefundedAmount ?? deposit;   // cash actually returned to the customer
-      const forfeited = Math.max(0, deposit - back);      // shortfall the business keeps
+      const forfeited = round2(Math.max(0, deposit - back)); // shortfall the business keeps
       const settledDate = (b.depositRefundedAt || b.end || b.start || "").slice(0, 10);
       if (back > 0) {
         push({
@@ -160,31 +170,21 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
           debit: back,
         }, b.depositRefundedAt);
       }
-      // Whatever isn't returned is retained and recognized as income. Booked as
-      // a reclassification: the kept amount leaves the deposit (debit) and enters
-      // income (credit) on the same day, so the running balance is unchanged
-      // while the ledger now surfaces it under "Deposit Income" instead of
-      // leaving it silently inside the net Deposit IN/OUT.
+      // Whatever isn't returned is retained and recognized as income. Deposit
+      // OUT carries only the cash actually returned (above); the kept amount is
+      // a single non-cash "Deposit Income" row — it was already counted in the
+      // Deposit IN, so it must not add to the balance a second time.
       if (forfeited > 0) {
-        push({
-          key: `DF-${b.id}`,
-          date: settledDate,
-          plate: b.plate || "",
-          type: "Deposit OUT",
-          description: "Deposit Retained (moved to income)",
-          remarks: b.customer || "—",
-          credit: 0,
-          debit: forfeited,
-        }, b.depositRefundedAt);
         push({
           key: `DFI-${b.id}`,
           date: settledDate,
           plate: b.plate || "",
           type: "Deposit Income",
-          description: `Forfeited Deposit — retained ${forfeited} of ${deposit}`,
+          description: `Retained from deposit — ${forfeited.toFixed(2)} of ${deposit.toFixed(2)} (no new cash)`,
           remarks: b.customer || "—",
           credit: forfeited,
           debit: 0,
+          nonCash: true,
         }, b.depositRefundedAt);
       }
     }
@@ -242,7 +242,7 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
   });
   let bal = 0;
   rows.forEach((r) => {
-    bal += r.credit - r.debit;
+    bal += cashNet(r);
     r.balance = bal;
   });
   return rows;
