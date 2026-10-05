@@ -588,7 +588,9 @@ function EventFormModal({ investors, currentHoldings, companyValuation, opening,
         ? "The Opening Ownership is confirmed and frozen — record this as a New Investor."
         : "Confirm the Opening Ownership first — until then only Opening entries can be recorded.");
     }
-    if (entry === "valuation" && !canCompute) {
+    // Money-in validation is for New Investor / Reinvestment / Opening splits.
+    // An Exit has no money coming in — its own checks follow below.
+    if (!isExit && entry === "valuation" && !canCompute) {
       return setError(
         valuationNeeded
           ? "Enter the agreed valuation and at least one amount coming in."
