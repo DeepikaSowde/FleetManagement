@@ -114,7 +114,11 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
           debit: 0,
         }, row.paidAt || row.dueDate || b.start);
       });
-    } else if (!b.cancelled) {
+    } else {
+      // Every rental payment actually collected is cash in — including on a
+      // booking that was later cancelled: cancelling changes the booking's
+      // status, it doesn't hand the rent back. One row per payment, keyed by
+      // its id, so status changes never duplicate it.
       normalizedPayments(b).forEach((p) => {
         const amt = Number(p.amount) || 0;
         if (amt <= 0) return;
