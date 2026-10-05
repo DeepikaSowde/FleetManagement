@@ -15,6 +15,8 @@ import DepositRefunds from "./DepositRefunds";
 //                          so they never touch the P&L — only this cash ledger)
 //   • Investments       -> "Investment" credits (investor capital in; cash only,
 //                          not profit). TEMP: seeded from the RDK Excel (data.js).
+//   • Dividends         -> "Dividend" debits (profit paid out to investors; cash
+//                          leaves, but it is not an expense and never hits P&L)
 // with a running balance and Opening/Credit/Debit/Closing summary, filtered by
 // period / vehicle / type / search. Same idea as the P&L page: derived, live.
 
@@ -130,6 +132,7 @@ const Ledger = ({
   // Badge colours per transaction type.
   const typeStyle = {
     "Investment": { color: C.navy, bg: C.linen },
+    "Dividend": { color: C.red, bg: C.redFaint },
     "Rental Income": { color: C.green, bg: C.greenFaint },
     "Deposit Income": { color: C.green, bg: C.greenFaint },
     "Deposit IN": { color: C.teal, bg: C.tealFaint },
@@ -250,6 +253,7 @@ const Ledger = ({
             <select style={selectStyle} value={type} onChange={(e) => setType(e.target.value)}>
               <option value="all">All Types</option>
               <option value="Investment">Investment</option>
+              <option value="Dividend">Dividend</option>
               <option value="Rental Income">Rental Income</option>
               <option value="Deposit Income">Deposit Income</option>
               <option value="Expense">Expense</option>

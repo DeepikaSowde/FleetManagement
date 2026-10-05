@@ -208,11 +208,30 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
   });
 
   // Real investor capital: each investor's IN transactions (First Investment +
-  // Reinvestment) become "Investment" credits. Dividends / exits (OUT) are the
-  // investor module's own concern and are intentionally NOT posted here, so the
-  // ledger's investment total stays the gross capital brought in.
+  // Reinvestment) become "Investment" credits, so the ledger's investment total
+  // stays the gross capital brought in.
+  //
+  // A Dividend paid out is real cash leaving the business, so it is posted as a
+  // "Dividend" debit and lowers the balance. It is a distribution of profit,
+  // not an operating expense, so it never enters the Expense / P&L figures
+  // (those read `expenses`, not these rows). One row per dividend transaction,
+  // keyed by its id, so the same dividend can never appear twice. Exits stay
+  // the investor module's own concern and are not posted here.
   investors.forEach((inv) => {
     (inv.transactions || []).forEach((t) => {
+      if (t.type === "Dividend") {
+        push({
+          key: `DV-${t.id}`,
+          date: (t.date || "").slice(0, 10),
+          plate: "",
+          type: "Dividend",
+          description: `Dividend paid (${inv.name})${t.description ? ` — ${t.description}` : ""}`,
+          remarks: inv.name,
+          credit: 0,
+          debit: Number(t.amount) || 0,
+        }, t.date);
+        return;
+      }
       if (flowForType(t.type) !== "IN") return;
       push({
         key: `IV-${t.id}`,
