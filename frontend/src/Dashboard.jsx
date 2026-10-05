@@ -343,7 +343,10 @@ const Dashboard = ({
       onClick={() => { setQaOpen(false); a.onClick(); }}
       onMouseEnter={() => setQaHover(a.key)} onMouseLeave={() => setQaHover(null)}
       style={{
+        // Fill the grid cell and never exceed it, so a tile can't push past the
+        // popup's edge (text truncates instead).
         gridColumn: full ? "1 / -1" : undefined, display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+        width: "100%", minWidth: 0, boxSizing: "border-box",
         padding: "10px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
         border: `1px solid ${qaHover === a.key ? a.color + "55" : D.line}`,
         background: qaHover === a.key ? a.bg : D.card,
@@ -352,7 +355,7 @@ const Dashboard = ({
       }}>
       <span style={{ width: 34, height: 34, borderRadius: 10, background: a.bg, color: a.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{a.icon}</span>
       <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: D.ink }}>{a.label}</span>
+        <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: D.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.label}</span>
         <span style={{ display: "block", fontSize: 10.5, color: D.faint, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.sub}</span>
       </span>
       <ChevronRight size={15} color={D.faint} style={{ flexShrink: 0 }} />
@@ -422,10 +425,13 @@ const Dashboard = ({
           {qaOpen && (
             <div role="menu" style={{
               position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 60,
-              width: isMobile ? "min(320px, calc(100vw - 32px))" : 430, maxWidth: "calc(100vw - 32px)", boxSizing: "border-box",
-              padding: 10, background: D.card, border: `1px solid ${D.line}`, borderRadius: 14,
+              // Sized to its content (two equal columns as wide as the widest
+              // tile) and capped to the screen; minmax(0, …) lets the columns
+              // shrink inside that cap instead of overflowing the popup.
+              width: isMobile ? "min(340px, calc(100vw - 32px))" : "max-content", maxWidth: "calc(100vw - 32px)", boxSizing: "border-box",
+              padding: 12, background: D.card, border: `1px solid ${D.line}`, borderRadius: 14,
               boxShadow: "0 18px 40px -8px rgba(15,23,42,0.22), 0 4px 12px rgba(15,23,42,0.08)",
-              display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8,
+              display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))", gap: 8,
             }}>
               {quickActions.map((a) => qaTile(a, a.key === "calendar"))}
             </div>
