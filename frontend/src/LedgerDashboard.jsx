@@ -528,7 +528,7 @@ const LedgerDashboard = ({
           {assetRows.length > 0 ? (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr>{["Vehicle", "Invested", "Current Value", "Depreciation"].map((h, i) => <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Vehicle", "Fleet Invested", "Current Value", "Depreciation"].map((h, i) => <th key={h} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr></thead>
                 <tbody>
                   {assetPageRows.map((r) => (
                     <tr key={r.plate} style={{ borderBottom: "1px solid #F3F3F3" }}>
