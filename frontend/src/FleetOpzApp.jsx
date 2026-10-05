@@ -32,6 +32,7 @@ import Ledger from "./Ledger";
 import CashFlow from "./CashFlow";
 import Alert from "./Alert";
 import Settings from "./Settings";
+import { totalFleetInvestment, totalInvestorInvestment } from "./InvestmentLimitWarning";
 
 // Shared styling for the New Booking wizard's Step 1 (Customer Details)
 // fields. These are plain <input>s rather than the shared <Input> component
@@ -572,6 +573,13 @@ export default function FleetOpzApp() {
     return fn(...args);
   };
   const gAddFleet = guarded("Fleet", "create", fleetData.addFleet);
+  // Fleet ↔ Investor investment cross-check (warning only). The investor
+  // total is null for a role without Investors access — its data can't load,
+  // so there is nothing to compare against.
+  const fleetInvestmentTotal = totalFleetInvestment(fleetData.fleet);
+  const investorInvestmentTotal = can("Investors")
+    ? totalInvestorInvestment(fleetData.investorsWithTx.flatMap((i) => i.transactions))
+    : null;
   const gUpdateFleet = guarded("Fleet", "edit", fleetData.updateFleet);
   const gDeleteFleet = guarded("Fleet", "delete", fleetData.deleteFleet);
   const gAddBooking = guarded("Bookings", "create", fleetData.addBooking);
@@ -1452,6 +1460,7 @@ export default function FleetOpzApp() {
     fleet: (
       <Fleet
         fleet={fleetData.fleet}
+        investorInvestmentTotal={investorInvestmentTotal}
         onAddFleet={gAddFleet}  // ✅ CRITICAL FIX: Pass the actual handler that will be called by AddCarWizard
         onUpdateCar={gUpdateFleet}
         onDeleteCar={gDeleteFleet}
@@ -1549,6 +1558,8 @@ export default function FleetOpzApp() {
     investors: (
       <Investors
         investors={fleetData.investorsWithTx}
+        fleetInvestmentTotal={fleetInvestmentTotal}
+        investorInvestmentTotal={investorInvestmentTotal}
         onCreateInvestor={gCreateInvestor}
         onUpdateInvestor={gUpdateInvestor}
         onDeleteInvestor={gDeleteInvestor}

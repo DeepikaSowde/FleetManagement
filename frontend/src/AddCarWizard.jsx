@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { C, mono, fmt, totalInv, daysUntil, generateTargetOptions, purchaseAfterCoe, PURCHASE_AFTER_COE_MESSAGE } from "./theme";
 import { Btn, Input } from "./components";
 import { sanitizeYearDigits, getYearFormatError, DATE_MIN, DATE_MAX } from "./validation";
+import InvestmentLimitWarning, { totalFleetInvestment } from "./InvestmentLimitWarning";
 
 const STEPS = [
   "Purchase & Vehicle Details",
@@ -187,7 +188,7 @@ export const ComplianceField = ({ label, value, onChange, blocking = false }) =>
 // only thing that actually gets saved to fleet data. Editing any of this
 // after the car is added happens from the Fleet Details view, not here — this
 // wizard is add-only, with no separate "edit" affordance of its own.
-const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
+const AddCarWizard = ({ onComplete, onClose, fleet = [], investorInvestmentTotal = null }) => {
   const [step, setStep] = useState(0);
   const [car, setCar] = useState(emptyCar());
   const [options, setOptions] = useState(null);
@@ -259,6 +260,8 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
     (parseFloat(car.insurance) || 0) +
     (parseFloat(car.reg) || 0) +
     (parseFloat(car.otherCharges) || 0);
+  // Fleet total if this car is added — for the (non-blocking) investment warning.
+  const fleetTotalWithCar = totalFleetInvestment(fleet) + investment;
 
   // Step 1 — Purchase & Vehicle Details. COE moved to the Compliance step, so
   // it's no longer required here.
@@ -426,6 +429,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
                 <Input label="Other Charges (SGD)" type="number" min="0" step="0.01" value={car.otherCharges} onChange={handleAmountChange("otherCharges")} placeholder="e.g., 200.50" error={errors.otherCharges} />
                 <Input label={<>Purchase Date <span style={{ color: C.red }}>*</span></>} type="date" value={car.purchaseDate} onChange={e => setField("purchaseDate", e.target.value)} min={DATE_MIN} max={DATE_MAX} error={errors.purchaseDate} />
               </div>
+              <InvestmentLimitWarning fleetTotal={fleetTotalWithCar} investorTotal={investorInvestmentTotal} style={{ marginTop: 6 }} />
             </div>
           )}
 
@@ -519,6 +523,7 @@ const AddCarWizard = ({ onComplete, onClose, fleet = [] }) => {
           {/* STEP 5 — Review & Confirm */}
           {step === 4 && chosen && (
             <div>
+              <InvestmentLimitWarning fleetTotal={fleetTotalWithCar} investorTotal={investorInvestmentTotal} />
               <div style={{ padding: 14, background: C.greenFaint, borderRadius: 8, borderLeft: `3px solid ${C.green}`, marginBottom: 14 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.green }}>✓ {chosen.label} target selected</div>
                 <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 3 }}>This car will be added with status "Available"</div>

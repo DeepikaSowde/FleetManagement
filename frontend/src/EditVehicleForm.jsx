@@ -6,6 +6,7 @@ import {
 import { Btn, Input } from "./components";
 import { Combobox, SelectField, ComplianceField, buildBrandModelMap } from "./AddCarWizard";
 import { sanitizeYearDigits, getYearFormatError, DATE_MIN, DATE_MAX } from "./validation";
+import InvestmentLimitWarning, { totalFleetInvestment } from "./InvestmentLimitWarning";
 
 /* =====================================================================================
    EDIT VEHICLE
@@ -55,7 +56,7 @@ const STAGE_FIELDS = [
   ["coe"],
 ];
 
-export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
+export default function EditVehicleForm({ car, fleet = [], onSave, onCancel, investorInvestmentTotal = null }) {
   const [stage, setStage] = useState(0);
   const [form, setForm] = useState(() => ({
     plate: car.plate,
@@ -120,6 +121,9 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
     reg: parseFloat(form.reg) || 0,
     otherCharges: parseFloat(form.otherCharges) || 0,
   }), [form.purchase, form.purchaseAdvance, form.insurance, form.reg, form.otherCharges]);
+  // Fleet total with this car's edited cost in place of its saved one — for
+  // the (non-blocking) investment warning.
+  const fleetTotalWithEdit = totalFleetInvestment(fleet) - totalInv(car) + investment;
 
   const datesConflict = purchaseAfterCoe({ purchaseDate: form.purchaseDate, coe: form.coe });
 
@@ -433,6 +437,7 @@ export default function EditVehicleForm({ car, fleet = [], onSave, onCancel }) {
           {stage === 2 && (
             <div>
               <div style={SECTION}>Total Investment</div>
+              <InvestmentLimitWarning fleetTotal={fleetTotalWithEdit} investorTotal={investorInvestmentTotal} style={{ maxWidth: 460 }} />
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", maxWidth: 460 }}>
                 {[
                   ["Purchase Price", form.purchase],

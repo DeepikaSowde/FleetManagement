@@ -4,6 +4,7 @@ import { C } from "./theme";
 import { Btn, Badge, Modal, Input, Select, StatusTag, Pagination } from "./components";
 import Ownership, { holdingsAsOf } from "./Ownership";
 import { DATE_MIN, DATE_MAX } from "./validation";
+import InvestmentLimitWarning from "./InvestmentLimitWarning";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
@@ -1240,6 +1241,9 @@ function OverviewDashboard({ investors, metricsById, totalCurrentValue, onAddInv
 // transaction calls back up so it is persisted via the API.
 export default function Investors({
   investors = [],
+  // Fleet ↔ Investor investment cross-check (warning only).
+  fleetInvestmentTotal = 0,
+  investorInvestmentTotal = null,
   onCreateInvestor,
   onUpdateInvestor,
   onDeleteInvestor,
@@ -1543,6 +1547,8 @@ export default function Investors({
           to make them the agreed figures.
         </div>
       )}
+
+      <InvestmentLimitWarning fleetTotal={fleetInvestmentTotal} investorTotal={investorInvestmentTotal} />
 
       {view === "dashboard" && (
         <OverviewDashboard

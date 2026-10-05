@@ -5,6 +5,7 @@ import { fleetDisplayStatus } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, SectionTitle } from "./components";
 import AddCarWizard from "./AddCarWizard";
 import EditVehicleForm from "./EditVehicleForm";
+import InvestmentLimitWarning, { totalFleetInvestment } from "./InvestmentLimitWarning";
 
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -672,6 +673,9 @@ const Fleet = ({
   // hide the corresponding buttons so the UI doesn't offer actions the
   // current role can't actually perform.
   canCreate = true, canEdit = true, canDelete = true,
+  // Total Investor Investment, for the Fleet ↔ Investor warning (null when
+  // the role can't see investor data).
+  investorInvestmentTotal = null,
 }) => {
   // Which car's details modal is open, keyed by plate (not a row index) so it
   // stays correct across pagination/filtering/sorting.
@@ -855,9 +859,11 @@ const Fleet = ({
         {canCreate && <Btn primary id="fleet-add-car" onClick={() => setWizardOpen(true)}>＋ Add New Car</Btn>}
       </div>
 
+      <InvestmentLimitWarning fleetTotal={totalFleetInvestment(fleet)} investorTotal={investorInvestmentTotal} />
+
       {/* Add Car Wizard Modal */}
       {wizardOpen && (
-        <AddCarWizard onComplete={handleWizardComplete} onClose={() => setWizardOpen(false)} fleet={fleet} />
+        <AddCarWizard onComplete={handleWizardComplete} onClose={() => setWizardOpen(false)} fleet={fleet} investorInvestmentTotal={investorInvestmentTotal} />
       )}
 
       {/* Toolbar — search + plate filter + registration filter, same compact
@@ -1065,6 +1071,7 @@ const Fleet = ({
         <EditVehicleForm
           car={editCar}
           fleet={fleet}
+          investorInvestmentTotal={investorInvestmentTotal}
           onSave={(plate, updates) => { onUpdateCar(plate, updates); setEditPlate(null); }}
           onCancel={() => setEditPlate(null)}
         />
