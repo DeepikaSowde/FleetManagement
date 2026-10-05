@@ -597,6 +597,9 @@ export const useFleetData = () => {
   // server). `ownershipMode` is the tenant's sign-off setting.
   const [ownershipEvents, setOwnershipEvents] = useState([]);
   const [ownershipMode, setOwnershipMode] = useState("admin_attest");
+  // The Opening Ownership group and its status: "Open" (more Opening investors
+  // may join) or "Confirmed" (frozen for good by Confirm Opening Ownership).
+  const [openingOwnership, setOpeningOwnership] = useState({ status: "Open", investors: [] });
   // What the investors agreed the WHOLE business is worth. Each stake is that
   // percentage of it, so there is one figure, not one per investor.
   const [companyValuation, setCompanyValuation] = useState(null);
@@ -676,6 +679,7 @@ export const useFleetData = () => {
     } catch (err) {
       console.warn("FleetOpz: Ownership data unavailable:", err.message);
     }
+    await refetchOpening();
 
     // Valuations are fetched on their own, NOT alongside the cap table above.
     // Grouped, a backend that predates /ownership/valuations would fail the
@@ -696,12 +700,32 @@ export const useFleetData = () => {
   // the current table — and the admin has to SEE those refusals. So each of
   // these awaits the server, refetches the events, and lets the error through
   // to the page, which shows the server's message on the form.
+  // Guarded on its own, like valuations: a backend without the Opening route
+  // still loads the rest of the register.
+  async function refetchOpening() {
+    try {
+      setOpeningOwnership(await api.get("/ownership/opening"));
+    } catch (err) {
+      console.warn("FleetOpz: Opening ownership unavailable:", err.message);
+    }
+  }
+
+  // One-way: freezes the Opening group, its amounts and the business value.
+  const confirmOpeningOwnership = async () => {
+    const snap = await api.post("/ownership/opening/confirm");
+    setOpeningOwnership(snap);
+    await refetchOwnership();
+    return snap;
+  };
+
   const refetchOwnership = async () => {
     // A published round can itself set the company valuation (pre-money plus
     // the money that went in), so the two are always refetched together and
     // can never fall out of step.
     const events = await api.get("/ownership");
     setOwnershipEvents(events);
+    // Publishing/discarding an Opening entry changes the Opening group.
+    await refetchOpening();
 
     // Same reasoning as the initial load: a valuation that cannot be read must
     // not take the register down with it.
@@ -1810,6 +1834,8 @@ export const useFleetData = () => {
     // Cap table (ownership events + sign-off) and the agreed company valuation
     ownershipEvents,
     ownershipMode,
+    openingOwnership,
+    confirmOpeningOwnership,
     companyValuation,
     valuationHistory,
     createValuation,

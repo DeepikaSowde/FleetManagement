@@ -88,6 +88,11 @@ async function createValuation(req, res, next) {
 
 async function removeValuation(req, res, next) {
   try {
+    // The valuation the Opening was confirmed on is frozen with it.
+    const snap = await Ownership.getOpeningSnapshot();
+    if (snap?.status === "Confirmed" && snap.valuationId === req.params.id) {
+      return res.status(409).json({ message: "This is the Opening business value, locked when the Opening Ownership was confirmed" });
+    }
     const ok = await Valuation.remove(req.params.id);
     if (!ok) return res.status(404).json({ message: "Valuation not found" });
     AuditLog.record(req, {
@@ -231,6 +236,35 @@ async function remove(req, res, next) {
   }
 }
 
+// GET /api/ownership/opening — the Opening group and its Open/Confirmed status.
+async function opening(req, res, next) {
+  try {
+    res.json(await Ownership.getOpening());
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/ownership/opening/confirm — freezes the Opening for good. There is
+// intentionally no matching "reopen" route.
+async function confirmOpening(req, res, next) {
+  try {
+    const actor = req.user?.name || req.user?.username || req.user?.email || null;
+    const snap = await Ownership.confirmOpening(actor);
+    AuditLog.record(req, {
+      module: "Investors",
+      action: "Edit",
+      description:
+        "Confirmed and froze the Opening Ownership — " +
+        snap.investors.map((i) => i.name + " " + Number(i.pct).toFixed(2) + "%").join(", ") +
+        " at a business value of " + snap.businessValue,
+    });
+    res.json(snap);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // GET/PUT the approval mode, so a customer can run the module with no sign-off
 // at all, with an offline attestation, or with full investor sign-off.
 async function getSettings(req, res, next) {
@@ -268,5 +302,5 @@ async function updateSettings(req, res, next) {
 module.exports = {
   list, getOne, holdings, mine, create, update, submit, decide, publish, remove,
   listValuations, createValuation, removeValuation,
-  getSettings, updateSettings,
+  getSettings, updateSettings, opening, confirmOpening,
 };

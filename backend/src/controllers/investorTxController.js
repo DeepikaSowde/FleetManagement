@@ -1,6 +1,15 @@
 // Request handling for /api/investor-transactions.
 const InvestorTx = require("../models/investorTxModel");
 const Investor = require("../models/investorModel");
+const Ownership = require("../models/ownershipModel");
+
+// A frozen Opening investor's First Investment is part of the confirmed
+// Opening Ownership — it can't be edited or deleted afterwards.
+async function lockedOpeningTx(id) {
+  const tx = await InvestorTx.getById(id);
+  return !!tx && tx.type === "First Investment" && (await Ownership.isFrozenOpeningInvestor(tx.investorId));
+}
+const OPENING_TX_LOCKED = "This is a confirmed Opening investment — it is frozen and cannot be changed";
 
 async function list(req, res, next) {
   try {
@@ -43,6 +52,7 @@ async function create(req, res, next) {
 
 async function update(req, res, next) {
   try {
+    if (await lockedOpeningTx(req.params.id)) return res.status(409).json({ message: OPENING_TX_LOCKED });
     const tx = await InvestorTx.update(req.params.id, req.body);
     if (!tx) return res.status(404).json({ message: "Transaction not found" });
     res.json(tx);
@@ -53,6 +63,7 @@ async function update(req, res, next) {
 
 async function remove(req, res, next) {
   try {
+    if (await lockedOpeningTx(req.params.id)) return res.status(409).json({ message: OPENING_TX_LOCKED });
     const ok = await InvestorTx.remove(req.params.id);
     if (!ok) return res.status(404).json({ message: "Transaction not found" });
     res.status(204).send();

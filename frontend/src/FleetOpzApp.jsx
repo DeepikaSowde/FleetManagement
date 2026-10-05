@@ -1555,6 +1555,9 @@ export default function FleetOpzApp() {
         onCreateTransaction={fleetData.createInvestorTransaction}
         ownershipEvents={fleetData.ownershipEvents}
         ownershipMode={fleetData.ownershipMode}
+        openingOwnership={fleetData.openingOwnership}
+        onConfirmOpening={fleetData.confirmOpeningOwnership}
+        canConfirmOpening={String(user?.role).toLowerCase() === "admin"}
         onCreateOwnershipEvent={fleetData.createOwnershipEvent}
         onSubmitOwnershipEvent={fleetData.submitOwnershipEvent}
         onDecideOwnershipEvent={fleetData.decideOwnershipEvent}

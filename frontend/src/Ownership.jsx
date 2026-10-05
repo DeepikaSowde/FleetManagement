@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { C } from "./theme";
-import { Btn, Input, Select, Pagination } from "./components";
+import { Btn, Input, Select, Pagination, Modal } from "./components";
 import { splitFromValuation, exitSplit } from "./capTableMath";
 import { DATE_MIN, DATE_MAX } from "./validation";
 
@@ -407,8 +407,13 @@ function OwnershipTimeline({ events, investors, colorOf }) {
 // starts from the table as it actually stands rather than from whatever was
 // half-typed last time.
 
-function EventFormModal({ investors, currentHoldings, companyValuation, prefill, onClose, onBack, onSave }) {
+function EventFormModal({ investors, currentHoldings, companyValuation, opening, prefill, onClose, onBack, onSave }) {
   const hasPriorTable = currentHoldings.length > 0;
+
+  // While the Opening Ownership is Open only Opening entries can be recorded
+  // (each restates the Opening group); once confirmed, never again.
+  const openingConfirmed = opening?.status === "Confirmed";
+  const allowedTypes = openingConfirmed ? EVENT_TYPES.filter((t) => t !== "Opening") : ["Opening"];
 
   // Arriving back from Step 1 (Add Investor's ← Back, then Continue again):
   // `restore` carries what was already typed here, so nothing has to be re-entered.
@@ -452,32 +457,53 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
     return row ? Number(row.pct) : null;
   };
 
+  // ── Opening entries ───────────────────────────────────────────────────────
+  // An Opening table is split by share of opening money: each Opening
+  // investor's amount ÷ the total. Those already in the Opening group keep
+  // their recorded amount (shown, not editable); only newcomers type one. The
+  // agreed business value is never derived from this.
+  const isOpening = type === "Opening";
+  const typeBlocked = !allowedTypes.includes(type);
+  const openingAmounts = useMemo(() => {
+    const m = {};
+    if (!openingConfirmed) (opening?.investors || []).forEach((i) => { if (i.amount > 0) m[i.investorId] = i.amount; });
+    return m;
+  }, [opening, openingConfirmed]);
+  const isLockedAmount = (id) => isOpening && openingAmounts[id] !== undefined;
+  const effContribs = useMemo(() => {
+    const o = { ...contribs };
+    if (isOpening) Object.entries(openingAmounts).forEach(([id, a]) => { o[id] = String(a); });
+    return o;
+  }, [contribs, isOpening, openingAmounts]);
+  // The opening split never uses manual percentages.
+  const entry = isOpening ? "valuation" : entryMode;
+
   // ── The valuation maths ───────────────────────────────────────────────────
-  const V = parseFloat(preMoney) || 0;
-  const moneyIn = investors.reduce((s, inv) => s + (parseFloat(contribs[inv.id]) || 0), 0);
+  const V = isOpening ? 0 : parseFloat(preMoney) || 0;
+  const moneyIn = investors.reduce((s, inv) => s + (parseFloat(effContribs[inv.id]) || 0), 0);
   const postMoney = V + moneyIn;
 
-  // Needs a valuation only when there is an existing stake to dilute. For the
+  // Needs a valuation only when there is an existing stake to dilute. For an
   // opening table, splitting the money put in is the whole answer.
-  const valuationNeeded = hasPriorTable;
+  const valuationNeeded = hasPriorTable && !isOpening;
   const canCompute = postMoney > 0 && (!valuationNeeded || V > 0);
 
   const computed = useMemo(
-    () => splitFromValuation(investors, currentHoldings, V, contribs),
+    () => splitFromValuation(investors, isOpening ? [] : currentHoldings, V, effContribs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [V, JSON.stringify(contribs), JSON.stringify(currentHoldings), investors.length]
+    [V, isOpening, JSON.stringify(effContribs), JSON.stringify(currentHoldings), investors.length]
   );
 
   // Whichever mode is active supplies the table that will actually be saved.
   const effectivePct = (id) =>
-    entryMode === "valuation"
+    entry === "valuation"
       ? (computed ? computed[id] ?? 0 : 0)
       : (pcts[id] === "" || pcts[id] === undefined ? null : Number(pcts[id]));
 
   const rows = investors.map((inv) => ({
     inv,
     before: before(inv.id),
-    contribution: parseFloat(contribs[inv.id]) || 0,
+    contribution: parseFloat(effContribs[inv.id]) || 0,
     after: effectivePct(inv.id),
   }));
 
@@ -540,12 +566,20 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
     setEntryMode("manual");
   };
 
-  const contributors = investors.filter((inv) => (parseFloat(contribs[inv.id]) || 0) > 0);
+  // Who is putting NEW money in — for an Opening entry, not the amounts the
+  // existing Opening investors already put in.
+  const contributors = investors.filter((inv) => !isLockedAmount(inv.id) && (parseFloat(effContribs[inv.id]) || 0) > 0);
+  const newMoney = contributors.reduce((s, inv) => s + (parseFloat(effContribs[inv.id]) || 0), 0);
 
   const submit = async () => {
     setError("");
     if (!effectiveDate) return setError("Pick the date this change takes effect.");
-    if (entryMode === "valuation" && !canCompute) {
+    if (typeBlocked) {
+      return setError(openingConfirmed
+        ? "The Opening Ownership is confirmed and frozen — record this as a New Investor."
+        : "Confirm the Opening Ownership first — until then only Opening entries can be recorded.");
+    }
+    if (entry === "valuation" && !canCompute) {
       return setError(
         valuationNeeded
           ? "Enter the agreed valuation and at least one amount coming in."
@@ -592,8 +626,8 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
         effectiveDate,
         reason: reason || null,
         // Recorded only when the split actually came from a valuation.
-        preMoneyValuation: entryMode === "valuation" && V > 0 ? V : null,
-        newMoneyAmount: moneyIn > 0 ? moneyIn : null,
+        preMoneyValuation: !isOpening && entry === "valuation" && V > 0 ? V : null,
+        newMoneyAmount: newMoney > 0 ? newMoney : null,
         newMoneyInvestorId: contributors.length === 1 ? contributors[0].id : null,
         linkedTxId: prefill?.linkedTxId || null,
         holdings,
@@ -663,9 +697,17 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
             <Select label="Type" value={type} onChange={(e) => { setType(e.target.value); resetExit(); }}
-              options={EVENT_TYPES.map((t) => ({ value: t, label: t }))} />
+              options={(typeBlocked ? [type, ...allowedTypes] : allowedTypes).map((t) => ({ value: t, label: t }))} />
             <Input label="Effective date" type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} />
           </div>
+
+          {typeBlocked && (
+            <div style={{ background: C.amberFaint, borderLeft: `3px solid ${C.amber}`, borderRadius: "0 8px 8px 0", padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.textSec }}>
+              {openingConfirmed
+                ? "The Opening Ownership is confirmed and frozen 🔒 — Opening entries can no longer be recorded."
+                : `Confirm the Opening Ownership first. Until it is confirmed only Opening entries can be recorded, so a ${type} can't be saved yet.`}
+            </div>
+          )}
 
           <Input label="Reason — in the group's own words" value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="e.g., Agreed on the call, 28 Mar — fleet grew to 9 vehicles" />
@@ -769,16 +811,18 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
           {/* ── How the split is being decided ── */}
           {!isExit && (<>
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-            <button type="button" style={tabBtn(entryMode === "valuation")}
+            <button type="button" style={tabBtn(entry === "valuation")}
               onClick={() => setEntryMode("valuation")}>
-              From an agreed valuation
+              {isOpening ? "Share of opening money" : "From an agreed valuation"}
             </button>
-            <button type="button" style={tabBtn(entryMode === "manual")} onClick={switchToManual}>
-              Enter percentages directly
-            </button>
+            {!isOpening && (
+              <button type="button" style={tabBtn(entry === "manual")} onClick={switchToManual}>
+                Enter percentages directly
+              </button>
+            )}
           </div>
 
-          {entryMode === "valuation" ? (
+          {entry === "valuation" ? (
             <>
               {valuationNeeded ? (
                 <Input
@@ -788,8 +832,9 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
                 />
               ) : (
                 <div style={{ background: C.blueFaint, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.textSec }}>
-                  This is the opening table, so there is nothing to dilute yet — the split is simply
-                  the ratio of what each person is putting in. No valuation needed.
+                  {isOpening && Object.keys(openingAmounts).length > 0
+                    ? "The Opening Ownership is still Open, so this investor joins the Opening group. The split is each Opening investor's share of the total opening money; existing Opening amounts stay as recorded, and the agreed business value is not changed."
+                    : "This is the opening table, so there is nothing to dilute yet — the split is simply the ratio of what each person is putting in. No valuation needed."}
                 </div>
               )}
 
@@ -819,10 +864,12 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
                           <td style={{ ...td, textAlign: "right" }}>
                             <input
                               type="number" min="0" step="1000"
-                              value={contribs[r.inv.id] ?? ""}
+                              value={effContribs[r.inv.id] ?? ""}
                               onChange={(e) => setContribs({ ...contribs, [r.inv.id]: e.target.value })}
+                              disabled={isLockedAmount(r.inv.id)}
+                              title={isLockedAmount(r.inv.id) ? "Recorded opening amount" : undefined}
                               placeholder="0"
-                              style={numCell}
+                              style={isLockedAmount(r.inv.id) ? { ...numCell, background: C.bg, color: C.textMuted } : numCell}
                             />
                           </td>
                           <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>
@@ -946,7 +993,7 @@ function EventFormModal({ investors, currentHoldings, companyValuation, prefill,
               onClick={() => onBack({ entryMode, type, effectiveDate, reason, preMoney, contribs, pcts })}>← Back</Btn>
           )}
           <Btn secondary onClick={onClose}>Cancel</Btn>
-          <Btn primary onClick={submit} disabled={saving || (isExit ? !exitReady : !balanced)}>
+          <Btn primary onClick={submit} disabled={saving || typeBlocked || (isExit ? !exitReady : !balanced)}>
             {saving ? "Saving…" : prefill?.context === "add-investor" ? "Add Investor & Record Ownership" : "Save as draft"}
           </Btn>
         </div>
@@ -1220,8 +1267,13 @@ export default function Ownership({
   valuationHistory = [],
   onCreateValuation,
   onDeleteValuation,
+  // The Opening group and its Open / Confirmed (frozen) status.
+  opening = { status: "Open", investors: [] },
+  onConfirmOpening,
+  canConfirmOpening = false,
 }) {
   const [showForm, setShowForm] = useState(false);
+  const [confirmingOpening, setConfirmingOpening] = useState(false);
 
   // Arriving with a prefill opens the form on its own — that hand-off is the
   // whole point of it.
@@ -1288,6 +1340,16 @@ export default function Ownership({
   };
 
   const hasOpening = events.some((e) => e.type === "Opening");
+  const openingConfirmed = opening?.status === "Confirmed";
+  // Why Confirm can't run yet (mirrors the server's own checks).
+  const confirmBlocker =
+    !canConfirmOpening ? "Only an admin can confirm the Opening Ownership."
+    : (opening?.investors || []).length === 0 ? "Publish the Opening cap table first."
+    : opening?.unpublishedOpeningEvents > 0 ? "Publish or discard the Opening entry still in draft first."
+    : !opening?.businessValue ? "Record the agreed value of the business first."
+    : null;
+  const confirmOpening = () =>
+    run("opening", async () => { await onConfirmOpening(); setConfirmingOpening(false); });
 
   return (
     <div>
@@ -1308,9 +1370,11 @@ export default function Ownership({
           >
             {Object.entries(MODE_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
-          <Btn primary onClick={() => setShowForm(true)} disabled={investors.length === 0}>
-            {hasOpening ? "+ Record change" : "+ Record opening cap table"}
-          </Btn>
+          {(!hasOpening || openingConfirmed) && (
+            <Btn primary onClick={() => setShowForm(true)} disabled={investors.length === 0}>
+              {hasOpening ? "+ Record change" : "+ Record opening cap table"}
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -1352,6 +1416,64 @@ export default function Ownership({
           </div>
 
 
+          {/* Opening Ownership: Open → more Opening investors may join; Confirmed
+              → frozen for good. Only the admin's Confirm freezes it — never a
+              date — and there is deliberately no way to reopen it. */}
+          {(hasOpening || openingConfirmed) && (
+            <div style={{ ...card }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 800, color: C.navy }}>Opening Ownership</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 20, color: openingConfirmed ? C.green : C.amber, background: openingConfirmed ? C.greenFaint : C.amberFaint }}>
+                      {openingConfirmed ? "Confirmed / Frozen 🔒" : "Open"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 4, maxWidth: 620 }}>
+                    {openingConfirmed
+                      ? `Confirmed ${fmtDate(String(opening.confirmedAt).slice(0, 10))}${opening.confirmedBy ? ` by ${opening.confirmedBy}` : ""}. The Opening investors, their amounts and the business value below are permanently locked. Every investor added from now on is a New Investor.`
+                      : "While Open, each investor added under All Investors → + Add Investor joins the Opening group, split by share of opening money. Adding an investor never changes the agreed business value. Other changes (Reinvestment, Exit, …) are available once it is confirmed."}
+                  </div>
+                </div>
+                {!openingConfirmed && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                    <Btn primary onClick={() => setConfirmingOpening(true)} disabled={!!confirmBlocker || busyId === "opening"}>
+                      🔒 Confirm Opening Ownership
+                    </Btn>
+                    {confirmBlocker && <span style={{ fontSize: 11, color: C.textMuted }}>{confirmBlocker}</span>}
+                  </div>
+                )}
+              </div>
+              {(opening?.investors || []).length > 0 && (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Opening investor</th>
+                        <th style={{ ...th, textAlign: "right" }}>Opening amount</th>
+                        <th style={{ ...th, textAlign: "right" }}>Opening %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opening.investors.map((i) => (
+                        <tr key={i.investorId}>
+                          <td style={td}>{i.name} {openingConfirmed && <span title="Frozen">🔒</span>}</td>
+                          <td style={{ ...td, textAlign: "right" }}>{i.amount ? fmtSGD(i.amount) : "—"}</td>
+                          <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtPct(i.pct)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: C.textSec, marginTop: 10 }}>
+                Agreed business value at opening:{" "}
+                <b style={{ color: C.navy }}>{opening?.businessValue ? fmtSGD(opening.businessValue) : "not recorded yet"}</b>
+                {openingConfirmed && " 🔒"}
+              </div>
+            </div>
+          )}
+
           {valuationHistory.length > 0 && (
             <div style={{ ...card }}>
               <div style={{ fontSize: 13.5, fontWeight: 800, color: C.navy, marginBottom: 4 }}>Valuations recorded</div>
@@ -1378,12 +1500,16 @@ export default function Ownership({
                         <td style={{ ...td, color: C.textMuted }}>{v.basis || "—"}</td>
                         <td style={{ ...td, color: C.textMuted }}>{v.agreedBy || "—"}</td>
                         <td style={{ ...td, textAlign: "right" }}>
+                          {openingConfirmed && v.id === opening.valuationId ? (
+                            <span style={{ fontSize: 11.5, color: C.textMuted }}>🔒 Opening value</span>
+                          ) : (
                           <button
                             onClick={() => run(v.id, () => onDeleteValuation(v.id))}
                             style={{ background: "none", border: "none", color: C.textMuted, fontSize: 11.5, cursor: "pointer", textDecoration: "underline" }}
                           >
                             Remove
                           </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1496,11 +1622,37 @@ export default function Ownership({
         </div>
       )}
 
+      <Modal
+        open={confirmingOpening}
+        title="Confirm Opening Ownership 🔒"
+        onClose={() => setConfirmingOpening(false)}
+        onSubmit={confirmOpening}
+        submitText={busyId === "opening" ? "Confirming…" : "Confirm & freeze"}
+        submitDisabled={busyId === "opening"}
+      >
+        <div style={{ fontSize: 12.5, color: C.textSec, lineHeight: 1.6 }}>
+          This permanently freezes the Opening Ownership:
+          <ul style={{ margin: "8px 0", paddingLeft: 18 }}>
+            {(opening?.investors || []).map((i) => (
+              <li key={i.investorId}><b>{i.name}</b> — {i.amount ? fmtSGD(i.amount) : "—"} · {fmtPct(i.pct)}</li>
+            ))}
+          </ul>
+          Business value: <b>{opening?.businessValue ? fmtSGD(opening.businessValue) : "—"}</b>
+          <div style={{ marginTop: 10, color: C.red, fontWeight: 600 }}>
+            It cannot be reopened or edited afterwards. Every investor added later joins as a New Investor.
+          </div>
+          {error && busyId === null && confirmingOpening && (
+            <div style={{ marginTop: 8, color: C.red }}>{error}</div>
+          )}
+        </div>
+      </Modal>
+
       {showForm && (
         <EventFormModal
           investors={investors}
           currentHoldings={current}
           companyValuation={companyValuation}
+          opening={opening}
           prefill={prefill}
           onClose={() => { setShowForm(false); onPrefillConsumed?.(); }}
           onBack={onPrefillBack ? (step2State) => { setShowForm(false); onPrefillBack(step2State); } : undefined}

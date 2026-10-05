@@ -1,6 +1,6 @@
 const express = require("express");
 const ctrl = require("../controllers/ownershipController");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -11,6 +11,9 @@ router.get("/me", ctrl.mine);                    // GET    /api/ownership/me   (
 router.get("/valuations", ctrl.listValuations);   // GET    /api/ownership/valuations
 router.post("/valuations", ctrl.createValuation); // POST   /api/ownership/valuations
 router.delete("/valuations/:id", ctrl.removeValuation);
+
+router.get("/opening", ctrl.opening);                    // GET    /api/ownership/opening
+router.post("/opening/confirm", requireRole("admin"), ctrl.confirmOpening); // POST /api/ownership/opening/confirm (admin, one-way)
 
 router.get("/settings", ctrl.getSettings);       // GET    /api/ownership/settings
 router.put("/settings", ctrl.updateSettings);    // PUT    /api/ownership/settings

@@ -296,6 +296,143 @@ async function writeHoldings(client, eventId, holdings) {
   }
 }
 
+// ── Opening Ownership ───────────────────────────────────────────────────────
+// The Opening group can hold several investors. While its status is Open, each
+// investor added joins it through another "Opening" event that restates the
+// whole table, split by share of opening money (amount ÷ total opening
+// amounts); the agreed business value is recorded separately and adding
+// someone never changes it. Later change types wait until it is confirmed, so
+// a new Opening entry can never overwrite them.
+//
+// "Confirm Opening Ownership" is the ONLY thing that freezes it — never a date.
+// It stores a snapshot (investors, amounts, %, business value) under the
+// `opening_ownership` setting, and there is deliberately no way to reopen it.
+// After that, every newcomer is a "New Investor".
+const OPENING_KEY = "opening_ownership";
+const SHARE_TOLERANCE = 0.05; // rounding slack when checking an Opening split
+
+async function getOpeningSnapshot() {
+  const raw = await Settings.get(OPENING_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+async function isOpeningConfirmed() {
+  return (await getOpeningSnapshot())?.status === "Confirmed";
+}
+
+// The latest agreed company_valuations row on or before a date — the figure
+// the Opening is priced from. (valuationAsOf can also return round-implied
+// figures; the opening lock needs an actual recorded valuation.)
+async function recordedValuationAsOf(dateIso, client = db) {
+  const { rows } = await client.query(
+    "SELECT id, as_of, amount FROM company_valuations WHERE as_of <= $1 ORDER BY as_of DESC, created_at DESC LIMIT 1",
+    [dateIso]
+  );
+  return rows[0] ? { id: rows[0].id, asOf: rows[0].as_of, amount: Number(rows[0].amount) } : null;
+}
+
+// The Opening group as it stands: the frozen snapshot once confirmed, else the
+// latest published Opening table.
+async function getOpening(client = db) {
+  const snap = await getOpeningSnapshot();
+  if (snap?.status === "Confirmed") return snap;
+
+  const { rows: evts } = await client.query(
+    `SELECT id FROM ownership_events WHERE type = 'Opening' AND state = 'Effective'
+     ORDER BY effective_date DESC, created_at DESC LIMIT 1`
+  );
+  let investors = [];
+  if (evts[0]) {
+    const { rows } = await client.query(
+      `SELECT h.investor_id, h.pct, h.contribution, i.name FROM ownership_event_holdings h
+       JOIN investors i ON i.id = h.investor_id
+       WHERE h.event_id = $1 AND h.pct > 0 ORDER BY h.pct DESC, i.name ASC`,
+      [evts[0].id]
+    );
+    investors = rows.map((r) => ({
+      investorId: r.investor_id, name: r.name, pct: Number(r.pct),
+      amount: r.contribution === null ? null : Number(r.contribution),
+    }));
+  }
+  const { rows: pend } = await client.query(
+    "SELECT COUNT(*)::int AS n FROM ownership_events WHERE type = 'Opening' AND state IN ('Draft','Pending')"
+  );
+  const valuation = await recordedValuationAsOf(new Date().toISOString().slice(0, 10), client);
+  return {
+    status: "Open",
+    investors,
+    unpublishedOpeningEvents: pend[0].n,
+    businessValue: valuation ? valuation.amount : null,
+    valuationId: valuation ? valuation.id : null,
+  };
+}
+
+// True when this investor is in the frozen Opening group.
+async function isFrozenOpeningInvestor(investorId) {
+  const snap = await getOpeningSnapshot();
+  return snap?.status === "Confirmed" && (snap.investors || []).some((i) => i.investorId === investorId);
+}
+
+// Which types may be recorded now: only Opening while Open, never Opening after.
+async function assertTypeAllowed(type) {
+  const confirmed = await isOpeningConfirmed();
+  if (type === "Opening" && confirmed) {
+    throw badRequest("Opening Ownership is confirmed and frozen — record newcomers as a New Investor", 409);
+  }
+  if (type !== "Opening" && !confirmed) {
+    throw badRequest("Confirm the Opening Ownership before recording a " + type, 409);
+  }
+}
+
+// An Opening table is split by share of opening money: every holder needs an
+// opening amount, and their % must be that amount's share of the total.
+function validateOpeningSplit(holdings) {
+  const rows = (holdings || []).filter((h) => Number(h.pct) > 0);
+  const total = rows.reduce((s, h) => s + (Number(h.contribution) || 0), 0);
+  for (const h of rows) {
+    const amt = Number(h.contribution);
+    if (!(amt > 0)) throw badRequest("Every Opening investor needs their opening amount");
+    if (Math.abs((amt / total) * 100 - Number(h.pct)) > SHARE_TOLERANCE) {
+      throw badRequest("Opening percentages must be each investor's share of the total opening money");
+    }
+  }
+}
+
+// Freezes the Opening group for good. Needs a published Opening table, no
+// Opening entry still in draft/approval, and an agreed business value.
+async function confirmOpening(actor) {
+  return inTransaction(async (client) => {
+    // Serialize concurrent confirms.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('ownership.opening'))");
+    if (await isOpeningConfirmed()) throw badRequest("Opening Ownership is already confirmed", 409);
+    const opening = await getOpening(client);
+    if (opening.investors.length === 0) {
+      throw badRequest("Publish the Opening cap table before confirming it", 409);
+    }
+    if (opening.unpublishedOpeningEvents > 0) {
+      throw badRequest("Publish or discard the Opening entry still in draft before confirming", 409);
+    }
+    if (!opening.businessValue) {
+      throw badRequest("Record the agreed value of the business before confirming the Opening", 409);
+    }
+    const snapshot = {
+      status: "Confirmed",
+      confirmedAt: new Date().toISOString(),
+      confirmedBy: actor ?? null,
+      businessValue: opening.businessValue,
+      valuationId: opening.valuationId,
+      investors: opening.investors,
+    };
+    await client.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [OPENING_KEY, JSON.stringify(snapshot)]
+    );
+    return snapshot;
+  });
+}
+
 async function create(payload, actor) {
   const { id, effectiveDate, type, holdings } = payload;
   if (!id) throw badRequest("id is required");
@@ -305,13 +442,18 @@ async function create(payload, actor) {
   }
   await validateHoldings(holdings);
   validateExit(payload);
+  await assertTypeAllowed(type);
 
-  // Exactly one Opening event — the starting cap table is by definition unique.
+  // One Opening entry in progress at a time — each restates the published
+  // table, so two drafts side by side would each leave the other's newcomer out.
   if (type === "Opening") {
-    const { rows } = await db.query("SELECT id FROM ownership_events WHERE type = 'Opening'");
+    validateOpeningSplit(holdings);
+    const { rows } = await db.query(
+      "SELECT id FROM ownership_events WHERE type = 'Opening' AND state IN ('Draft','Pending')"
+    );
     if (rows.length > 0) {
       throw badRequest(
-        "An Opening cap table already exists; record later changes as other event types",
+        "Opening entry " + rows[0].id + " is still unpublished — publish or discard it before adding another Opening investor",
         409
       );
     }
@@ -359,6 +501,8 @@ async function update(id, updates) {
 
   const e = { ...toEvent(current), ...updates };
   validateExit(e);
+  await assertTypeAllowed(e.type);
+  if (e.type === "Opening" && updates.holdings !== undefined) validateOpeningSplit(updates.holdings);
   return inTransaction(async (client) => {
     const { rows } = await client.query(
       `UPDATE ownership_events SET
@@ -697,5 +841,6 @@ module.exports = {
   getAll, getById, holdingsAsOf, valuationAsOf, valuedHoldingsAsOf,
   create, update, submit, decide, publish, remove, forInvestor,
   investorIsInCapTable, validateHoldings, applyDueExits, applyPublishEffects,
+  getOpening, confirmOpening, isOpeningConfirmed, isFrozenOpeningInvestor, getOpeningSnapshot,
   EVENT_TYPES, STATES, APPROVAL_MODES, SUM_TOLERANCE,
 };

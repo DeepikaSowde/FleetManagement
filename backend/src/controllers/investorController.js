@@ -61,6 +61,10 @@ async function create(req, res, next) {
 
 async function update(req, res, next) {
   try {
+    // A confirmed Opening investor is frozen with the Opening Ownership.
+    if (await Ownership.isFrozenOpeningInvestor(req.params.id)) {
+      return res.status(409).json({ message: "This is a confirmed Opening investor — their record is frozen and cannot be changed" });
+    }
     // The Investor ID is permanent: it can never be changed after it's assigned.
     const { id: _id, investorCode: _code, ...changes } = req.body;
     if (changes.name !== undefined) {
@@ -78,6 +82,9 @@ async function update(req, res, next) {
 
 async function remove(req, res, next) {
   try {
+    if (await Ownership.isFrozenOpeningInvestor(req.params.id)) {
+      return res.status(409).json({ message: "This is a confirmed Opening investor — their record is frozen and cannot be deleted" });
+    }
     // Someone named in a published cap table is part of the ownership record.
     // Deleting them would leave past events unable to total 100%, so mark them
     // Inactive instead. (The FK would refuse anyway; this explains why.)

@@ -224,6 +224,19 @@ const IC = {
   slate: "#94A3B8",
 };
 
+// Opening group membership. While the Opening Ownership is Open every
+// investor added joins it; once confirmed, the frozen group is shown with 🔒
+// and every investor added afterwards is a New Investor.
+const openingLabel = (opening, investorId) =>
+  opening?.status === "Confirmed"
+    ? ((opening.investors || []).some((i) => i.investorId === investorId) ? "Opening 🔒" : "New Investor")
+    : "Opening";
+function OpeningTag({ opening, investorId }) {
+  const label = openingLabel(opening, investorId);
+  const isOpening = label !== "New Investor";
+  return <Badge color={isOpening ? IC.purple : IC.primary} bg={isOpening ? IC.purpleLight : IC.primaryLight}>{label}</Badge>;
+}
+
 const TYPE_COLOR = {
   [TXN_TYPES.FIRST_INVESTMENT]: IC.green,
   [TXN_TYPES.REINVESTMENT]: IC.green,
@@ -714,7 +727,7 @@ function PaginatedTxnTable({ rows, emptyMessage, pageSize = 10, pageSizeOptions 
   );
 }
 
-function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue, onBack, onEditInvestor, onAddTransaction }) {
+function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue, onBack, onEditInvestor, onAddTransaction, opening }) {
   const [tab, setTab] = useState("overview");
   const m = metricsById[investor.id];
   const txns = [...(investor.transactions || [])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -742,6 +755,7 @@ function InvestorDetail({ investor, allInvestors, metricsById, totalCurrentValue
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 20, fontWeight: 800, color: C.navy }}>{investor.name}</span>
             <StatusTag status={investor.status} />
+            <OpeningTag opening={opening} investorId={investor.id} />
           </div>
           <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
             Investor ID: {investor.investorId || "—"} &nbsp;•&nbsp; Investor Since: {fmtDate(investor.since)}
@@ -878,7 +892,7 @@ function SummaryLine({ label, value, bold, valueColor }) {
 }
 
 /* ================================================================= INVESTOR LIST === */
-function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAddInvestor, onReinvest, onExport }) {
+function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAddInvestor, onReinvest, onExport, opening }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Active");
   const [sortKey, setSortKey] = useState("currentValueDesc");
@@ -974,7 +988,9 @@ function InvestorList({ investors, metricsById, totalCurrentValue, onView, onAdd
                   const m = metricsById[inv.id];
                   return (
                     <tr key={inv.id} data-testid="investor-row" data-investor-id={inv.id}>
-                      <td style={{ ...td, fontWeight: 700, color: C.navy }}>{inv.name}</td>
+                      <td style={{ ...td, fontWeight: 700, color: C.navy }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>{inv.name} <OpeningTag opening={opening} investorId={inv.id} /></span>
+                      </td>
                       <td style={{ ...td, color: C.textMuted }}>{inv.investorId || "—"}</td>
                       <td style={{ ...td, textAlign: "right" }}>{fmtSGD(m.firstInvestment)}</td>
                       <td style={{ ...td, color: C.textMuted }}>{fmtDate(inv.since)}</td>
@@ -1232,6 +1248,9 @@ export default function Investors({
   // above, so a dividend can never move a percentage. See Ownership.jsx.
   ownershipEvents = [],
   ownershipMode = "admin_attest",
+  openingOwnership = { status: "Open", investors: [] },
+  onConfirmOpening,
+  canConfirmOpening = false,
   companyValuation = null,
   valuationHistory = [],
   onCreateValuation,
@@ -1377,12 +1396,13 @@ export default function Investors({
     setDraftInvestor(data);
     setOwnershipPrefill({
       restore,
-      // The very first entry is the opening table; after that, a new investor
-      // joining an existing one. `context` is what lets Step 2's form show the
-      // "Step 2 — Initial Ownership" framing and the "Add Investor & Record
-      // Ownership" action, instead of its generic standalone wording.
+      // While the Opening Ownership is Open, everyone added joins the Opening
+      // group; once it is confirmed, a newcomer is a New Investor. `context` is
+      // what lets Step 2's form show the "Step 2 — Initial Ownership" framing
+      // and the "Add Investor & Record Ownership" action, instead of its
+      // generic standalone wording.
       context: "add-investor",
-      type: ownershipEvents.length === 0 ? "Opening" : "New Investor",
+      type: openingOwnership?.status === "Confirmed" ? "New Investor" : "Opening",
       effectiveDate: data.since,
       newMoneyAmount: data.transactions?.[0]?.amount || null,
       newMoneyInvestorId: DRAFT_INVESTOR_ID,
@@ -1544,6 +1564,7 @@ export default function Investors({
           onAddInvestor={openAddInvestor}
           onReinvest={openReinvest}
           onExport={exportCSV}
+          opening={openingOwnership}
         />
       )}
 
@@ -1552,6 +1573,9 @@ export default function Investors({
           investors={investorsForOwnership}
           events={ownershipEvents}
           mode={ownershipMode}
+          opening={openingOwnership}
+          onConfirmOpening={onConfirmOpening}
+          canConfirmOpening={canConfirmOpening}
           onCreateEvent={handleCreateOwnershipEvent}
           onSubmitEvent={onSubmitOwnershipEvent}
           onDecideEvent={onDecideOwnershipEvent}
@@ -1577,6 +1601,7 @@ export default function Investors({
           onBack={backToList}
           onEditInvestor={openEditInvestor}
           onAddTransaction={openAddTransaction}
+          opening={openingOwnership}
         />
       )}
 
