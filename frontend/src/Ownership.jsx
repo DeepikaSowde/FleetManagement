@@ -426,7 +426,16 @@ function EventFormModal({ investors, currentHoldings, companyValuation, opening,
   const [type, setType] = useState(restore?.type ?? prefill?.type ?? "New Investor");
   const [effectiveDate, setEffectiveDate] = useState(restore?.effectiveDate ?? prefill?.effectiveDate ?? todayIso());
   const [reason, setReason] = useState(restore?.reason ?? "");
-  const [preMoney, setPreMoney] = useState(restore?.preMoney ?? "");
+  // Pre-money defaults to the latest Agreed Business Value, so every split is
+  // worked out from the figure the group already agreed. It stays editable for
+  // a round that agreed a different value; a Step-1 Back keeps what was typed.
+  const agreedValue = companyValuation?.amount ? String(companyValuation.amount) : "";
+  const [preMoney, setPreMoney] = useState(restore?.preMoney ?? agreedValue);
+  // The valuation can arrive after the form opens — fill it in if still empty.
+  useEffect(() => {
+    if (!restore?.preMoney && agreedValue) setPreMoney((v) => (v === "" ? agreedValue : v));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agreedValue]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -825,11 +834,28 @@ function EventFormModal({ investors, currentHoldings, companyValuation, opening,
           {entry === "valuation" ? (
             <>
               {valuationNeeded ? (
+                <>
                 <Input
                   label="Agreed valuation before this money goes in (SGD)"
                   type="number" value={preMoney} onChange={(e) => setPreMoney(e.target.value)}
                   placeholder="e.g., 12000000"
                 />
+                <div style={{ fontSize: 11, color: agreedValue ? C.textMuted : C.amber, marginTop: -10, marginBottom: 14 }}>
+                  {!agreedValue
+                    ? "No Agreed Business Value recorded yet — record one on the Ownership tab, or enter the valuation the group agreed."
+                    : preMoney === agreedValue
+                      ? `Prefilled from the latest Agreed Business Value (${fmtSGD(companyValuation.amount)}, as at ${fmtDate(companyValuation.asOf)}) and used for the split below.`
+                      : (
+                        <>
+                          Differs from the latest Agreed Business Value ({fmtSGD(companyValuation.amount)}).{" "}
+                          <button type="button" onClick={() => setPreMoney(agreedValue)}
+                            style={{ border: "none", background: "none", padding: 0, color: C.teal, fontWeight: 600, fontSize: 11, cursor: "pointer" }}>
+                            Use agreed value
+                          </button>
+                        </>
+                      )}
+                </div>
+                </>
               ) : (
                 <div style={{ background: C.blueFaint, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.textSec }}>
                   {isOpening && Object.keys(openingAmounts).length > 0

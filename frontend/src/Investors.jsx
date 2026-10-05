@@ -1468,7 +1468,7 @@ export default function Investors({
       effectiveDate: todayISO(),
       newMoneyAmount: null,
       newMoneyInvestorId: investorId,
-      note: `${who?.name || "This investor"} is reinvesting. Enter the agreed valuation and the amount they are putting in — the new split is worked out from those, and publishing adds the amount to their investments.`,
+      note: `${who?.name || "This investor"} is reinvesting. The agreed valuation is prefilled from the latest Agreed Business Value — enter the amount they are putting in, and the new split is worked out from those, and publishing adds the amount to their investments.`,
     });
     setView("ownership");
   };
