@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutDashboard, Car, CalendarCheck, CalendarDays, Users, ClipboardList,
   BookOpen, Briefcase, TrendingUp, ArrowLeftRight,
-  UserCog, Settings as SettingsIcon, Bell,
+  UserCog, Bell,
 } from "lucide-react";
 import { C, TRANSACTION_METHODS, mono, FONT_FAMILY } from "./theme";
 import { validatePaymentReference, REFERENCE_LABEL, referencePlaceholder, referenceMaxLength, referenceRequired } from "./paymentReference";
@@ -31,7 +31,6 @@ import PLModule from "./PLModule";
 import Ledger from "./Ledger";
 import CashFlow from "./CashFlow";
 import Alert from "./Alert";
-import Settings from "./Settings";
 import { totalFleetInvestment, totalInvestorInvestment } from "./InvestmentLimitWarning";
 
 // Shared styling for the New Booking wizard's Step 1 (Customer Details)
@@ -542,7 +541,7 @@ export default function FleetOpzApp() {
   // A sidebar item/page can be reached if ANY permission that gates it is
   // granted — some pages bundle more than one Role & Permission row: Ledger
   // hosts the Deposit Refunds sub-tab, P&L hosts the Earnings/Expenses
-  // sub-tabs. "usermgmt"/"settings"/"alerts" are deliberately outside the
+  // sub-tabs. "usermgmt"/"alerts" are deliberately outside the
   // permission grid (see UserManagement.jsx) and stay unconditionally visible.
   const NAV_VIEW_CHECK = {
     dashboard: () => can("Dashboard"),
@@ -604,7 +603,7 @@ export default function FleetOpzApp() {
 
   // Driving-license blocklist now lives in the backend (persisted), served
   // through useFleetData like every other entity. Booking creation reads it to
-  // block restricted licenses; Settings (admin) manages it.
+  // block restricted licenses; Customers (admin) manages it.
   const { restrictedLicenses, addRestrictedLicense, updateRestrictedLicense, deleteRestrictedLicense } = fleetData;
 
   // Bookings fed into the New/Edit Booking wizard's availability calendars —
@@ -1407,7 +1406,6 @@ export default function FleetOpzApp() {
     // System
     { id: "alerts", label: "Alerts & Notifications", icon: Bell, badge: fleetData.alerts.length },
     { id: "usermgmt", label: "User Management", icon: UserCog },
-    { id: "settings", label: "Settings", icon: SettingsIcon },
   ];
 
   // Today's Operations "Assigned To" dropdown is populated from active Staff
@@ -1627,11 +1625,6 @@ export default function FleetOpzApp() {
         onOpenBooking={(id) => { setDetailBookingId(id); setActive("bookings"); }}
         onRenewVehicle={(plate) => { setRenewPlate(plate); setActive("fleet"); }}
         onViewVehicle={(plate) => { setViewVehiclePlate(plate); setActive("fleet"); }}
-      />
-    ),
-    settings: (
-      <Settings
-        currentUserRole={currentUserRole}
       />
     ),
     usermgmt: (
