@@ -13,7 +13,7 @@ import { computeMileageSplit } from "./mileage";
 // Letterhead shown on every generated Invoice — this is YOUR company's
 // details, not read from booking data. Update to match your business before
 // shipping; nothing else in this file needs to change.
-const COMPANY_INFO = {
+export const COMPANY_INFO = {
   name: "RDK Trading Pte Ltd",
   legalName: "RDK Trading Pte. Ltd.",
   addressLines: ["81 UBI Avenue 4, #11-22 UB. HBE, Singapore 408830"],
@@ -201,6 +201,26 @@ export const generateInvoicePdf = (booking, car, inv) => {
     { w: contentWidth * 0.4, text: "Total KMs", bold: true },
     { w: contentWidth * 0.6, text: split ? `${split.totalKm} km` : "—" },
   ]);
+  // A booking that changed car: the plate and mileage above are the car it
+  // ended on; list every car it used, each with its own dates and distance.
+  const carHistory = Array.isArray(booking.carHistory) ? booking.carHistory : [];
+  if (carHistory.length > 0) {
+    y += 3;
+    y = cellRow(y, [{ w: contentWidth, text: "Vehicle Changes During This Rental", bold: true }]);
+    const dt = (v) => (v ? `${fmtDateSlash(String(v).slice(0, 10))} ${fmtTime12h(String(v).slice(11, 16))}` : "—");
+    carHistory.forEach((s) => {
+      const startKm = (Number(s.startOdo) || 0) + (Number(s.staffKm) || 0);
+      const driven = has(s.startOdo) && has(s.endOdo) ? ` · ${Math.max(0, Number(s.endOdo) - startKm)} km` : "";
+      y = cellRow(y, [
+        { w: contentWidth * 0.4, text: s.plate, bold: true },
+        { w: contentWidth * 0.6, text: `${dt(s.from)} to ${dt(s.to)}${driven}` },
+      ]);
+    });
+    y = cellRow(y, [
+      { w: contentWidth * 0.4, text: `${booking.plate} (final car)`, bold: true },
+      { w: contentWidth * 0.6, text: `${dt(booking.currentCarFrom)} to ${dt(booking.actualReturnAt || booking.end)}` },
+    ]);
+  }
   y += 4;
 
   // --- Rental Schedule ---

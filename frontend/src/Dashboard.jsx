@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Zap, ChevronDown, ChevronRight } from "lucide-react";
 import { fmt, FONT_FAMILY } from "./theme";
-import { computeBookingInvoice } from "./useFleetData";
+import { computeBookingInvoice, bookingWindowsForPlate } from "./useFleetData";
 import { forfeitedDepositIncome } from "./ledgerUtils";
 import { buildOps, summarizeOps, todayOpsDate } from "./todayOpsUtils";
 import { useViewport } from "./useViewport";
@@ -309,8 +309,8 @@ const Dashboard = ({
   const vehicleRows = fleet.map((c) => {
     const targetDays = (Number(c.runningDaysTarget) || 25) * monthsInScope;
     const rentedDays = isAll
-      ? Math.round(bookings.filter((b) => b.plate === c.plate && b.start && b.end && b.start.startsWith(filterYear)).reduce((s, b) => s + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0))
-      : bookings.filter((b) => b.plate === c.plate).reduce((s, b) => s + overlapDays(b), 0);
+      ? Math.round(bookingWindowsForPlate(bookings, c.plate).filter((b) => b.start && b.end && b.start.startsWith(filterYear)).reduce((s, b) => s + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0))
+      : bookingWindowsForPlate(bookings, c.plate).reduce((s, b) => s + overlapDays(b), 0);
     const util = targetDays > 0 ? Math.round((rentedDays / targetDays) * 100) : 0;
     return { plate: c.plate, name: `${c.make} ${c.model}`, targetDays, rentedDays, util, st: statusFor(util) };
   }).sort((a, b) => b.util - a.util);

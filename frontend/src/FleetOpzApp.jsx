@@ -1502,6 +1502,8 @@ export default function FleetOpzApp() {
         onDetailBookingIdHandled={() => setDetailBookingId(null)}
         onEditBooking={openEditBookingModal}
         onExtendBooking={openExtendBookingModal}
+        onChangeCar={fleetData.changeCar}
+        checkBookingConflict={fleetData.checkBookingConflict}
         actor={actorName}
       />
     ),
@@ -2154,6 +2156,16 @@ export default function FleetOpzApp() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: FONT_FAMILY, fontSize: 13, color: C.textPri }}>
 
+      {/* A save the server refused after the screen already showed it (e.g.
+          the car was booked by someone else a moment earlier) — the change
+          has been rolled back by the resync, so say why. */}
+      {fleetData.writeError && (
+        <div role="alert" style={{ position: "fixed", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 400, width: "min(560px, calc(100vw - 24px))", display: "flex", gap: 10, alignItems: "flex-start", padding: "12px 14px", borderRadius: 10, background: C.redFaint, border: `1px solid ${C.red}`, color: C.red, fontSize: 12.5, fontWeight: 600, boxShadow: "0 10px 30px rgba(15,23,42,0.18)" }}>
+          <span style={{ flex: 1 }}>Not saved: {fleetData.writeError}</span>
+          <button onClick={fleetData.clearWriteError} aria-label="Dismiss" style={{ background: "none", border: "none", color: C.red, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
+        </div>
+      )}
+
       {/* Backdrop behind the mobile drawer */}
       {isMobile && drawerOpen && (
         <div onClick={() => setDrawerOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 150 }} />
@@ -2554,6 +2566,10 @@ export default function FleetOpzApp() {
                   <Select
                     label="Car (Plate)"
                     value={newBookingData.plate}
+                    // Once handed over, the car is with the customer — swapping
+                    // it is Change Car's job (it records both cars' readings).
+                    disabled={!!editingBookingId && !!fleetData.bookings.find(b => b.id === editingBookingId)?.handoverAt}
+                    title={editingBookingId && fleetData.bookings.find(b => b.id === editingBookingId)?.handoverAt ? "Handed over — use Change Car on the booking to swap the car" : undefined}
                     onChange={(e) => {
                       const plate = e.target.value;
                       const car = fleetData.fleet.find(c => c.plate === plate);

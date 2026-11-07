@@ -121,7 +121,22 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
       // its id, so status changes never duplicate it.
       normalizedPayments(b).forEach((p) => {
         const amt = Number(p.amount) || 0;
-        if (amt <= 0) return;
+        // A refund (e.g. the price difference after a Change Car downgrade)
+        // is recorded as a negative payment — cash going back out.
+        if (amt < 0) {
+          push({
+            key: `RR-${b.id}-${p.id}`,
+            date: (p.addedAt || b.start || "").slice(0, 10),
+            plate: b.plate || "",
+            type: "Rental Refund",
+            description: `Rental Refund (${p.method || "Cash"})`,
+            remarks: b.customer || "—",
+            credit: 0,
+            debit: -amt,
+          }, p.addedAt || b.start);
+          return;
+        }
+        if (amt === 0) return;
         push({
           key: `RI-${b.id}-${p.id}`,
           date: (p.addedAt || b.start || "").slice(0, 10),

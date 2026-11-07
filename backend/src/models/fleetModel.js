@@ -3,6 +3,7 @@
 // rest of the app works with clean JS objects.
 const db = require("../config/db");
 const Expense = require("./expenseModel");
+const Booking = require("./bookingModel");
 
 // Fields that feed the car's Vehicle Purchase expense (amount and date).
 const PURCHASE_FIELDS = ["purchase", "purchaseAdvance", "insurance", "reg", "otherCharges", "purchaseDate"];
@@ -142,6 +143,14 @@ async function update(plate, updates) {
 // Removing a car removes its Vehicle Purchase expense with it.
 async function remove(plate) {
   return db.withTransaction(async (client) => {
+    // bookings.plate cascades on delete, so deleting a car that was ever
+    // rented would silently erase those bookings (and a changed booking's
+    // record of this car). Refuse instead.
+    if (await Booking.plateHasBookings(client, plate)) {
+      const err = new Error(`${plate} can't be deleted because it has bookings on record.`);
+      err.status = 409;
+      throw err;
+    }
     const { rowCount } = await client.query("DELETE FROM cars WHERE plate = $1", [plate]);
     if (rowCount > 0) await Expense.removeVehiclePurchase(client, plate);
     return rowCount > 0;

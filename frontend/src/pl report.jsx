@@ -33,6 +33,7 @@ const Gauge = ({ value = 0, size = 260 }) => {
   );
 };
 import { forfeitedDepositIncome } from "./ledgerUtils";
+import { bookingWindowsForPlate } from "./useFleetData";
 import { Card, CardHeader, Btn, StatusTag, PlateBadge, KpiCard, MiniBar, PLRow, Pagination } from "./components";
 
 const PL_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"];
@@ -130,8 +131,8 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
   // Target vs actual running days per car (only cars with a target), for the
   // utilization chart.
   const utilData = useMemo(() => fleet.filter((c) => c.runningDaysTarget).map((c) => {
-    const actual = bookings
-      .filter((b) => b.plate === c.plate && b.start?.startsWith(month))
+    const actual = bookingWindowsForPlate(bookings, c.plate)
+      .filter((b) => b.start?.startsWith(month))
       .reduce((sum, b) => sum + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0);
     return { plate: c.plate, target: c.runningDaysTarget || 0, actual };
   }), [fleet, bookings, month]);
@@ -333,7 +334,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {(() => {
             const rows = fleet.map(c => {
-              const carBookings = bookings.filter(b => b.plate === c.plate && !b.cancelled && b.start?.startsWith(month));
+              const carBookings = bookingWindowsForPlate(bookings, c.plate).filter(b => !b.cancelled && b.start?.startsWith(month));
               const actual = carBookings.reduce((sum, b) => sum + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000)), 0);
               const target = c.runningDaysTarget || 0;
               const util = target > 0 ? (actual / target) * 100 : 0;
@@ -343,7 +344,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
             const totalActual = rows.reduce((s, r) => s + r.actual, 0);
             const totalTarget = rows.reduce((s, r) => s + r.target, 0);
             const overall = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
-            const carsWithBookings = new Set(bookings.filter(b => !b.cancelled && b.start?.startsWith(month)).map(b => b.plate));
+            const carsWithBookings = new Set(fleet.filter(c => bookingWindowsForPlate(bookings, c.plate).some(b => !b.cancelled && b.start?.startsWith(month))).map(c => c.plate));
             const availableCars = fleet.filter(c => !carsWithBookings.has(c.plate)).length;
             const utilColor = (u) => u >= 70 ? C.green : u >= 40 ? C.amber : C.red;
             // Pagination only slices which rows the table renders — every
@@ -457,7 +458,7 @@ const PlReport = ({ fleet = [], bookings = [], earnings = [], expenses = [], cal
             const inv = totalInv(car);
             const totalCarEarnings = earnings.filter(e => e.plate === selectedCar).reduce((s, e) => s + (e.total || 0), 0) + forfeitedDepositIncome(bookings, { plate: selectedCar });
             const recovery = inv > 0 ? Math.round((totalCarEarnings / inv) * 100) : 0;
-            const monthBookings = bookings.filter(b => b.plate === selectedCar && b.start?.startsWith(month));
+            const monthBookings = bookingWindowsForPlate(bookings, selectedCar).filter(b => b.start?.startsWith(month));
 
             // Selected car's month-by-month income & net across 2026.
             const carMonthly = PL_MONTHS.map((m) => {

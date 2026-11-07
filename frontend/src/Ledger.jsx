@@ -138,6 +138,7 @@ const Ledger = ({
     "Deposit IN": { color: C.teal, bg: C.tealFaint },
     "Expense": { color: C.red, bg: C.redFaint },
     "Deposit OUT": { color: C.amber, bg: C.amberFaint },
+    "Rental Refund": { color: C.amber, bg: C.amberFaint },
   };
 
   const toggleBtn = (activeState) => ({
@@ -255,6 +256,7 @@ const Ledger = ({
               <option value="Investment">Investment</option>
               <option value="Dividend">Dividend</option>
               <option value="Rental Income">Rental Income</option>
+              <option value="Rental Refund">Rental Refund</option>
               <option value="Deposit Income">Deposit Income</option>
               <option value="Expense">Expense</option>
               <option value="Deposit IN">Deposit IN</option>

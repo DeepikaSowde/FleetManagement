@@ -166,6 +166,19 @@ export function generateRentalAgreementPdf(booking, car, companyInfo = {}) {
       { label: "Vehicle Registration Number", value: car?.plate || booking.plate, width: 0.33 },
     ],
   ]);
+  // After a Change Car the vehicle above is the CURRENT one; name the earlier
+  // ones so the agreement still covers the whole rental.
+  const carHistory = Array.isArray(booking.carHistory) ? booking.carHistory : [];
+  if (carHistory.length > 0) {
+    y += 3;
+    const chain = carHistory.map((s) => `${s.plate} (until ${fmtDate(s.to)} ${fmtTime(s.to)})`).join(", then ");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(50);
+    const lines = doc.splitTextToSize(`Vehicle changed during this rental: ${chain}, then ${booking.plate} (current). Each change is recorded on its Vehicle Change Slip; all other terms are unchanged.`, contentWidth);
+    doc.text(lines, margin, y);
+    y += lines.length * 4.2;
+  }
   y += 8;
 
   // ---- 2. Rental Duration ----

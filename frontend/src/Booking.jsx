@@ -30,7 +30,9 @@ const BOOKING_STAT_META = {
   Closed:         { title: "Closed", sub: "Total Closed", icon: "🔒", accent: C.navyMid },
   Cancelled:      { title: "Cancelled", sub: "Cancelled", icon: "🚫", accent: C.red },
 };
-import { computeCarAvailabilityTimeline, isBookingClosedOut } from "./useFleetData";
+import { computeCarAvailabilityTimeline, isBookingClosedOut, getBookingCarSegments, computeCarEarningSplit } from "./useFleetData";
+import ChangeCar from "./ChangeCar";
+import { generateVehicleChangeSlip } from "./vehicleChangeSlip";
 import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
 import { computeMileageSplit, MAX_ODOMETER_KM } from "./mileage";
 import { generateRentalAgreementPdf } from "./rentalAgreement";
@@ -428,6 +430,7 @@ const ACTIVITY_META = {
   updated: { icon: "✏️", label: "Booking Edited", color: "#f59e0b" },
   extended: { icon: "📅", label: "Booking Extended", color: "#f59e0b" },
   handover: { icon: "🔑", label: "Vehicle Handover", color: "#0ea5e9" },
+  car_changed: { icon: "🔄", label: "Car Changed", color: "#6366f1" },
   charge: { icon: "🧾", label: "Additional Charge Added", color: "#f97316" },
   payment: { icon: "💳", label: "Payment Recorded", color: "#16a34a" },
   deposit_collected: { icon: "💰", label: "Deposit Collected", color: "#8b5cf6" },
@@ -532,7 +535,8 @@ const BookingActivityTimeline = ({ booking, inv }) => {
 // Opens either from clicking "View" on a row in the Bookings table, or
 // automatically right after a new booking is created (see `detailBookingId`
 // prop on <Booking>).
-const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking, onExtendBooking, actor = "System" }) => {
+const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab, onClose, onUpdateBooking, onEditBooking, onExtendBooking, onChangeCar, checkBookingConflict, actor = "System" }) => {
+  const [showChangeCar, setShowChangeCar] = useState(false);
   // One append-only audit entry, attributed to the real logged-in user.
   const histEntry = (type, detail) => ({ id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type, at: new Date().toISOString(), by: actor, detail });
   const withHistory = (entry) => [...(booking.history || []), entry];
@@ -1370,6 +1374,12 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
               {!booking.cancelled && !alreadyReturned && onExtendBooking && (
                 <Btn onClick={() => onExtendBooking(booking)}>📅 Extend</Btn>
               )}
+              {/* Change Car: only while the car is with the customer — after
+                  handover, before return. Before handover, editing the
+                  booking's car is enough. Mirrored in bookingModel.changeCar. */}
+              {!booking.cancelled && !alreadyReturned && hasHandedOver(booking) && onChangeCar && (
+                <Btn onClick={() => setShowChangeCar(true)}>🔄 Change Car</Btn>
+              )}
               {/* Agreement needs the mileage/fuel/condition captured at
                   Vehicle Handover, so it only makes sense once handoverAt is
                   set — see hasHandedOver above. */}
@@ -1712,6 +1722,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 </div>
               </div>
               )}
+              {overviewTab === "Rental" && hasHandedOver(booking) && <CarHistory booking={booking} fleet={fleet} />}
 
               {/* Cancellation — cancel an active/upcoming booking: records the
                   actual return date/time, deposit refunded and reason, then flags
@@ -2667,7 +2678,82 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
           </>
         );
       })()}
+
+      {showChangeCar && (
+        <ChangeCar
+          booking={booking}
+          fleet={fleet}
+          checkBookingConflict={checkBookingConflict}
+          onSave={(payload) => onChangeCar(booking.id, payload)}
+          onClose={() => setShowChangeCar(false)}
+          actor={actor}
+        />
+      )}
     </>
+  );
+};
+
+// Every car this booking has used, oldest first — dates, days, readings, rate
+// and what each car earned (its share of the rental; see
+// computeCarEarningSplit). A booking that never changed car shows its one car.
+// Each change has a downloadable Vehicle Change Slip.
+const CarHistory = ({ booking, fleet }) => {
+  const segments = getBookingCarSegments(booking);
+  const split = computeCarEarningSplit(booking);
+  const isMonthly = booking.rentalType === "monthly";
+  const rentalTotal = computeBookingInvoice(booking).rateCharge;
+  const carName = (plate) => {
+    const c = fleet.find((x) => x.plate === plate);
+    return [c?.make, c?.model].filter(Boolean).join(" ");
+  };
+  const km = (s) => {
+    if (s.closed) {
+      if (s.startOdo === null || s.startOdo === undefined || s.endOdo === undefined) return "—";
+      return `${Math.max(0, Number(s.endOdo) - (Number(s.startOdo) || 0) - (Number(s.staffKm) || 0)).toLocaleString()} km`;
+    }
+    return booking.startingMileage !== undefined && booking.startingMileage !== "" ? `from ${Number(booking.startingMileage).toLocaleString()} km` : "—";
+  };
+  const cell = { padding: "7px 8px", fontSize: 11.5, color: C.textSec, borderBottom: `1px solid ${C.linen}`, verticalAlign: "top" };
+  const head = { ...cell, fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 };
+  return (
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", background: C.bg }}>
+      <SectionHeading size="sm">Car History</SectionHeading>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+          <thead>
+            <tr>{["Car", "From", "To", "Days", "Rate", "Earned", "Driven", ""].map((h) => <th key={h} style={{ ...head, textAlign: ["Days", "Rate", "Earned"].includes(h) ? "right" : "left" }}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {segments.map((s, i) => {
+              const earned = split ? split[i].total : (isMonthly ? null : rentalTotal);
+              const days = split ? split[i].days : bookingDurationOf(booking).count;
+              return (
+                <tr key={`${s.plate}-${i}`}>
+                  <td style={cell}>
+                    <div style={{ ...mono, fontWeight: 700, color: C.navy }}>{s.plate}</div>
+                    <div style={{ fontSize: 10.5, color: C.textMuted }}>{carName(s.plate) || "—"}{!s.closed ? " · current" : ""}</div>
+                    {s.reason && <div style={{ fontSize: 10.5, color: C.textMuted }}>Changed: {s.reason}</div>}
+                  </td>
+                  <td style={cell}>{formatDateTime(s.start) || "—"}</td>
+                  <td style={cell}>{s.closed ? formatDateTime(s.end) : `${formatDateTime(booking.actualReturnAt || booking.end)}${booking.actualReturnAt ? "" : " (due)"}`}</td>
+                  <td style={{ ...cell, textAlign: "right" }}>{isMonthly ? "—" : days}</td>
+                  <td style={{ ...cell, textAlign: "right", ...mono }}>{fmt(Number(s.closed ? s.rate : booking.rate) || 0)}</td>
+                  <td style={{ ...cell, textAlign: "right", ...mono }}>{earned === null ? "—" : fmt(Math.round(earned * 100) / 100)}</td>
+                  <td style={cell}>{km(s)}</td>
+                  <td style={cell}>
+                    {s.closed && (
+                      <button type="button" title="Download Vehicle Change Slip" onClick={() => generateVehicleChangeSlip(booking, i, fleet)}
+                        style={{ border: `1px solid ${C.border}`, background: C.surface, borderRadius: 7, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>📄 Slip</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {split && <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 6 }}>Earned = each car's share of the rental (excl. VAT and other charges); P&amp;L credits each car with it.</div>}
+    </div>
   );
 };
 
@@ -2692,7 +2778,7 @@ const BkPageBtn = ({ children, active, disabled, onClick }) => (
 );
 
 const Booking = ({
-  bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, onExtendBooking, selectedCar = "All Cars", selectedRange = "all", actor = "System",
+  bookings = [], fleet = [], onNewBooking, onAddBooking, onUpdateBooking, onDeleteBooking, detailBookingId, onDetailBookingIdHandled, onEditBooking, onExtendBooking, onChangeCar, checkBookingConflict, selectedCar = "All Cars", selectedRange = "all", actor = "System",
   // Role & Permission (User Management → Role & Permission → Bookings). The
   // actual add/update/delete calls are already blocked centrally in
   // FleetOpzApp regardless of this prop — canCreate just hides the "New
@@ -3042,6 +3128,8 @@ const Booking = ({
           onUpdateBooking={onUpdateBooking}
           onEditBooking={onEditBooking}
           onExtendBooking={onExtendBooking}
+          onChangeCar={canEdit ? onChangeCar : undefined}
+          checkBookingConflict={checkBookingConflict}
           actor={actor}
         />
       )}

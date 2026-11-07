@@ -6,7 +6,7 @@ import {
 import { C, mono, fmt, totalInv, carAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows, cashNet } from "./ledgerUtils";
-import { computeEarningTotal } from "./useFleetData";
+import { computeEarningTotal, getBookingCarSegments } from "./useFleetData";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
 // from data the app already has (no backend). Colours use a validated
@@ -242,10 +242,16 @@ const LedgerDashboard = ({
   }), [fleet, calculateCarMetrics, isAll, period]);
   const daysRentedByPlate = useMemo(() => {
     const map = {};
+    // Per car segment, so a booking that changed car credits each car with
+    // its own days.
     bookings.forEach((b) => {
-      if (b.cancelled || !b.start || !b.end) return;
-      if (!isAll && !b.start.startsWith(period)) return;
-      map[b.plate] = (map[b.plate] || 0) + Math.max(0, Math.round((new Date(b.end) - new Date(b.start)) / 86400000));
+      if (b.cancelled) return;
+      getBookingCarSegments(b).forEach((s) => {
+        const end = s.closed ? s.end : b.end;
+        if (!s.start || !end) return;
+        if (!isAll && !s.start.startsWith(period)) return;
+        map[s.plate] = (map[s.plate] || 0) + Math.max(0, Math.round((new Date(end) - new Date(s.start)) / 86400000));
+      });
     });
     return map;
   }, [bookings, isAll, period]);

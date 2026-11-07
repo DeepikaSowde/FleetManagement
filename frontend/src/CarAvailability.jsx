@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { bookingWindowsForPlate } from "./useFleetData";
 
 // ============================================================================
 // Car Availability — calendar-centric redesign.
@@ -98,8 +99,8 @@ function dayAvailabilityStatus(plate, dateISO, { bookings, checkBookingConflict 
   if (Array.isArray(bookings)) {
     const dayStart = new Date(dayStartISO).getTime();
     const dayEnd = new Date(dayEndISO).getTime();
-    const overlapping = bookings.filter(b =>
-      b.plate === plate && !b.cancelled && b.start && b.end &&
+    const overlapping = bookingWindowsForPlate(bookings, plate).filter(b =>
+      !b.cancelled && b.start && b.end &&
       rangesOverlap(dayStart, dayEnd, new Date(b.start).getTime(), effectiveBlockingEndMs(b))
     );
     if (overlapping.length === 0) return "available";
@@ -134,8 +135,8 @@ function isFreeForRange(plate, range, { bookings, checkBookingConflict } = {}) {
   if (!range) return false;
   if (Array.isArray(bookings)) {
     const s = new Date(range.start).getTime(), e = new Date(range.end).getTime();
-    return !bookings.some(b =>
-      b.plate === plate && !b.cancelled && b.start && b.end &&
+    return !bookingWindowsForPlate(bookings, plate).some(b =>
+      !b.cancelled && b.start && b.end &&
       rangesOverlap(s, e, new Date(b.start).getTime(), effectiveBlockingEndMs(b))
     );
   }

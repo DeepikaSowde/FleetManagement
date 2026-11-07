@@ -57,6 +57,44 @@ const addMonthsClamped = (date, months) => {
 //     reflects that new date immediately, since actualReturnAt still isn't set.
 export const getEffectiveBookingEnd = (booking) => booking.actualReturnAt || booking.end;
 
+// ── CHANGE CAR: a booking's cars over time ──────────────────────────────────
+// A booking can change car mid-rental (Change Car, see carSwap.js). The cars
+// it used before are closed segments in `carHistory` ({ plate, from, to, ... },
+// oldest first); `plate` is always the car it has NOW, held from
+// `currentCarFrom` (the last swap) — or `start` if it never changed — to the
+// booking's effective end. A booking that never changed car is one segment,
+// so everything below behaves exactly as before for it.
+export const getBookingCarSegments = (b) => {
+  const history = Array.isArray(b.carHistory) ? b.carHistory : [];
+  return [
+    ...history.map((s, i) => ({ ...s, index: i, start: s.from, end: s.to, closed: true })),
+    { plate: b.plate, index: history.length, start: b.currentCarFrom || b.start, end: getEffectiveBookingEnd(b), closed: false },
+  ];
+};
+
+export const hasChangedCar = (b) => Array.isArray(b.carHistory) && b.carHistory.length > 0;
+
+// The bookings holding `plate`, each narrowed to just the stretch it held
+// that car — so the availability timeline and the conflict check (written
+// for one car per booking) see a changed booking correctly: the old car is
+// "returned" at the swap time and free from then, and the new car is only
+// taken from the swap onward. Bookings that never changed car pass through
+// untouched.
+export const bookingWindowsForPlate = (bookings, plate) => bookings.flatMap((b) => {
+  if (!hasChangedCar(b)) return b.plate === plate ? [b] : [];
+  return getBookingCarSegments(b)
+    .filter((s) => s.plate === plate)
+    .map((s) => (s.closed
+      ? { ...b, plate, start: s.from, end: s.to, actualReturnAt: s.to }
+      : { ...b, start: s.start }));
+});
+
+// Rental days a booking put on one car — the whole booking for an unchanged
+// one, or just that car's segment(s). For per-car utilization figures.
+export const bookingDaysOnPlate = (b, plate) => getBookingCarSegments(b)
+  .filter((s) => s.plate === plate && s.start && s.end)
+  .reduce((sum, s) => sum + Math.max(0, Math.round((new Date(s.end) - new Date(s.start)) / 86400000)), 0);
+
 // ── INVOICE CALC ─────────────────────────────────────────────────────────────
 // Single source of truth for a booking's full invoice picture — used by the
 // Bookings table/detail view, and by computeBookingStatus below to decide
@@ -185,8 +223,45 @@ export const computeBookingInvoice = (b) => {
 // what P&L shows for the same row.
 export const computeEarningTotal = (e, bookingById) => {
   const b = bookingById[e.bookingId];
-  if (b && b.rentalType !== "monthly") return computeBookingInvoice(b).finalInvoiceTotal;
+  if (b && b.rentalType !== "monthly") {
+    const invoiceTotal = computeBookingInvoice(b).finalInvoiceTotal;
+    // A changed booking has one earning row per car; each gets its share of
+    // the invoice in proportion to its rental, so the rows still add up to
+    // exactly the booking's invoice.
+    const split = computeCarEarningSplit(b);
+    if (!split) return invoiceTotal;
+    const rental = split.reduce((s, r) => s + r.total, 0);
+    return rental > 0 ? invoiceTotal * ((Number(e.total) || 0) / rental) : invoiceTotal / split.length;
+  }
   return Number(e.total) || 0;
+};
+
+// How a DAILY booking that changed car splits its rental across the cars,
+// one entry per car segment (oldest first) — what each car's earning row
+// holds, so P&L and per-car profit credit each car with what it earned.
+// A closed segment keeps the rental share fixed at the swap (rentalShare,
+// worked out by carSwap.js); the current car gets the rest: the agreed
+// rental plus any swap rate difference, less what the earlier cars took.
+// Returns null for a booking that never changed car (or a monthly contract,
+// whose earnings are per collected month instead).
+export const computeCarEarningSplit = (b) => {
+  if (!hasChangedCar(b) || b.rentalType === "monthly") return null;
+  const inv = computeBookingInvoice(b);
+  const rateAdjustments = (b.charges || [])
+    .filter((c) => c.origin === "swap" && c.kind === "rate_adjustment")
+    .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const rental = inv.rateCharge + rateAdjustments;
+  const segs = getBookingCarSegments(b);
+  const closedTotal = segs.filter((s) => s.closed).reduce((s, seg) => s + (Number(seg.rentalShare) || 0), 0);
+  const days = (s) => (s.start && s.end ? Math.max(0, Math.round((new Date(s.end) - new Date(s.start)) / 86400000)) : 0);
+  return segs.map((s) => ({
+    plate: s.plate,
+    start: s.start,
+    end: s.closed ? s.end : b.end,
+    days: s.closed && Number.isFinite(Number(s.days)) && s.days !== null ? Number(s.days) : days(s),
+    rate: Math.round((Number(s.closed ? s.rate : b.rate) || 0) * 100) / 100,
+    total: Math.round((s.closed ? Number(s.rentalShare) || 0 : rental - closedTotal) * 100) / 100,
+  }));
 };
 
 // A booking is "closed out" once it's reached either terminal status —
@@ -337,7 +412,7 @@ export const fleetDisplayStatus = (status) => {
 // Exported so Booking.jsx renders from this, rather than re-deriving statuses itself.
 export const computeCarAvailabilityTimeline = (car, bookings, days = 10, fromDateStr) => {
   const start = fromDateStr ? new Date(fromDateStr) : new Date();
-  const carBookings = bookings.filter(b => b.plate === car.plate && !b.cancelled);
+  const carBookings = bookingWindowsForPlate(bookings.filter(b => !b.cancelled), car.plate);
 
   // Same auto-release window the maintenance effect uses — projected forward
   // instead of checked against "today", so future days past the release date
@@ -475,8 +550,9 @@ const findOverlappingBooking = (bookings, plate, start, end, excludeBookingId) =
   if (!start || !end) return null;
   const newStart = new Date(start).getTime();
   const newEnd = new Date(end).getTime();
-  const conflicts = bookings.filter(b => {
-    if (b.plate !== plate || b.id === excludeBookingId || b.cancelled || !b.start) return false;
+  const holding = bookingWindowsForPlate(bookings.filter(b => b.id !== excludeBookingId && !b.cancelled), plate);
+  const conflicts = holding.filter(b => {
+    if (!b.start) return false;
     const blockingEnd = conflictBlockingEnd(b);
     return blockingEnd !== null && rangesOverlap(newStart, newEnd, new Date(b.start).getTime(), blockingEnd);
   });
@@ -743,8 +819,14 @@ export const useFleetData = () => {
 
   // When a write to the server fails, our optimistic local change is now out of
   // step with the database — pull the authoritative state back down.
+  // A refusal the user needs to read — the car was just booked by someone
+  // else (409), or a server-side rule the form missed (400) — is also kept in
+  // writeError, which FleetOpzApp shows as a banner. Otherwise the optimistic
+  // change would just silently disappear on the resync.
+  const [writeError, setWriteError] = useState("");
   const onWriteError = (err) => {
     console.error("FleetOpz: server write failed, resyncing from server", err);
+    if (err?.status === 400 || err?.status === 409) setWriteError(err.message);
     reload();
   };
 
@@ -808,6 +890,23 @@ export const useFleetData = () => {
             type: "Rental Earning", total: Number(row.amount) || 0, locked: false,
           });
         });
+      } else if (hasChangedCar(b)) {
+        // One row per car the booking used. Rows are matched to segments by
+        // creation order (the first row is the one made before any swap), so
+        // only the segments past the existing row count need a new row; their
+        // figures are kept current by the sync effect below.
+        const split = computeCarEarningSplit(b);
+        const have = earnings.filter(e => e.bookingId === b.id).length;
+        split.slice(have).forEach(seg => {
+          nextNum += 1;
+          newRecords.push({
+            id: `ER-${String(nextNum).padStart(3, "0")}`,
+            bookingId: b.id,
+            plate: seg.plate, customer: b.customer,
+            start: seg.start, end: seg.end, days: seg.days, rate: seg.rate,
+            type: "Rental Earning", total: seg.total, locked: false,
+          });
+        });
       } else {
         const key = `${b.id}`;
         if (existingKeys.has(key)) return;
@@ -843,10 +942,32 @@ export const useFleetData = () => {
     const bookingById = {};
     bookings.forEach(b => { bookingById[b.id] = b; });
     const corrected = [];
+    // A changed booking's rows line up with its car segments in creation
+    // order (see the effect above) — each is kept in step with its own car's
+    // plate, dates and share of the rental.
+    const segmentOf = new Map();
+    const byBooking = {};
+    earnings.forEach(e => { (byBooking[e.bookingId] = byBooking[e.bookingId] || []).push(e); });
+    Object.entries(byBooking).forEach(([bookingId, rows]) => {
+      const split = bookingById[bookingId] && computeCarEarningSplit(bookingById[bookingId]);
+      if (!split) return;
+      [...rows].sort((a, c) => (parseInt(a.id.slice(3)) || 0) - (parseInt(c.id.slice(3)) || 0))
+        .forEach((e, i) => { if (split[i]) segmentOf.set(e.id, split[i]); });
+    });
     earnings.forEach(e => {
       if (e.locked) return;
       const b = bookingById[e.bookingId];
       if (!b) return;
+      const seg = segmentOf.get(e.id);
+      if (seg) {
+        const patch = {};
+        if (Math.abs((Number(e.total) || 0) - seg.total) > 0.01) patch.total = seg.total;
+        const differs = (a, want) => (typeof want === "number" ? Number(a) !== want : (a || "") !== (want || ""));
+        ["plate", "start", "end", "days", "rate"].forEach(f => { if (differs(e[f], seg[f])) patch[f] = seg[f]; });
+        if (!e.type) patch.type = "Rental Earning";
+        if (Object.keys(patch).length) corrected.push({ id: e.id, patch });
+        return;
+      }
       // Monthly-contract earnings are fixed per-month rows — never resync them to
       // the booking's daily rateCharge (that would collapse the whole contract's
       // recognized rent back to a single month's charge). Still backfill `type`.
@@ -943,8 +1064,15 @@ export const useFleetData = () => {
   // Exposed to the booking form so it can block double-bookings before
   // calling addBooking. Returns the clashing booking, or null if the dates
   // are free for that car. Pass excludeBookingId when validating an edit.
-  const checkBookingConflict = (plate, start, end, excludeBookingId) =>
-    findOverlappingBooking(bookings, plate, start, end, excludeBookingId);
+  // A booking that changed car only holds its current car from the swap
+  // onward, so editing/extending it checks the car from there, not from the
+  // original pickup (when the car may well have been out with someone else).
+  const checkBookingConflict = (plate, start, end, excludeBookingId) => {
+    const own = excludeBookingId ? bookings.find(b => b.id === excludeBookingId) : null;
+    const from = own && own.currentCarFrom && own.plate === plate && new Date(own.currentCarFrom) > new Date(start)
+      ? own.currentCarFrom : start;
+    return findOverlappingBooking(bookings, plate, from, end, excludeBookingId);
+  };
 
   // ── BOOKING OPERATIONS ────────────────────────────────────────────────────
   const nextBookingId = (list) =>
@@ -962,8 +1090,10 @@ export const useFleetData = () => {
         saveCustomer(toSave);
       })
       .catch((err) => {
-        const isDuplicateId = err?.status === 409
-          || /duplicate|already exists|conflict/i.test(err?.message || "");
+        // Only a duplicate ID is retried — the server also answers 409 when
+        // the car itself was just booked by someone else, and a new ID
+        // doesn't fix that one (onWriteError shows its message instead).
+        const isDuplicateId = /duplicate|already exists/i.test(err?.message || "");
         if (isDuplicateId && attempt < 3) {
           // Another session's booking landed on the same ID first. Re-check
           // the server's current bookings, compute the real next-free ID,
@@ -1005,6 +1135,16 @@ export const useFleetData = () => {
     api.del(`/bookings/${bookingId}`).catch(onWriteError);
   };
 
+  // Change Car is NOT optimistic: the server re-checks the new car's
+  // availability under a lock and may refuse, and the Change Car screen must
+  // show that refusal — so this waits for the saved booking and only then
+  // replaces the local copy. Throws the server's error to the caller.
+  const changeCar = async (bookingId, payload) => {
+    const saved = await api.post(`/bookings/${bookingId}/change-car`, payload);
+    setBookings(prev => prev.map(b => (b.id === bookingId ? saved : b)));
+    return saved;
+  };
+
   // ── EARNINGS OPERATIONS ───────────────────────────────────────────────────
   const addEarning = (earning) => {
     const nextId = `ER-${String(Math.max(...earnings.map(e => parseInt(e.id.slice(3))), 0) + 1).padStart(3, "0")}`;
@@ -1024,11 +1164,10 @@ export const useFleetData = () => {
   };
 
   // Auto-lock earnings when booking is completed
+  // (A booking that changed car has one earning row per car — lock them all.)
   const lockEarning = (bookingId) => {
-    const earning = earnings.find(e => e.bookingId === bookingId);
-    if (earning) {
-      updateEarning(earning.id, { locked: true });
-    }
+    earnings.filter(e => e.bookingId === bookingId && !e.locked)
+      .forEach(e => updateEarning(e.id, { locked: true }));
   };
 
   // ── EXPENSE OPERATIONS ────────────────────────────────────────────────────
@@ -1811,6 +1950,9 @@ export const useFleetData = () => {
     updateBooking,
     deleteBooking,
     checkBookingConflict,
+    changeCar,
+    writeError,
+    clearWriteError: () => setWriteError(""),
 
     // Earnings operations
     addEarning,
