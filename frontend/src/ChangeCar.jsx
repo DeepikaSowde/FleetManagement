@@ -172,7 +172,11 @@ export default function ChangeCar({ booking, fleet, checkBookingConflict, onSave
           depositTopUp, depositTopUpMethod, depositTopUpReference,
         },
       });
-      setSaved(await onSave(payload));
+      // swapAt is local wall-clock time ("2026-11-12T15:20"), as every booking
+      // time is stored. The server may run in another time zone (UTC on a
+      // cloud host), so also send the exact moment, read in this browser's
+      // time zone, for its "not in the future" check.
+      setSaved(await onSave({ ...payload, swapAtUtc: new Date(swapAt).toISOString() }));
     } catch (err) {
       setError(err?.message || "The car change couldn't be saved.");
     } finally {

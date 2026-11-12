@@ -384,6 +384,23 @@ function cleanSwapPayments(list) {
   });
 }
 
+// The real moment of a swap, for comparing with "now". swapAt is local
+// wall-clock time with no zone ("2026-11-12T15:20", as every booking time is
+// stored), and this server may run in a different zone (UTC on a cloud host),
+// so reading it here would shift it by the zone difference — an afternoon
+// swap in Singapore would look hours in the future. The browser sends the
+// exact moment as swapAtUtc; it is used when it names the same wall-clock
+// time give or take a time-zone offset (UTC−12 to UTC+14). Without it, the
+// earliest moment that wall-clock time can be anywhere (UTC+14) is used, so
+// a real past or present swap is never refused.
+function swapInstantMs(swapAt, swapAtUtc) {
+  const wallAsUtc = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(swapAt) ? swapAt : `${swapAt}Z`).getTime();
+  const sent = isBlank(swapAtUtc) ? NaN : new Date(String(swapAtUtc)).getTime();
+  const HOUR = 3600000;
+  if (Number.isFinite(sent) && sent >= wallAsUtc - 14 * HOUR && sent <= wallAsUtc + 12 * HOUR) return sent;
+  return wallAsUtc - 14 * HOUR;
+}
+
 async function changeCar(id, body, actor) {
   const newPlate = String(body.newPlate || "").trim();
   if (!newPlate) throw badRequest("Choose the new car.");
@@ -392,7 +409,7 @@ async function changeCar(id, body, actor) {
   if (!Number.isFinite(swapMs)) throw badRequest("Enter a valid swap date and time.");
   // No planned swaps: the swap is recorded when it happens (a few minutes'
   // grace for clock differences between the browser and the server).
-  if (swapMs > Date.now() + 15 * 60000) throw badRequest("The swap time can't be in the future.");
+  if (swapInstantMs(swapAt, body.swapAtUtc) > Date.now() + 15 * 60000) throw badRequest("The swap time can't be in the future.");
 
   const oldReturnOdo = num(body.oldReturnOdo);
   const newStartOdo = num(body.newStartOdo);
