@@ -18,6 +18,7 @@ const auditLogRoutes = require("./routes/auditLogRoutes");
 const investorRoutes = require("./routes/investorRoutes");
 const investorTxRoutes = require("./routes/investorTxRoutes");
 const ownershipRoutes = require("./routes/ownershipRoutes");
+const companyLoanRoutes = require("./routes/companyLoanRoutes");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const { attachUser } = require("./middleware/auth");
 const { investorScope } = require("./middleware/investorScope");
@@ -50,6 +51,7 @@ app.use("/api/audit-logs", auditLogRoutes);
 app.use("/api/investors", investorRoutes);
 app.use("/api/investor-transactions", investorTxRoutes);
 app.use("/api/ownership", ownershipRoutes);
+app.use("/api/company-loans", companyLoanRoutes);
 
 // ── Fallbacks (must be last) ────────────────────────────────────────────────
 app.use(notFound);

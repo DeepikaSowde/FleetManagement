@@ -97,7 +97,7 @@ const TierBadge = ({ tier }) => tier ? (
 const CAR_PAGE_SIZE = 5;
 const MONTH_PAGE_SIZE = 5;
 
-const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], investors = [], onUpdateCar, calculateCarMonthlyTarget }) => {
+const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], investors = [], companyLoanEntries = [], onUpdateCar, calculateCarMonthlyTarget }) => {
   // Current cash position from the ledger — the ONLY source for starting
   // cash now (see header comment). Recomputes automatically whenever the
   // ledger's underlying data changes; there is no separate editable copy of
@@ -106,9 +106,11 @@ const CashFlow = ({ fleet = [], earnings = [], expenses = [], bookings = [], inv
   // does — omitting it silently drops investor capital/dividend/exit rows,
   // so this number would otherwise disagree with the real Ledger balance.
   const currentBalance = useMemo(() => {
-    const rows = buildLedgerRows(earnings, expenses, bookings, investors);
+    // Company Loan entries too, so Starting Cash is always exactly the Ledger's
+    // current balance.
+    const rows = buildLedgerRows(earnings, expenses, bookings, investors, companyLoanEntries);
     return Math.round(rows.reduce((s, r) => s + cashNet(r), 0));
-  }, [earnings, expenses, bookings, investors]);
+  }, [earnings, expenses, bookings, investors, companyLoanEntries]);
 
   const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [horizon, setHorizon] = useState(12);

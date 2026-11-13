@@ -449,3 +449,77 @@ CREATE TABLE IF NOT EXISTS company_valuations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_company_valuations_asof ON company_valuations (as_of);
+
+-- ── COMPANY LOANS ───────────────────────────────────────────────────────────
+-- Money the business borrows from a lender and pays back (principal only, no
+-- interest). Kept entirely apart from the Investors records: a lender is not
+-- an investor, a loan is not capital, and nothing here touches ownership,
+-- dividends, exits, P&L or expenses. The Ledger shows each loan received as
+-- cash in and each repayment as cash out (built live from these tables, so an
+-- edit or a delete shows there at once and nothing can appear twice).
+--
+-- Outstanding = loan amount − total repaid, always worked out from the rows
+-- below, never stored. A loan closes by itself when nothing is outstanding; an
+-- admin may also close it with money still owed, which stays owed (a liability)
+-- — closing never writes anything off.
+CREATE SEQUENCE IF NOT EXISTS company_loan_lender_seq;
+CREATE SEQUENCE IF NOT EXISTS company_loan_seq;
+CREATE SEQUENCE IF NOT EXISTS company_loan_repayment_seq;
+
+CREATE TABLE IF NOT EXISTS company_loan_lenders (
+  id          VARCHAR(20) PRIMARY KEY,          -- LND-0001
+  name        VARCHAR(160) NOT NULL,
+  phone       VARCHAR(40),
+  notes       TEXT,
+  created_by  VARCHAR(160),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS company_loans (
+  id                 VARCHAR(20) PRIMARY KEY,   -- CL-0001
+  lender_id          VARCHAR(20) NOT NULL REFERENCES company_loan_lenders(id),
+  amount             NUMERIC(14,2) NOT NULL CHECK (amount > 0),
+  borrowed_date      DATE NOT NULL,
+  payment_method     VARCHAR(40) NOT NULL,      -- one of the app's payment methods
+  payment_reference  VARCHAR(60),
+  notes              TEXT,
+  status             VARCHAR(10) NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Closed')),
+  closed_at          TIMESTAMPTZ,
+  closed_by          VARCHAR(160),
+  created_by         VARCHAR(160),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_company_loans_lender ON company_loans (lender_id);
+
+-- A loan can only be deleted while it has no repayments, so no cascade here.
+CREATE TABLE IF NOT EXISTS company_loan_repayments (
+  id                 VARCHAR(24) PRIMARY KEY,   -- CLR-00001
+  loan_id            VARCHAR(20) NOT NULL REFERENCES company_loans(id),
+  amount             NUMERIC(14,2) NOT NULL CHECK (amount > 0),
+  repayment_date     DATE NOT NULL,
+  payment_method     VARCHAR(40) NOT NULL,
+  payment_reference  VARCHAR(60),
+  notes              TEXT,
+  client_ref         VARCHAR(80) UNIQUE,        -- one per Record Repayment click: a retry is not a second payment
+  created_by         VARCHAR(160),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_company_loan_repayments_loan ON company_loan_repayments (loan_id);
+
+-- Every change to a loan or its repayments: what it was, what it became, who,
+-- when and why. No foreign key, so the history of a deleted loan is kept.
+CREATE TABLE IF NOT EXISTS company_loan_history (
+  id            SERIAL PRIMARY KEY,
+  loan_id       VARCHAR(20) NOT NULL,
+  repayment_id  VARCHAR(24),
+  action        VARCHAR(40) NOT NULL,
+  old_values    JSONB,
+  new_values    JSONB,
+  reason        TEXT,
+  changed_by    VARCHAR(160),
+  changed_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_company_loan_history_loan ON company_loan_history (loan_id, changed_at);

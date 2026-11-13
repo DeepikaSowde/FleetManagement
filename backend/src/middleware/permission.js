@@ -72,4 +72,14 @@ function requirePermission(moduleName, actionOverride = null) {
   };
 }
 
-module.exports = { requirePermission, invalidateCache };
+// Same rule as requirePermission, as a plain check — for a route that one of
+// several modules may open (e.g. the Ledger's Company Loan entries, read by
+// both the Ledger and Cash Flow).
+async function hasPermission(userRole, moduleName, action = "view") {
+  const role = normalizeRole(userRole);
+  const grid = await loadGrid();
+  const roleModule = grid[role]?.[moduleName];
+  return roleModule ? !!roleModule[action] : role === "Admin";
+}
+
+module.exports = { requirePermission, invalidateCache, hasPermission };

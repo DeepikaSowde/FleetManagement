@@ -1545,6 +1545,7 @@ export default function FleetOpzApp() {
         fleet={fleetData.fleet}
         customers={fleetData.customers}
         investors={fleetData.investorsWithTx}
+        companyLoanEntries={fleetData.companyLoanEntries}
         calculateMetrics={fleetData.calculateMetrics}
         calculateMonthlyMetrics={fleetData.calculateMonthlyMetrics}
         calculateCarMetrics={fleetData.calculateCarMetrics}
@@ -1579,6 +1580,9 @@ export default function FleetOpzApp() {
         valuationHistory={fleetData.valuationHistory}
         onCreateValuation={fleetData.createValuation}
         onDeleteValuation={fleetData.deleteValuation}
+        // Company Loans tab: Admin only, whatever the Investors permission says.
+        canManageCompanyLoans={String(user?.role).toLowerCase() === "admin"}
+        onCompanyLoansChanged={fleetData.refreshCompanyLoanEntries}
       />
     ),
     "cash-flow": (
@@ -1588,6 +1592,7 @@ export default function FleetOpzApp() {
         expenses={fleetData.expenses}
         bookings={fleetData.bookings}
         investors={fleetData.investorsWithTx}
+        companyLoanEntries={fleetData.companyLoanEntries}
         onUpdateCar={gUpdateFleet}
         calculateCarMonthlyTarget={fleetData.calculateCarMonthlyTarget}
         calculateMonthlyBudget={fleetData.calculateMonthlyBudget}

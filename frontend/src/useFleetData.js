@@ -680,6 +680,10 @@ export const useFleetData = () => {
   // percentage of it, so there is one figure, not one per investor.
   const [companyValuation, setCompanyValuation] = useState(null);
   const [valuationHistory, setValuationHistory] = useState([]);
+  // Company Loans as the Ledger and Cash Flow see them: one entry per loan
+  // received and per repayment. The loans themselves are managed (Admin only)
+  // in Investors → Company Loans, which loads its own data.
+  const [companyLoanEntries, setCompanyLoanEntries] = useState([]);
   const [loaded, setLoaded] = useState(false); // false until the first server fetch resolves
 
   // ── LOAD FROM BACKEND ──────────────────────────────────────────────────────
@@ -768,7 +772,20 @@ export const useFleetData = () => {
     } catch (err) {
       console.warn("FleetOpz: Company valuation unavailable:", err.message);
     }
+
+    await refreshCompanyLoanEntries();
   };
+
+  // Guarded on its own: a role without Ledger / Cash Flow view (or a backend
+  // without Company Loans) just has no loan entries, nothing else is affected.
+  async function refreshCompanyLoanEntries() {
+    try {
+      setCompanyLoanEntries(await api.get("/company-loans/ledger"));
+    } catch (err) {
+      setCompanyLoanEntries([]);
+      console.warn("FleetOpz: Company Loan ledger entries unavailable:", err.message);
+    }
+  }
 
   // Ownership writes do NOT use the optimistic pattern the rest of this hook
   // uses. The server enforces the rules that make the cap table trustworthy —
@@ -1965,6 +1982,10 @@ export const useFleetData = () => {
     updateExpense,
     deleteExpense,
     completeMaintenance,
+
+    // Company Loans (Ledger / Cash Flow entries; refresh after a change)
+    companyLoanEntries,
+    refreshCompanyLoanEntries,
 
     // Investor operations (persisted profiles + money ledger, reshaped for the page)
     investorsWithTx,

@@ -39,6 +39,7 @@ const selectStyle = {
 
 const Ledger = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
+  companyLoanEntries = [],
   calculateMetrics, calculateMonthlyMetrics, calculateCarMetrics, getExpensesByCategory,
   onUpdateCar, onOpenBooking,
   // Role & Permission grants Ledger and Deposit Refunds as two independent
@@ -73,7 +74,7 @@ const Ledger = ({
   };
 
   // Unified, date-sorted transaction list with a running balance (shared helper).
-  const allTx = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
+  const allTx = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors, companyLoanEntries), [earnings, expenses, bookings, investors, companyLoanEntries]);
 
   // Month options derived from the data present.
   const months = useMemo(
@@ -139,6 +140,8 @@ const Ledger = ({
     "Expense": { color: C.red, bg: C.redFaint },
     "Deposit OUT": { color: C.amber, bg: C.amberFaint },
     "Rental Refund": { color: C.amber, bg: C.amberFaint },
+    "Company Loan Received": { color: C.navy, bg: C.linen },
+    "Company Loan Repayment": { color: C.amber, bg: C.amberFaint },
   };
 
   const toggleBtn = (activeState) => ({
@@ -207,6 +210,7 @@ const Ledger = ({
           fleet={fleet}
           customers={customers}
           investors={investors}
+          companyLoanEntries={companyLoanEntries}
           calculateMetrics={calculateMetrics}
           calculateMonthlyMetrics={calculateMonthlyMetrics}
           calculateCarMetrics={calculateCarMetrics}
@@ -261,6 +265,8 @@ const Ledger = ({
               <option value="Expense">Expense</option>
               <option value="Deposit IN">Deposit IN</option>
               <option value="Deposit OUT">Deposit OUT</option>
+              <option value="Company Loan Received">Company Loan Received</option>
+              <option value="Company Loan Repayment">Company Loan Repayment</option>
             </select>
           </div>
           <div>

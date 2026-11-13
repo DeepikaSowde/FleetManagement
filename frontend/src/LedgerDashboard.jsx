@@ -58,6 +58,7 @@ const ManualValueCell = ({ value, cost, onCommit }) => {
 
 const LedgerDashboard = ({
   earnings = [], expenses = [], bookings = [], fleet = [], customers = [], investors = [],
+  companyLoanEntries = [],
   calculateMetrics, calculateCarMetrics, onUpdateCar,
 }) => {
   // Months that actually have data (income and/or expenses).
@@ -105,7 +106,7 @@ const LedgerDashboard = ({
   // Current Balance = true cash position = every credit − every debit, i.e.
   // Investment + Rental Income + Deposits − Expenses − Refunds. Investor capital
   // now flows in via buildLedgerRows. Opening Balance is intentionally not shown.
-  const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors), [earnings, expenses, bookings, investors]);
+  const rows = useMemo(() => buildLedgerRows(earnings, expenses, bookings, investors, companyLoanEntries), [earnings, expenses, bookings, investors, companyLoanEntries]);
   // "All time" is every transaction ever; a selected month is the running
   // balance UP TO AND INCLUDING that month (same cumulative opening/closing
   // idea the Ledger tab's own transaction table already uses for a period) —
@@ -165,7 +166,16 @@ const LedgerDashboard = ({
   const fleetValue = useMemo(() => assetRows.reduce((s, r) => s + (r.unvalued ? 0 : r.value), 0), [assetRows]);
   const totalCost = assetRows.reduce((s, r) => s + r.cost, 0);
   const totalDepreciation = assetRows.reduce((s, r) => s + (r.depreciation ?? 0), 0);
-  const netWorth = currentBalance + fleetValue;
+  // Company Loans still owed (borrowed − repaid, up to the selected period). The
+  // borrowed cash is inside Current Balance, so it is taken back off here as a
+  // liability — borrowing never makes the business look richer. A loan closed
+  // with money still owed stays in this figure.
+  const loansPayable = useMemo(() => {
+    const inScope = companyLoanEntries.filter((e) => isAll || (e.date || "").slice(0, 7) <= period);
+    const owed = inScope.reduce((s, e) => s + (e.kind === "received" ? 1 : -1) * (Number(e.amount) || 0), 0);
+    return Math.round(Math.max(0, owed) * 100) / 100;
+  }, [companyLoanEntries, isAll, period]);
+  const netWorth = currentBalance + fleetValue - loansPayable;
 
   // ── Per-vehicle asset table pagination — fixed at 5 per page ──────────────
   const ASSET_PAGE_SIZE = 5;
@@ -520,7 +530,10 @@ const LedgerDashboard = ({
             {[
               { label: "Current Balance", value: currentBalance, color: VIZ.aqua, sub: isAll ? "" : `As of ${monthLabelOf(period)}` },
               { label: "Fleet Asset Value", value: fleetValue, color: VIZ.blue, sub: isAll ? `Now worth of ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` : `Owned by ${monthLabelOf(period)} · ${assetRows.length} car${assetRows.length === 1 ? "" : "s"}` },
-              { label: "Net Worth", value: netWorth, color: netWorth >= 0 ? UP : DOWN, sub: "Current Balance + Fleet Value", strong: true },
+              ...(loansPayable > 0 || companyLoanEntries.length > 0
+                ? [{ label: "Company Loans Payable", value: -loansPayable, color: DOWN, sub: "Borrowed − repaid (owed to lenders)" }]
+                : []),
+              { label: "Net Worth", value: netWorth, color: netWorth >= 0 ? UP : DOWN, sub: loansPayable > 0 ? "Current Balance + Fleet Value − Loans Payable" : "Current Balance + Fleet Value", strong: true },
             ].map((t) => (
               <div key={t.label} style={{ padding: "12px 14px", borderRadius: 10, border: `1px solid ${t.strong ? tint(t.color) : "#EFEFEF"}`, background: t.strong ? tint(t.color) : "#FBFBFC" }}>
                 <div style={{ fontSize: 10.5, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>{t.label}</div>

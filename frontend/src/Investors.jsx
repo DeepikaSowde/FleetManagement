@@ -5,6 +5,7 @@ import { Btn, Badge, Modal, Input, Select, StatusTag, Pagination } from "./compo
 import Ownership, { holdingsAsOf } from "./Ownership";
 import { DATE_MIN, DATE_MAX } from "./validation";
 import InvestmentLimitWarning from "./InvestmentLimitWarning";
+import CompanyLoans from "./CompanyLoans";
 
 /* =====================================================================================
    INVESTOR MODULE - calculation engine
@@ -1265,6 +1266,10 @@ export default function Investors({
   onPublishOwnershipEvent,
   onDeleteOwnershipEvent,
   onChangeOwnershipMode,
+  // Company Loans (money borrowed from lenders) — its own tab, Admin only, and
+  // fully separate from everything investor-related on the other tabs.
+  canManageCompanyLoans = false,
+  onCompanyLoansChanged,
 }) {
   const [view, setView] = useState("dashboard"); // 'dashboard' | 'list' | 'detail'
   const [selectedId, setSelectedId] = useState(null);
@@ -1515,6 +1520,7 @@ export default function Investors({
             { key: "dashboard", label: "Overview" },
             { key: "list", label: "All Investors" },
             { key: "ownership", label: "Ownership" },
+            ...(canManageCompanyLoans ? [{ key: "loans", label: "Company Loans" }] : []),
           ].map((t) => (
             <button
               key={t.key}
@@ -1539,7 +1545,7 @@ export default function Investors({
       {/* Until an opening cap table is published, holding % here is only the
           capital ratio. Say so, rather than letting a provisional number pass
           for an agreed one. */}
-      {investors.length > 0 && !pricedFromCapTable && (
+      {view !== "loans" && investors.length > 0 && !pricedFromCapTable && (
         <div style={{ background: C.amberFaint, borderLeft: `3px solid ${C.amber}`, borderRadius: "0 8px 8px 0", padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.textSec }}>
           No cap table published yet, so these holding percentages are just the ratio of capital put
           in. Record the opening table on{" "}
@@ -1548,7 +1554,9 @@ export default function Investors({
         </div>
       )}
 
-      <InvestmentLimitWarning fleetTotal={fleetInvestmentTotal} investorTotal={investorInvestmentTotal} />
+      {view !== "loans" && <InvestmentLimitWarning fleetTotal={fleetInvestmentTotal} investorTotal={investorInvestmentTotal} />}
+
+      {view === "loans" && canManageCompanyLoans && <CompanyLoans onChanged={onCompanyLoansChanged} />}
 
       {view === "dashboard" && (
         <OverviewDashboard

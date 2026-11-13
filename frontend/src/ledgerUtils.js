@@ -64,7 +64,12 @@ const normalizedPayments = (b) =>
 // balances instead of each re-deriving them and drifting.
 // `earnings` is accepted for interface stability with existing callers but is
 // no longer used to build Rental Income rows — see above.
-export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], investors = []) => {
+//   • Company Loans     -> "Company Loan Received" credit for each loan and a
+//                          "Company Loan Repayment" debit for each repayment
+//                          (`companyLoanEntries`, from /api/company-loans/ledger).
+//                          Borrowed money is cash, not revenue: these rows move
+//                          the balance only, never income, expense or P&L.
+export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], investors = [], companyLoanEntries = []) => {
   const rows = [];
   // Insertion-order fallback for rows whose source data has no time
   // component (just a date) — e.g. an Expense's `date` field. Two such rows
@@ -263,6 +268,25 @@ export const buildLedgerRows = (earnings = [], expenses = [], bookings = [], inv
         debit: 0,
       }, t.date);
     });
+  });
+
+  // Company Loans: one row per loan received and one per repayment, keyed by
+  // the loan / repayment id, so an edit changes its row and a delete removes it.
+  companyLoanEntries.forEach((e) => {
+    const amount = Number(e.amount) || 0;
+    if (amount <= 0) return;
+    const received = e.kind === "received";
+    const how = `${e.method || "Cash"}${e.reference ? ` · ${e.reference}` : ""}`;
+    push({
+      key: `${received ? "CLI" : "CLO"}-${e.id}`,
+      date: (e.date || "").slice(0, 10),
+      plate: "",
+      type: received ? "Company Loan Received" : "Company Loan Repayment",
+      description: `${received ? "Company Loan Received" : "Company Loan Repayment"} — ${e.lenderName} (${how})`,
+      remarks: `${e.lenderName} · ${e.loanId}`,
+      credit: received ? amount : 0,
+      debit: received ? 0 : amount,
+    }, e.recordedAt || e.date);
   });
 
   // Sort ascending by date; within the same date, by the row's actual
