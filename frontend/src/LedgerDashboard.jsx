@@ -6,7 +6,7 @@ import {
 import { C, mono, fmt, totalInv, carAssetValueBy, DEPRECIATION_METHODS, hasManualValue } from "./theme";
 import { Card, CardHeader, PlateBadge } from "./components";
 import { buildLedgerRows, cashNet } from "./ledgerUtils";
-import { computeEarningTotal, getBookingCarSegments } from "./useFleetData";
+import { computeEarningTotal, getBookingCarSegments, hasChangedCar, segmentDays } from "./useFleetData";
 
 // Analytics view on the Ledger page's "Dashboard" tab. All values are derived
 // from data the app already has (no backend). Colours use a validated
@@ -260,7 +260,9 @@ const LedgerDashboard = ({
         const end = s.closed ? s.end : b.end;
         if (!s.start || !end) return;
         if (!isAll && !s.start.startsWith(period)) return;
-        map[s.plate] = (map[s.plate] || 0) + Math.max(0, Math.round((new Date(end) - new Date(s.start)) / 86400000));
+        map[s.plate] = (map[s.plate] || 0) + (hasChangedCar(b)
+          ? segmentDays(b, s)
+          : Math.max(0, Math.round((new Date(end) - new Date(s.start)) / 86400000)));
       });
     });
     return map;

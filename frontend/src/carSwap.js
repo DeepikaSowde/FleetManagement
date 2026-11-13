@@ -17,20 +17,13 @@
 //    charged at the swap.
 //  • Deposit stays; an optional top-up can be collected. Nothing is refunded
 //    from the deposit mid-booking.
-import { computeBookingInvoice, computeCarEarningSplit } from "./useFleetData";
+import { computeBookingInvoice, computeCarEarningSplit, calendarDaysBetween } from "./useFleetData";
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-// Whole calendar days between two date(-time) strings, by their date part
-// only — the swap-day rule above is about calendar days, not 24h blocks.
-export const calendarDaysBetween = (from, to) => {
-  if (!from || !to) return 0;
-  const utc = (v) => {
-    const [y, m, d] = String(v).slice(0, 10).split("-").map(Number);
-    return Date.UTC(y, m - 1, d);
-  };
-  return Math.max(0, Math.round((utc(to) - utc(from)) / 86400000));
-};
+// Whole calendar days by date part — the swap-day rule above. Lives in
+// useFleetData so Car History, earnings and reports count days the same way.
+export { calendarDaysBetween };
 
 // Charges the old car can pick up when it comes back at a swap. Same values
 // and tax treatment as Booking.jsx's CHARGE_TYPES, plus excess mileage

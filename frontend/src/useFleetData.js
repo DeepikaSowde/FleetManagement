@@ -74,6 +74,28 @@ export const getBookingCarSegments = (b) => {
 
 export const hasChangedCar = (b) => Array.isArray(b.carHistory) && b.carHistory.length > 0;
 
+// Whole calendar days between two date(-time) strings, by their date part
+// only. This is the Change Car day rule: the old car isn't counted on the
+// swap day and the new car is, so the cars' days add up to the booking's.
+// Every per-car day count on a changed booking (Car History, earning rows,
+// days rented) uses this, so it always matches what the swap was priced on.
+export const calendarDaysBetween = (from, to) => {
+  if (!from || !to) return 0;
+  const utc = (v) => {
+    const [y, m, d] = String(v).slice(0, 10).split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.max(0, Math.round((utc(to) - utc(from)) / 86400000));
+};
+
+// Days one car segment of a CHANGED booking covers. A closed segment keeps
+// the days fixed at its swap; the current car runs from the swap to the
+// booking's return date.
+export const segmentDays = (b, s) => {
+  if (s.closed && s.days !== null && s.days !== undefined && Number.isFinite(Number(s.days))) return Number(s.days);
+  return calendarDaysBetween(s.start, s.closed ? s.end : b.end);
+};
+
 // The bookings holding `plate`, each narrowed to just the stretch it held
 // that car — so the availability timeline and the conflict check (written
 // for one car per booking) see a changed booking correctly: the old car is
@@ -93,7 +115,9 @@ export const bookingWindowsForPlate = (bookings, plate) => bookings.flatMap((b) 
 // one, or just that car's segment(s). For per-car utilization figures.
 export const bookingDaysOnPlate = (b, plate) => getBookingCarSegments(b)
   .filter((s) => s.plate === plate && s.start && s.end)
-  .reduce((sum, s) => sum + Math.max(0, Math.round((new Date(s.end) - new Date(s.start)) / 86400000)), 0);
+  .reduce((sum, s) => sum + (hasChangedCar(b)
+    ? segmentDays(b, s)
+    : Math.max(0, Math.round((new Date(s.end) - new Date(s.start)) / 86400000))), 0);
 
 // ── INVOICE CALC ─────────────────────────────────────────────────────────────
 // Single source of truth for a booking's full invoice picture — used by the
@@ -253,12 +277,12 @@ export const computeCarEarningSplit = (b) => {
   const rental = inv.rateCharge + rateAdjustments;
   const segs = getBookingCarSegments(b);
   const closedTotal = segs.filter((s) => s.closed).reduce((s, seg) => s + (Number(seg.rentalShare) || 0), 0);
-  const days = (s) => (s.start && s.end ? Math.max(0, Math.round((new Date(s.end) - new Date(s.start)) / 86400000)) : 0);
   return segs.map((s) => ({
     plate: s.plate,
     start: s.start,
     end: s.closed ? s.end : b.end,
-    days: s.closed && Number.isFinite(Number(s.days)) && s.days !== null ? Number(s.days) : days(s),
+    // Calendar days, the same rule the swap was priced on (see segmentDays).
+    days: segmentDays(b, s),
     rate: Math.round((Number(s.closed ? s.rate : b.rate) || 0) * 100) / 100,
     total: Math.round((s.closed ? Number(s.rentalShare) || 0 : rental - closedTotal) * 100) / 100,
   }));
