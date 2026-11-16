@@ -32,27 +32,52 @@ const isBlank = (v) => v === undefined || v === null || String(v).trim() === "";
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const text = (v, max) => (isBlank(v) ? null : String(v).trim().slice(0, max));
 
+// Only a plain amount is accepted: a JSON number, or text of digits with an
+// optional point and up to 2 decimals ("1500", "1500.50"). Number() alone would
+// let "1e3", "0x10", true or [5] through as amounts.
+const AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
 function cleanAmount(value, label) {
-  const n = Number(value);
-  if (isBlank(value) || !Number.isFinite(n) || n <= 0) throw badRequest(`${label} must be greater than zero.`);
+  const raw = typeof value === "number" ? value : typeof value === "string" ? value.trim() : null;
+  if (raw === null || raw === "") throw badRequest(`Enter the ${label.toLowerCase()}.`);
+  if (typeof raw === "string" && !AMOUNT_RE.test(raw)) {
+    throw badRequest(`${label} must be a number greater than zero, with at most 2 decimal places (e.g. 1500.50).`);
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) throw badRequest(`${label} must be greater than zero.`);
   if (round2(n) !== n) throw badRequest(`${label} can have at most 2 decimal places.`);
   if (n > 1e9) throw badRequest(`${label} is too large.`);
   return n;
 }
 
-// A real calendar date (YYYY-MM-DD), not later than tomorrow (a day of slack
-// for time zones — the business is in Singapore, the server may run on UTC).
+// Today's date in Singapore (YYYY-MM-DD), where the business is — the server
+// itself may run on UTC, which is still "yesterday" for the first 8 hours of a
+// Singapore day.
+const singaporeToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore" }).format(new Date());
+
+// A real calendar date (YYYY-MM-DD), not after today in Singapore.
 function cleanDate(value, label) {
   const s = String(value || "").trim();
+  if (!s) throw badRequest(`Enter the ${label.toLowerCase()}.`);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
   if (!d || d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) {
     throw badRequest(`Enter a valid ${label.toLowerCase()}.`);
   }
-  const limit = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  if (s > limit) throw badRequest(`${label} can't be in the future.`);
+  if (s > singaporeToday()) throw badRequest(`${label} can't be in the future.`);
   if (s < "2000-01-01") throw badRequest(`${label} is too far in the past.`);
   return s;
+}
+
+// Lender phone (optional): a Singapore number — exactly 8 digits, spaces
+// allowed, optionally written with +65 in front. Stored as "+65 9123 4567".
+const PHONE_ERROR = "Phone number must be exactly 8 digits (e.g. 9123 4567 or +65 9123 4567).";
+function cleanPhone(value) {
+  if (isBlank(value)) return null;
+  if (typeof value !== "string" && typeof value !== "number") throw badRequest(PHONE_ERROR);
+  const compact = String(value).replace(/\s+/g, "");
+  const m = compact.match(/^(?:\+65)?(\d{8})$/);
+  if (!m) throw badRequest(PHONE_ERROR);
+  return `+65 ${m[1].slice(0, 4)} ${m[1].slice(4)}`;
 }
 
 function cleanPayment(method, reference) {
@@ -227,8 +252,7 @@ async function addHistory(client, { loanId, repaymentId = null, action, oldValue
 async function createLenderIn(client, body, by) {
   const name = text(body?.name, 160);
   if (!name) throw badRequest("Enter the lender's name.");
-  const phone = text(body?.phone, 40);
-  if (phone && !/^[+()\d\s-]{6,40}$/.test(phone)) throw badRequest("Enter a valid phone number (digits, spaces, + and -).");
+  const phone = cleanPhone(body?.phone);
   const { rows: seq } = await client.query("SELECT nextval('company_loan_lender_seq') AS n");
   const id = `LND-${String(seq[0].n).padStart(4, "0")}`;
   const { rows } = await client.query(
@@ -248,8 +272,9 @@ async function updateLender(id, body, by) {
     if (!cur[0]) throw notFound("Lender");
     const name = body.name === undefined ? cur[0].name : text(body.name, 160);
     if (!name) throw badRequest("Enter the lender's name.");
-    const phone = body.phone === undefined ? cur[0].phone : text(body.phone, 40);
-    if (phone && !/^[+()\d\s-]{6,40}$/.test(phone)) throw badRequest("Enter a valid phone number (digits, spaces, + and -).");
+    // Checked only when a phone is sent, so a lender saved before this rule
+    // keeps its number until someone changes it.
+    const phone = body.phone === undefined ? cur[0].phone : cleanPhone(body.phone);
     const notes = body.notes === undefined ? cur[0].notes : text(body.notes, 2000);
     const { rows } = await client.query(
       "UPDATE company_loan_lenders SET name = $2, phone = $3, notes = $4, updated_at = now() WHERE id = $1 RETURNING *",

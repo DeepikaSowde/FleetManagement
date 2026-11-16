@@ -50,12 +50,52 @@ function StatCard({ label, value, sub, color }) {
   );
 }
 
-const Field = ({ label, required, children }) => (
+// ── Field validation — mirrors companyLoanModel.js on the server, which checks
+// every rule again so nothing invalid can be saved through the API either.
+const AMOUNT_RE = /^\d+(\.\d{1,2})?$/;
+// Keeps only what an amount can contain while typing: digits, one point, and
+// at most 2 decimals — so letters, "e", "+" and "-" never get in.
+const amountInput = (raw) => {
+  let s = String(raw).replace(/[^\d.]/g, "");
+  const dot = s.indexOf(".");
+  if (dot >= 0) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+  return s;
+};
+const amountError = (value, label) => {
+  const s = String(value ?? "").trim();
+  if (!s) return `Enter the ${label.toLowerCase()}.`;
+  if (!AMOUNT_RE.test(s)) return `${label} must be a number with at most 2 decimal places.`;
+  if (Number(s) <= 0) return `${label} must be greater than zero.`;
+  if (Number(s) > 1e9) return `${label} is too large.`;
+  return "";
+};
+const dateError = (value, label) => {
+  const s = String(value || "");
+  if (!s) return `Enter the ${label.toLowerCase()}.`;
+  const d = new Date(`${s}T00:00:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || isNaN(d) || d.toLocaleDateString("en-CA") !== s) return `Enter a valid ${label.toLowerCase()}.`;
+  if (s > today()) return `${label} can't be in the future.`;
+  if (s < "2000-01-01") return `${label} is too far in the past.`;
+  return "";
+};
+// Optional Singapore phone: exactly 8 digits, spaces allowed, +65 in front allowed.
+const phoneInput = (raw) => String(raw).replace(/[^\d+\s]/g, "");
+const phoneError = (value) => {
+  const s = String(value || "").replace(/\s+/g, "");
+  if (!s) return "";
+  return /^(?:\+65)?\d{8}$/.test(s) ? "" : "Phone number must be exactly 8 digits (e.g. 9123 4567 or +65 9123 4567).";
+};
+
+const FieldError = ({ message }) => (message ? <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{message}</div> : null);
+const withError = (style, error) => (error ? { ...style, borderColor: C.red } : style);
+
+const Field = ({ label, required, error, children }) => (
   <div style={{ marginBottom: 14 }}>
     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6, color: C.textPri }}>
       {label}{required && <span style={{ color: C.red }}> *</span>}
     </label>
     {children}
+    <FieldError message={error} />
   </div>
 );
 
@@ -68,19 +108,28 @@ const StatusBadge = ({ loan }) => (loan.status === "Open"
   : <Badge color={C.textSec} bg={C.linen}>{loan.outstanding > 0 ? "Closed · balance owed" : "Closed"}</Badge>);
 
 // The app's existing payment method + "Transaction ID / Reference Number" pair.
-const PaymentFields = ({ method, setMethod, reference, setReference, methodLabel = "Payment Method" }) => (
+// `errors` holds the messages from the last Save click ({ method, reference });
+// while typing, PaymentRefError shows the reference rule live.
+const PaymentFields = ({ method, setMethod, reference, setReference, methodLabel = "Payment Method", errors = {} }) => (
   <>
-    <Field label={methodLabel} required>
-      <select value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle}>
+    <Field label={methodLabel} required error={errors.method}>
+      <select value={method} onChange={(e) => setMethod(e.target.value)} style={withError(inputStyle, errors.method)}>
         {TRANSACTION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
       </select>
     </Field>
     <Field label={REFERENCE_LABEL} required={referenceRequired(method)}>
-      <input value={reference} maxLength={referenceMaxLength(method)} placeholder={referencePlaceholder(method)} onChange={(e) => setReference(e.target.value)} style={inputStyle} />
-      <PaymentRefError method={method} value={reference} />
+      <input value={reference} maxLength={referenceMaxLength(method)} placeholder={referencePlaceholder(method)} onChange={(e) => setReference(e.target.value)} style={withError(inputStyle, errors.reference)} />
+      {String(reference || "").trim() ? <PaymentRefError method={method} value={reference} /> : <FieldError message={errors.reference} />}
     </Field>
   </>
 );
+
+// Method and reference checks shared by the loan and repayment forms.
+const paymentErrors = (method, reference) => ({
+  method: TRANSACTION_METHODS.includes(method) ? "" : "Choose a payment method.",
+  reference: validatePaymentReference(method, reference),
+});
+const hasErrors = (errors) => Object.values(errors).some(Boolean);
 
 /* ---------------------------------------------------------------- Add / edit loan */
 function LoanModal({ loan, lenders, onClose, onSaved }) {
@@ -94,19 +143,26 @@ function LoanModal({ loan, lenders, onClose, onSaved }) {
   const [reference, setReference] = useState(loan?.paymentReference || "");
   const [notes, setNotes] = useState(loan?.notes || "");
   const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState("");          // a refusal from the server
+  const [fieldErrors, setFieldErrors] = useState({}); // per-field, from the last Save click
   const [busy, setBusy] = useState(false);
+  // Fixing a field clears its own message right away.
+  const clearError = (key) => setFieldErrors((e) => (e[key] ? { ...e, [key]: "" } : e));
 
   const submit = async () => {
     if (busy) return;
+    const amountMsg = amountError(amount, "Borrowed amount");
     const n = Number(amount);
-    if (lenderMode === "existing" && !lenderId) return setError("Choose a lender, or add a new one.");
-    if (lenderMode === "new" && !newLender.name.trim()) return setError("Enter the new lender's name.");
-    if (!(n > 0)) return setError("Borrowed amount must be greater than zero.");
-    if (editing && n < loan.repaid) return setError(`The loan amount can't be less than what has already been repaid (${money(loan.repaid)}).`);
-    if (!borrowedDate) return setError("Enter the borrowed date.");
-    const refMsg = validatePaymentReference(method, reference);
-    if (refMsg) return setError(refMsg);
+    const errors = {
+      lender: lenderMode === "existing" && !lenderId ? "Choose a lender, or add a new one." : "",
+      lenderName: lenderMode === "new" && !newLender.name.trim() ? "Enter the lender's name." : "",
+      lenderPhone: lenderMode === "new" ? phoneError(newLender.phone) : "",
+      amount: amountMsg || (editing && n < loan.repaid ? `The loan amount can't be less than what has already been repaid (${money(loan.repaid)}).` : ""),
+      borrowedDate: dateError(borrowedDate, "Borrowed date"),
+      ...paymentErrors(method, reference),
+    };
+    setFieldErrors(errors);
+    if (hasErrors(errors)) return setError("");
     setBusy(true);
     setError("");
     try {
@@ -127,10 +183,10 @@ function LoanModal({ loan, lenders, onClose, onSaved }) {
     <Modal open title={editing ? `Edit Loan — ${loan.id}` : "Add Company Loan"} onClose={onClose} onSubmit={submit}
       submitText={busy ? "Saving…" : editing ? "Save Changes" : "Add Loan"} submitDisabled={busy} testId="company-loan">
       <ErrorBox message={error} />
-      <Field label="Lender" required>
+      <Field label="Lender" required error={fieldErrors.lender}>
         {lenderMode === "existing" ? (
           <>
-            <select value={lenderId} onChange={(e) => setLenderId(e.target.value)} style={inputStyle}>
+            <select value={lenderId} onChange={(e) => { setLenderId(e.target.value); clearError("lender"); }} style={withError(inputStyle, fieldErrors.lender)}>
               <option value="">-- Select lender --</option>
               {lenders.map((l) => <option key={l.id} value={l.id}>{l.name}{l.phone ? ` · ${l.phone}` : ""}</option>)}
             </select>
@@ -142,8 +198,8 @@ function LoanModal({ loan, lenders, onClose, onSaved }) {
           </>
         ) : (
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 12px 0" }}>
-            <Input label="Lender Name *" value={newLender.name} onChange={(e) => setNewLender({ ...newLender, name: e.target.value })} placeholder="Full name" maxLength={160} />
-            <Input label="Phone Number" value={newLender.phone} onChange={(e) => setNewLender({ ...newLender, phone: e.target.value })} placeholder="+65 9123 4567" maxLength={40} />
+            <Input label="Lender Name *" value={newLender.name} onChange={(e) => { setNewLender({ ...newLender, name: e.target.value }); clearError("lenderName"); }} placeholder="Full name" maxLength={160} error={fieldErrors.lenderName} />
+            <Input label="Phone Number" value={newLender.phone} onChange={(e) => { setNewLender({ ...newLender, phone: phoneInput(e.target.value) }); clearError("lenderPhone"); }} placeholder="+65 9123 4567" maxLength={16} inputMode="tel" error={fieldErrors.lenderPhone} />
             <Input label="Notes" value={newLender.notes} onChange={(e) => setNewLender({ ...newLender, notes: e.target.value })} placeholder="Optional" maxLength={2000} />
             {lenders.length > 0 && (
               <button type="button" onClick={() => setLenderMode("existing")} style={{ margin: "-6px 0 12px", background: "none", border: "none", color: C.teal, fontWeight: 700, fontSize: 12, cursor: "pointer", padding: 0 }}>
@@ -154,14 +210,14 @@ function LoanModal({ loan, lenders, onClose, onSaved }) {
         )}
         <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 4 }}>Lenders are a separate list — not the investors.</div>
       </Field>
-      <Field label="Borrowed Amount (SGD)" required>
-        <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} placeholder="0.00" />
+      <Field label="Borrowed Amount (SGD)" required error={fieldErrors.amount}>
+        <input type="text" inputMode="decimal" value={amount} onChange={(e) => { setAmount(amountInput(e.target.value)); clearError("amount"); }} style={withError(inputStyle, fieldErrors.amount)} placeholder="0.00" />
         {editing && loan.repaid > 0 && <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 4 }}>Already repaid: {money(loan.repaid)} — the amount can't go below this.</div>}
       </Field>
-      <Field label="Borrowed Date" required>
-        <input type="date" value={borrowedDate} max={today()} onChange={(e) => setBorrowedDate(e.target.value)} style={inputStyle} />
+      <Field label="Borrowed Date" required error={fieldErrors.borrowedDate}>
+        <input type="date" value={borrowedDate} min="2000-01-01" max={today()} onChange={(e) => { setBorrowedDate(e.target.value); clearError("borrowedDate"); }} style={withError(inputStyle, fieldErrors.borrowedDate)} />
       </Field>
-      <PaymentFields method={method} setMethod={setMethod} reference={reference} setReference={setReference} methodLabel="Payment Method (how the money was received)" />
+      <PaymentFields method={method} setMethod={(m) => { setMethod(m); clearError("method"); clearError("reference"); }} reference={reference} setReference={(r) => { setReference(r); clearError("reference"); }} methodLabel="Payment Method (how the money was received)" errors={fieldErrors} />
       <Field label="Notes">
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={2000} style={{ ...inputStyle, resize: "vertical" }} placeholder="Optional" />
       </Field>
@@ -185,19 +241,25 @@ function RepaymentModal({ loan, repayment, onClose, onSaved }) {
   const [reference, setReference] = useState(repayment?.paymentReference || "");
   const [notes, setNotes] = useState(repayment?.notes || "");
   const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState("");          // a refusal from the server
+  const [fieldErrors, setFieldErrors] = useState({}); // per-field, from the last Save click
   const [busy, setBusy] = useState(false);
+  const clearError = (key) => setFieldErrors((e) => (e[key] ? { ...e, [key]: "" } : e));
   const n = Number(amount);
   const after = n > 0 ? Math.round((owedNow - n) * 100) / 100 : owedNow;
 
   const submit = async () => {
     if (busy) return;
-    if (!(n > 0)) return setError("Repayment amount must be greater than zero.");
-    if (n > owedNow) return setError(`The repayment can't be more than the outstanding balance (${money(owedNow)}).`);
-    if (!repaymentDate) return setError("Enter the repayment date.");
-    if (repaymentDate < loan.borrowedDate) return setError(`The repayment date can't be before the loan was borrowed (${fmtDate(loan.borrowedDate)}).`);
-    const refMsg = validatePaymentReference(method, reference);
-    if (refMsg) return setError(refMsg);
+    const dateMsg = dateError(repaymentDate, "Repayment date");
+    const errors = {
+      amount: amountError(amount, "Repayment amount")
+        || (n > owedNow ? `The repayment can't be more than the outstanding balance (${money(owedNow)}).` : ""),
+      repaymentDate: dateMsg
+        || (repaymentDate < loan.borrowedDate ? `The repayment date can't be before the loan was borrowed (${fmtDate(loan.borrowedDate)}).` : ""),
+      ...paymentErrors(method, reference),
+    };
+    setFieldErrors(errors);
+    if (hasErrors(errors)) return setError("");
     setBusy(true);
     setError("");
     try {
@@ -229,18 +291,18 @@ function RepaymentModal({ loan, repayment, onClose, onSaved }) {
           <div style={{ fontSize: 15, fontWeight: 800, color: after < 0 ? C.red : after === 0 ? C.green : C.navy, marginTop: 4 }}>{after < 0 ? "More than owed" : money(after)}</div>
         </div>
       </div>
-      <Field label="Repayment Amount (SGD)" required>
-        <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} placeholder="0.00" />
+      <Field label="Repayment Amount (SGD)" required error={fieldErrors.amount}>
+        <input type="text" inputMode="decimal" value={amount} onChange={(e) => { setAmount(amountInput(e.target.value)); clearError("amount"); }} style={withError(inputStyle, fieldErrors.amount)} placeholder="0.00" />
         <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-          <button type="button" onClick={() => setAmount(String(owedNow))} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700, color: C.teal, cursor: "pointer" }}>
+          <button type="button" onClick={() => { setAmount(String(owedNow)); clearError("amount"); }} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700, color: C.teal, cursor: "pointer" }}>
             Full repayment ({money(owedNow)})
           </button>
         </div>
       </Field>
-      <Field label="Repayment Date" required>
-        <input type="date" value={repaymentDate} min={loan.borrowedDate} max={today()} onChange={(e) => setRepaymentDate(e.target.value)} style={inputStyle} />
+      <Field label="Repayment Date" required error={fieldErrors.repaymentDate}>
+        <input type="date" value={repaymentDate} min={loan.borrowedDate} max={today()} onChange={(e) => { setRepaymentDate(e.target.value); clearError("repaymentDate"); }} style={withError(inputStyle, fieldErrors.repaymentDate)} />
       </Field>
-      <PaymentFields method={method} setMethod={setMethod} reference={reference} setReference={setReference} methodLabel="Payment Method (how it was paid back)" />
+      <PaymentFields method={method} setMethod={(m) => { setMethod(m); clearError("method"); clearError("reference"); }} reference={reference} setReference={(r) => { setReference(r); clearError("reference"); }} methodLabel="Payment Method (how it was paid back)" errors={fieldErrors} />
       <Field label="Notes">
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={2000} style={{ ...inputStyle, resize: "vertical" }} placeholder="Optional" />
       </Field>
