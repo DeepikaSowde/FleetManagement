@@ -147,10 +147,11 @@ const TimeInput12h = ({ value, onChange, style, disabled }) => {
   };
   return (
     <div style={{ display: "flex", gap: 6 }}>
-      <select disabled={disabled} value={hour} onChange={(e) => set(e.target.value, minute, ampm)} style={{ ...cell, flex: 1 }}>
+      {/* 54px floor so a 2-digit hour/minute never clips behind the arrow. */}
+      <select disabled={disabled} value={hour} onChange={(e) => set(e.target.value, minute, ampm)} style={{ ...cell, flex: "1 0 54px" }}>
         {HOUR_OPTIONS_12.map(h => <option key={h} value={h}>{h}</option>)}
       </select>
-      <select disabled={disabled} value={minute} onChange={(e) => set(hour, e.target.value, ampm)} style={{ ...cell, flex: 1 }}>
+      <select disabled={disabled} value={minute} onChange={(e) => set(hour, e.target.value, ampm)} style={{ ...cell, flex: "1 0 54px" }}>
         {MINUTE_OPTIONS_60.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
       <select disabled={disabled} value={ampm} onChange={(e) => set(hour, minute, e.target.value)} style={{ ...cell, flex: "0 0 62px" }}>
@@ -175,6 +176,7 @@ const TimeInput12h = ({ value, onChange, style, disabled }) => {
 //   be Available for the click to be accepted (a real bookable range can't
 //   cross an On Rental/Maintenance day).
 // "2026-08-23" → { day: "23", mon: "Aug'26", weekday: "Sunday" } for the
+// (weekday is no longer shown on the cards — it squeezed the time selects)
 // MakeMyTrip-style pickup/return summary cards above the calendars.
 const formatTravelDate = (iso) => {
   if (!iso) return null;
@@ -207,7 +209,6 @@ const TravelDateCard = ({ caption, iso, active, onClick, timeValue, onTimeChange
             <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
               <span style={{ fontSize: 22, fontWeight: 800, color: C.navy, lineHeight: 1 }}>{f.day}</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{f.mon}</span>
-              <span style={{ fontSize: 11, color: C.textSec, marginLeft: 2 }}>{f.weekday}</span>
             </div>
           ) : (
             <div style={{ fontSize: 13, fontWeight: 700, color: C.textMuted }}>{locked ? "— —" : "Select date ▾"}</div>

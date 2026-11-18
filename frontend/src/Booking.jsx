@@ -156,9 +156,23 @@ const hasHandedOver = (b) => !!b.handoverAt;
 // in HOURS (rounded UP, never down to 0 days); 24h+ keeps the existing whole-day
 // rounding, so daily/monthly bookings are unchanged. Used everywhere the list,
 // Rental Summary, and details show duration/rate so they stay consistent.
-const bookingDurationOf = (b) => {
-  const effectiveEnd = b.actualReturnAt || b.end;
-  const ms = (b.start && effectiveEnd) ? (new Date(effectiveEnd) - new Date(b.start)) : 0;
+//
+// Two views, kept separate like the scheduled vs actual times:
+//   - "booked" (default): scheduled Pickup → scheduled Return. Same rule as the
+//     New Booking wizard, so the Overview matches the days chosen there and
+//     never changes after an early/late return.
+//   - "actual": actual Vehicle Handover → actual Vehicle Return. Only once the
+//     car is back (null before). Display only — the stored rental amount and
+//     invoice are not re-priced by it.
+const bookingDurationOf = (b, mode = "booked") => {
+  let from = b.start;
+  let to = b.end;
+  if (mode === "actual") {
+    if (!b.actualReturnAt) return null;
+    from = b.handoverAt || b.start;
+    to = b.actualReturnAt;
+  }
+  const ms = (from && to) ? (new Date(to) - new Date(from)) : 0;
   // Monthly contracts are billed per month — report months + SGD/month.
   if (b.rentalType === "monthly") {
     const months = Math.max(1, parseInt(b.contractMonths, 10) || Math.round(Math.max(0, ms) / (30 * 86400000)) || 1);
@@ -1697,7 +1711,8 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                 {[
                   { label: "Booking ID", value: booking.id },
                   { label: "Booking Status", value: booking.status },
-                  { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.actualReturnAt || booking.end)}` },
+                  // Booked period (scheduled → scheduled), matching Total Rental Days below.
+                  { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.end)}` },
                   { label: "Pickup Date & Time", value: formatDateTime(booking.start) || "—" },
                   // Always the scheduled return. The real return moment (actualReturnAt, set by a
                   // normal return or a cancellation with return) is shown on its own row below;
@@ -1728,6 +1743,14 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     ) : (
                       <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Pending</span>
                     )}
+                  </div>
+                )}
+                {/* Actual Vehicle Handover → actual Vehicle Return, once the car is back
+                    (e.g. booked 5 days, returned 2 days early → 3 Days). */}
+                {hasHandedOver(booking) && bookingDurationOf(booking, "actual") && (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                    <span style={{ color: C.textMuted }}>Actual Rental Days</span>
+                    <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>{bookingDurationOf(booking, "actual").summary}</span>
                   </div>
                 )}
               </div>
@@ -2736,7 +2759,9 @@ const CarHistory = ({ booking, fleet }) => {
           <tbody>
             {segments.map((s, i) => {
               const earned = split ? split[i].total : (isMonthly ? null : rentalTotal);
-              const days = split ? split[i].days : bookingDurationOf(booking).count;
+              // Unchanged booking: actual days once returned (matches the Handover/Return
+              // columns), booked days while still out. Changed bookings keep the swap split.
+              const days = split ? split[i].days : (bookingDurationOf(booking, "actual") || bookingDurationOf(booking)).count;
               return (
                 <tr key={`${s.plate}-${i}`}>
                   <td style={cell}>
@@ -3079,7 +3104,7 @@ const Booking = ({
         {view === "grid" && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12, padding: 16 }}>
             {pageRows.map(b => {
-              const { days, agreementTotal: total } = computeBookingInvoice(b);
+              const { agreementTotal: total } = computeBookingInvoice(b);
               return (
                 <div key={b.id} data-testid="booking-row" data-booking-id={b.id} onClick={() => setTimelinePlate(b.plate)}
                   style={{ border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.green}`, borderRadius: 12, padding: 14, cursor: "pointer", background: C.surface }}>
@@ -3091,7 +3116,7 @@ const Booking = ({
                   <div style={{ fontSize: 11.5, color: C.textSec, marginBottom: 8 }}>🚗 {b.pickup || "—"} · {b.plate}</div>
                   <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>📅 {formatDateTime(b.start)} → {formatDateTime(b.end)}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                    <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(total)}<span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}> · {days}d</span></div>
+                    <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: C.teal }}>{fmt(total)}<span style={{ fontSize: 10, color: C.textMuted, fontWeight: 400 }}> · {bookingDurationOf(b).listCount}{bookingDurationOf(b).unit === "day" ? "d" : ""}</span></div>
                     <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                       <IconBtn testid="booking-row-view" title="View booking" color={C.green} onClick={() => { setOpenDetailId(b.id); setActiveDetailTab("Overview"); }}>👁</IconBtn>
                       <IconBtn testid="booking-row-edit" title="Edit booking" color={C.green} onClick={() => onEditBooking?.(b)}>✏️</IconBtn>
