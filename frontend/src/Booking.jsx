@@ -2721,7 +2721,7 @@ const CarHistory = ({ booking, fleet }) => {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
           <thead>
-            <tr>{["Car", "From", "To", "Days", "Rate", "Earned", "Driven", ""].map((h) => <th key={h} style={{ ...head, textAlign: ["Days", "Rate", "Earned"].includes(h) ? "right" : "left" }}>{h}</th>)}</tr>
+            <tr>{["Car", "Vehicle Handover", "Vehicle Return", "Days", "Rate", "Earned", "Driven", ""].map((h) => <th key={h} style={{ ...head, textAlign: ["Days", "Rate", "Earned"].includes(h) ? "right" : "left" }}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {segments.map((s, i) => {
@@ -2734,8 +2734,11 @@ const CarHistory = ({ booking, fleet }) => {
                     <div style={{ fontSize: 10.5, color: C.textMuted }}>{carName(s.plate) || "—"}{!s.closed ? " · current" : ""}</div>
                     {s.reason && <div style={{ fontSize: 10.5, color: C.textMuted }}>Changed: {s.reason}</div>}
                   </td>
-                  <td style={cell}>{formatDateTime(s.start) || "—"}</td>
-                  <td style={cell}>{s.closed ? formatDateTime(s.end) : `${formatDateTime(booking.actualReturnAt || booking.end)}${booking.actualReturnAt ? "" : " (due)"}`}</td>
+                  {/* Actual times, not the scheduled Pickup/Return. The first car was handed over
+                      at booking.handoverAt; a later car at its swap time (s.start). A swapped-out car
+                      was received back at its swap time (s.end); the current car at actualReturnAt. */}
+                  <td style={cell}>{(i === 0 ? formatDateTime(booking.handoverAt) : formatDateTime(s.start)) || "—"}</td>
+                  <td style={cell}>{(s.closed ? formatDateTime(s.end) : formatDateTime(booking.actualReturnAt)) || "—"}</td>
                   <td style={{ ...cell, textAlign: "right" }}>{isMonthly ? "—" : days}</td>
                   <td style={{ ...cell, textAlign: "right", ...mono }}>{fmt(Number(s.closed ? s.rate : booking.rate) || 0)}</td>
                   <td style={{ ...cell, textAlign: "right", ...mono }}>{earned === null ? "—" : fmt(Math.round(earned * 100) / 100)}</td>
