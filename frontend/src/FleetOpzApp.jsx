@@ -80,6 +80,15 @@ const DRIVER_LICENSE_CHARS_ERROR = "Driving License No. must contain only letter
 // the user sees an error and must shorten it themselves before proceeding.
 const ADDRESS_MAX_LENGTH = 200;
 
+// Current date ("YYYY-MM-DD") and time ("HH:MM") on the user's own clock —
+// the default stamp for a deposit/advance collected in the New Booking
+// wizard. Local date, not toISOString(): that's UTC, which in Singapore is
+// still "yesterday" before 8 AM.
+const nowStamp = () => {
+  const d = new Date();
+  return { date: d.toLocaleDateString("en-CA"), time: d.toTimeString().slice(0, 5) };
+};
+
 // Contact / Phone Number country codes + validation helpers now live in the
 // shared contactCodes module so the New Booking wizard and the Add / Edit
 // Customer form stay identical. (CONTACT_COUNTRY_CODES, contactDigitsRequired,
@@ -684,7 +693,7 @@ export default function FleetOpzApp() {
     // Payment Date/Time for the Advance — defaults to right now
     // (still fully editable) so this money's place in Payment History is
     // accurate even if entered/backdated later.
-    amountCollectedDate: new Date().toISOString().slice(0, 10),
+    amountCollectedDate: nowStamp().date,
     amountCollectedTime: new Date().toTimeString().slice(0, 5),
     // Security Deposit collection (Step 4) — in the deposit-first flow the
     // refundable deposit is what's collected to confirm a booking (the rental
@@ -699,7 +708,7 @@ export default function FleetOpzApp() {
     depositPaid: "",
     depositCollectedMethod: "Cash",
     depositReference: "",
-    depositCollectedDate: new Date().toISOString().slice(0, 10),
+    depositCollectedDate: nowStamp().date,
     depositCollectedTime: new Date().toTimeString().slice(0, 5),
     // Vehicle Handover fields — captured from Step 5 (Review) while editing
     // an existing booking, not at creation time. startingMileage/fuelLevel
@@ -756,6 +765,9 @@ export default function FleetOpzApp() {
   // placeholder). Reset when starting a new booking; set when editing an existing
   // one so its saved amount isn't overwritten.
   const rentalPrefillEditedRef = useRef(false);
+  // Set once staff change a Payment step Date/Time by hand (e.g. backdating),
+  // so refreshPaymentStamps below stops overwriting it. Reset per new booking.
+  const paymentStampEditedRef = useRef({ deposit: false, advance: false });
   useEffect(() => {
     if (!openCalendar) return;
     const onDown = (e) => {
@@ -1184,7 +1196,23 @@ export default function FleetOpzApp() {
     const errors = validateStep3();
     setFieldErrors(prev => ({ ...prev, rentalAmount: undefined, deductible: undefined, additionalDriverCharge: undefined, ...errors }));
     if (Object.keys(errors).length) return;
+    refreshPaymentStamps();
     setBookingStep(4);
+  };
+
+  // The deposit/advance Date & Time default to the moment staff reach the
+  // Payment step — not to whenever the form state happened to be created
+  // (page load, or when the previous booking's wizard was closed), which
+  // left a stale time on screen and on the saved booking. A value staff set
+  // by hand is kept. Not for edits: an existing booking keeps its own record.
+  const refreshPaymentStamps = () => {
+    if (editingBookingId) return;
+    const { date, time } = nowStamp();
+    setNewBookingData(prev => ({
+      ...prev,
+      ...(paymentStampEditedRef.current.deposit ? {} : { depositCollectedDate: date, depositCollectedTime: time }),
+      ...(paymentStampEditedRef.current.advance ? {} : { amountCollectedDate: date, amountCollectedTime: time }),
+    }));
   };
 
   // Step 4 → Step 5.
@@ -1204,6 +1232,7 @@ export default function FleetOpzApp() {
 
   const openNewBookingModal = () => {
     rentalPrefillEditedRef.current = false;
+    paymentStampEditedRef.current = { deposit: false, advance: false };
     setBookingStep(1);
     setShowNewBooking(true);
   };
@@ -1212,6 +1241,7 @@ export default function FleetOpzApp() {
   // chosen car and (optionally) the searched pickup/return window.
   const openBookingForCar = (plate, start, end) => {
     rentalPrefillEditedRef.current = false;
+    paymentStampEditedRef.current = { deposit: false, advance: false };
     setEditingBookingId(null);
     // Prefill the Daily Rate from the car's target rate, exactly as the Car
     // (Plate) dropdown does — otherwise arriving here from Car Availability
@@ -1310,7 +1340,7 @@ export default function FleetOpzApp() {
       amountCollected: "0",
       paymentMethod: "Cash",
       referenceCode: "",
-      amountCollectedDate: new Date().toISOString().slice(0, 10),
+      amountCollectedDate: nowStamp().date,
       amountCollectedTime: new Date().toTimeString().slice(0, 5),
       // Deposit collection isn't edited here (Step 4 is read-only while editing);
       // seeded from defaults and excluded from the update in handleSubmitBooking.
@@ -1318,7 +1348,7 @@ export default function FleetOpzApp() {
       depositPaid: booking.depositPaid ?? "",
       depositCollectedMethod: "Cash",
       depositReference: "",
-      depositCollectedDate: new Date().toISOString().slice(0, 10),
+      depositCollectedDate: nowStamp().date,
       depositCollectedTime: new Date().toTimeString().slice(0, 5),
       startingMileage: booking.startingMileage || previous?.mileage || "",
       staffToCustomerKm: booking.staffToCustomerKm ?? "",
@@ -1361,7 +1391,7 @@ export default function FleetOpzApp() {
     setShowNewBooking(false);
     setBookingStep(1);
     setEditingBookingId(null);
-    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachments: [], comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: new Date().toISOString().slice(0, 10), amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: new Date().toISOString().slice(0, 10), depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", staffToCustomerKm: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
+    setNewBookingData({ plate: "", customer: "", ic: "", contact: "", passport: "", address: "", customerType: "Local", age: "", drivingExperience: "", start: "", end: "", pickupDate: "", pickupTime: "", returnDate: "", returnTime: "", pickup: "", drop: "", rate: "", rentalAmount: "", deductible: "", vatRate: "", deliveryCharge: "", collectionCharge: "", additionalDriverCharge: "", otherCharges: "", charges: [], additionalDrivers: [], license: "", licenseExpiry: "", attachments: [], comments: "", amountCollected: "0", paymentMethod: "Cash", referenceCode: "", amountCollectedDate: nowStamp().date, amountCollectedTime: new Date().toTimeString().slice(0, 5), depositCollected: true, depositCollectedMethod: "Cash", depositReference: "", depositCollectedDate: nowStamp().date, depositCollectedTime: new Date().toTimeString().slice(0, 5), startingMileage: "", staffToCustomerKm: "", fuelLevel: "", vehicleCondition: "", mileageIn: "", customerReturnMileage: "", fuelIn: "Full" });
     setAttachmentError("");
     setContactError("");
     setMatchedCustomer(null);
@@ -3257,11 +3287,11 @@ export default function FleetOpzApp() {
                       </div>
                       <div>
                         <label style={bookingFieldLabelStyle}>Payment Date</label>
-                        <input type="date" value={newBookingData.amountCollectedDate} onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })} min={DATE_MIN} max={DATE_MAX} style={bookingFieldInputStyle(false)} />
+                        <input type="date" value={newBookingData.amountCollectedDate} onChange={(e) => { paymentStampEditedRef.current.advance = true; setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value }); }} min={DATE_MIN} max={DATE_MAX} style={bookingFieldInputStyle(false)} />
                       </div>
                       <div>
                         <label style={bookingFieldLabelStyle}>Payment Time</label>
-                        <input type="time" value={newBookingData.amountCollectedTime} onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value })} style={bookingFieldInputStyle(false)} />
+                        <input type="time" value={newBookingData.amountCollectedTime} onChange={(e) => { paymentStampEditedRef.current.advance = true; setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value }); }} style={bookingFieldInputStyle(false)} />
                       </div>
                     </div>
 
@@ -3350,7 +3380,7 @@ export default function FleetOpzApp() {
                             <input
                               type="date"
                               value={newBookingData.depositCollectedDate}
-                              onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedDate: e.target.value })}
+                              onChange={(e) => { paymentStampEditedRef.current.deposit = true; setNewBookingData({ ...newBookingData, depositCollectedDate: e.target.value }); }}
                               min={DATE_MIN} max={DATE_MAX}
                               style={bookingFieldInputStyle(false)}
                             />
@@ -3360,7 +3390,7 @@ export default function FleetOpzApp() {
                             <input
                               type="time"
                               value={newBookingData.depositCollectedTime}
-                              onChange={(e) => setNewBookingData({ ...newBookingData, depositCollectedTime: e.target.value })}
+                              onChange={(e) => { paymentStampEditedRef.current.deposit = true; setNewBookingData({ ...newBookingData, depositCollectedTime: e.target.value }); }}
                               style={bookingFieldInputStyle(false)}
                             />
                           </div>
@@ -3404,7 +3434,7 @@ export default function FleetOpzApp() {
                               <input
                                 type="date"
                                 value={newBookingData.amountCollectedDate}
-                                onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value })}
+                                onChange={(e) => { paymentStampEditedRef.current.advance = true; setNewBookingData({ ...newBookingData, amountCollectedDate: e.target.value }); }}
                                 min={DATE_MIN} max={DATE_MAX}
                                 style={bookingFieldInputStyle(false)}
                               />
@@ -3414,7 +3444,7 @@ export default function FleetOpzApp() {
                               <input
                                 type="time"
                                 value={newBookingData.amountCollectedTime}
-                                onChange={(e) => setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value })}
+                                onChange={(e) => { paymentStampEditedRef.current.advance = true; setNewBookingData({ ...newBookingData, amountCollectedTime: e.target.value }); }}
                                 style={bookingFieldInputStyle(false)}
                               />
                             </div>
