@@ -2754,14 +2754,19 @@ const CarHistory = ({ booking, fleet }) => {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
           <thead>
-            <tr>{["Car", "Vehicle Handover", "Vehicle Return", "Days", "Rate", "Earned", "Driven", ""].map((h) => <th key={h} style={{ ...head, textAlign: ["Days", "Rate", "Earned"].includes(h) ? "right" : "left" }}>{h}</th>)}</tr>
+            <tr>{["Car", "Vehicle Handover", "Vehicle Return", "Duration", "Rate", "Earned", "Driven", ""].map((h) => <th key={h} style={{ ...head, textAlign: ["Duration", "Rate", "Earned"].includes(h) ? "right" : "left" }}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {segments.map((s, i) => {
               const earned = split ? split[i].total : (isMonthly ? null : rentalTotal);
               // Unchanged booking: actual days once returned (matches the Handover/Return
               // columns), booked days while still out. Changed bookings keep the swap split.
-              const days = split ? split[i].days : (bookingDurationOf(booking, "actual") || bookingDurationOf(booking)).count;
+              // Shown with its unit so a same-day rental reads "9 Hrs", not a bare
+              // number that looks like days — same duration as the Rental Summary.
+              const dur = bookingDurationOf(booking, "actual") || bookingDurationOf(booking);
+              const days = split
+                ? `${split[i].days} Day${split[i].days === 1 ? "" : "s"}`
+                : dur.isHourly ? `${dur.count} Hr${dur.count === 1 ? "" : "s"}` : dur.summary;
               return (
                 <tr key={`${s.plate}-${i}`}>
                   <td style={cell}>

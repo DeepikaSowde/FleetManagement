@@ -44,6 +44,17 @@ const fmtTime12h = (hhmm) => {
   return `${h12}:${pad2(m)} ${period}`;
 };
 
+// Any stored timestamp → local ["YYYY-MM-DD", "HH:MM"]. handoverAt is saved as
+// a UTC ISO string ("…T11:07:00.000Z"), so slicing its text printed UTC time
+// (5h30 early in India); parsing through Date shows the local time the app
+// shows. Naive "YYYY-MM-DDTHH:MM" values already parse as local — unchanged.
+const localParts = (v) => {
+  if (!v) return [null, null];
+  const d = new Date(v);
+  if (isNaN(d)) return String(v).split("T");
+  return [`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`, `${pad2(d.getHours())}:${pad2(d.getMinutes())}`];
+};
+
 const money = (n) => `SGD ${(Number(n) || 0).toFixed(2)}`;
 
 // Auto Receipt/Reference Number in the shape "20260829001" — the issue date
@@ -207,7 +218,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
   if (carHistory.length > 0) {
     y += 3;
     y = cellRow(y, [{ w: contentWidth, text: "Vehicle Changes During This Rental", bold: true }]);
-    const dt = (v) => (v ? `${fmtDateSlash(String(v).slice(0, 10))} ${fmtTime12h(String(v).slice(11, 16))}` : "—");
+    const dt = (v) => { const [d, t] = localParts(v); return v ? `${fmtDateSlash(d)} ${fmtTime12h(t)}` : "—"; };
     carHistory.forEach((s) => {
       const startKm = (Number(s.startOdo) || 0) + (Number(s.staffKm) || 0);
       const driven = has(s.startOdo) && has(s.endOdo) ? ` · ${Math.max(0, Number(s.endOdo) - startKm)} km` : "";
@@ -232,7 +243,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
   // original pickup / current pickup / start date-time for a booking that
   // hasn't been handed over yet, so the invoice never shows a blank Pick-up.
   const [startDatePart, startTimePart] = (booking.start || "").split("T");
-  const [handoverDatePart, handoverTimePart] = booking.handoverAt ? booking.handoverAt.split("T") : [null, null];
+  const [handoverDatePart, handoverTimePart] = localParts(booking.handoverAt);
   const pickupDateEffective = handoverDatePart || booking.originalPickupDate || booking.pickupDate || startDatePart || "";
   const pickupTimeEffective = (handoverTimePart ? handoverTimePart.slice(0, 5) : null) || booking.originalPickupTime || booking.pickupTime || (startTimePart ? startTimePart.slice(0, 5) : "");
 
@@ -240,9 +251,7 @@ export const generateInvoicePdf = (booking, car, inv) => {
   // reflects the real return date/time — possibly edited for an early or late
   // return — and takes over the Drop-off column from the originally planned
   // returnDate/returnTime.
-  const [actualReturnDatePart, actualReturnTimePart] = booking.actualReturnAt
-    ? booking.actualReturnAt.split("T")
-    : [null, null];
+  const [actualReturnDatePart, actualReturnTimePart] = localParts(booking.actualReturnAt);
   const dropDate = actualReturnDatePart || booking.returnDate;
   const dropTime = actualReturnTimePart || booking.returnTime;
   const col0 = contentWidth * 0.25, col1 = contentWidth * 0.375, col2 = contentWidth * 0.375;
