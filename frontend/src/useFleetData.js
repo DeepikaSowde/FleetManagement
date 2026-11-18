@@ -57,6 +57,20 @@ const addMonthsClamped = (date, months) => {
 //     reflects that new date immediately, since actualReturnAt still isn't set.
 export const getEffectiveBookingEnd = (booking) => booking.actualReturnAt || booking.end;
 
+// ── RENTAL DURATION (billing units) ─────────────────────────────────────────
+// The one rule for "how long is this rental" in billable units, from the
+// pickup and return date-times: under 24 hours it bills per HOUR (rounded up,
+// at least 1); from 24 hours on it bills per DAY, rounded UP — any part of a
+// day counts as a full day (6 days 7.5 h = 7 days). The New Booking wizard
+// (duration chip + suggested price) and the booking Overview / list both read
+// this, so the days a booking was priced on are the days it shows.
+export const computeRentalDuration = (from, to) => {
+  const hoursExact = from && to ? Math.max(0, (new Date(to) - new Date(from)) / 3600000) : 0;
+  if (!(hoursExact > 0)) return { hoursExact: 0, isHourly: false, units: 0, unit: "day" };
+  if (hoursExact < 24) return { hoursExact, isHourly: true, units: Math.max(1, Math.ceil(hoursExact)), unit: "hour" };
+  return { hoursExact, isHourly: false, units: Math.max(1, Math.ceil(hoursExact / 24)), unit: "day" };
+};
+
 // ── CHANGE CAR: a booking's cars over time ──────────────────────────────────
 // A booking can change car mid-rental (Change Car, see carSwap.js). The cars
 // it used before are closed segments in `carHistory` ({ plate, from, to, ... },

@@ -30,7 +30,7 @@ const BOOKING_STAT_META = {
   Closed:         { title: "Closed", sub: "Total Closed", icon: "🔒", accent: C.navyMid },
   Cancelled:      { title: "Cancelled", sub: "Cancelled", icon: "🚫", accent: C.red },
 };
-import { computeCarAvailabilityTimeline, isBookingClosedOut, getBookingCarSegments, computeCarEarningSplit } from "./useFleetData";
+import { computeCarAvailabilityTimeline, isBookingClosedOut, getBookingCarSegments, computeCarEarningSplit, computeRentalDuration } from "./useFleetData";
 import ChangeCar from "./ChangeCar";
 import { generateVehicleChangeSlip } from "./vehicleChangeSlip";
 import { generateInvoicePdf, nextReceiptNumber } from "./invoicePdf";
@@ -151,19 +151,19 @@ const formatDateTime = (v) => {
 // than trying to read handover state off the status label.
 const hasHandedOver = (b) => !!b.handoverAt;
 
-// Rental duration, computed exactly from Pickup → Return date/time (the actual
-// return once the car is back, else the scheduled end). Under 24h it's reported
-// in HOURS (rounded UP, never down to 0 days); 24h+ keeps the existing whole-day
-// rounding, so daily/monthly bookings are unchanged. Used everywhere the list,
-// Rental Summary, and details show duration/rate so they stay consistent.
+// Rental duration for the list, Rental Summary and details. Under 24h it's
+// reported in HOURS (rounded up, never 0); monthly contracts in months.
 //
 // Two views, kept separate like the scheduled vs actual times:
-//   - "booked" (default): scheduled Pickup → scheduled Return. Same rule as the
-//     New Booking wizard, so the Overview matches the days chosen there and
-//     never changes after an early/late return.
+//   - "booked" (default): scheduled Pickup → scheduled Return, in billable
+//     units — computeRentalDuration, the exact function the New Booking wizard
+//     prices and labels with (days rounded UP: 6 days 7.5 h = 7 days), so the
+//     Overview always shows the days the booking was created and priced on,
+//     and never changes after an early/late return.
 //   - "actual": actual Vehicle Handover → actual Vehicle Return. Only once the
-//     car is back (null before). Display only — the stored rental amount and
-//     invoice are not re-priced by it.
+//     car is back (null before). The time the car was really out, to the
+//     nearest day — display only; the stored rental amount and invoice are
+//     not re-priced by it.
 const bookingDurationOf = (b, mode = "booked") => {
   let from = b.start;
   let to = b.end;
@@ -178,13 +178,15 @@ const bookingDurationOf = (b, mode = "booked") => {
     const months = Math.max(1, parseInt(b.contractMonths, 10) || Math.round(Math.max(0, ms) / (30 * 86400000)) || 1);
     return { unit: "month", isHourly: false, count: months, listCount: `${months} mo`, summary: `${months} Month${months === 1 ? "" : "s"}` };
   }
-  const hoursExact = Math.max(0, ms / 3600000);
-  if (hoursExact > 0 && hoursExact < 24) {
-    const hrs = Math.max(1, Math.ceil(hoursExact));
-    return { unit: "hr", isHourly: true, count: hrs, listCount: `${hrs} hr${hrs === 1 ? "" : "s"}`, summary: `${hrs} Hour${hrs === 1 ? "" : "s"}` };
+  const hours = (n) => ({ unit: "hr", isHourly: true, count: n, listCount: `${n} hr${n === 1 ? "" : "s"}`, summary: `${n} Hour${n === 1 ? "" : "s"}` });
+  const days = (n) => ({ unit: "day", isHourly: false, count: n, listCount: `${n}`, summary: `${n} Day${n === 1 ? "" : "s"}` });
+  if (mode === "booked") {
+    const d = computeRentalDuration(from, to);
+    return d.isHourly ? hours(d.units) : days(d.units);
   }
-  const days = Math.max(0, Math.round(ms / 86400000));
-  return { unit: "day", isHourly: false, count: days, listCount: `${days}`, summary: `${days} Day${days === 1 ? "" : "s"}` };
+  const hoursExact = Math.max(0, ms / 3600000);
+  if (hoursExact > 0 && hoursExact < 24) return hours(Math.max(1, Math.ceil(hoursExact)));
+  return days(Math.max(0, Math.round(ms / 86400000)));
 };
 // True once the pickup date/time has arrived but handover still hasn't
 // happened — used to surface an "Awaiting Handover" flag so staff notice

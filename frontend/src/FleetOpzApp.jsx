@@ -9,7 +9,7 @@ import { validatePaymentReference, REFERENCE_LABEL, referencePlaceholder, refere
 import PaymentRefError from "./PaymentRefError";
 import { DATE_MIN, DATE_MAX } from "./validation";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
-import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline } from "./useFleetData";
+import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline, computeRentalDuration } from "./useFleetData";
 import { useViewport } from "./useViewport";
 import { CONTACT_COUNTRY_CODES, contactDigitsRequired } from "./contactCodes";
 import { useAuth } from "./context/AuthContext";
@@ -2110,16 +2110,11 @@ export default function FleetOpzApp() {
   // is written back into state until Create Booking actually submits.
   // Duration → billing units. Under 24h bills per HOUR; otherwise per DAY with
   // days rounded UP (any part of a day counts as a full day).
-  const bookingHoursExact = (newBookingData.start && newBookingData.end)
-    ? Math.max(0, (new Date(newBookingData.end) - new Date(newBookingData.start)) / 3600000)
-    : 0;
-  const bookingIsHourly = bookingHoursExact > 0 && bookingHoursExact < 24;
-  const bookingUnits = bookingHoursExact <= 0
-    ? 0
-    : bookingIsHourly
-      ? Math.max(1, Math.ceil(bookingHoursExact))
-      : Math.max(1, Math.ceil(bookingHoursExact / 24));
-  const bookingUnitLabel = bookingIsHourly ? "hour" : "day";
+  // Shared with the booking Overview (computeRentalDuration in useFleetData.js).
+  const bookingDuration = computeRentalDuration(newBookingData.start, newBookingData.end);
+  const bookingIsHourly = bookingDuration.isHourly;
+  const bookingUnits = bookingDuration.units;
+  const bookingUnitLabel = bookingDuration.unit;
   const bookingDays = bookingIsHourly ? 0 : bookingUnits; // kept for day-only labels
   // Suggested rate = the car's daily rate (Step 2); per hour it's that ÷ 24.
   const bookingSuggestedDaily = Number(newBookingData.rate) || 0;
