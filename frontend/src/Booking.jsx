@@ -1699,10 +1699,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   { label: "Booking Status", value: booking.status },
                   { label: "Rental Period", value: `${formatDateTime(booking.start)} → ${formatDateTime(booking.actualReturnAt || booking.end)}` },
                   { label: "Pickup Date & Time", value: formatDateTime(booking.start) || "—" },
-                  // Once the vehicle is actually returned (normal return or a cancellation
-                  // with return), actualReturnAt holds the real return moment and takes over
-                  // from the scheduled end — same rule the invoice and duration already use.
-                  { label: "Return Date & Time", value: formatDateTime(booking.actualReturnAt || booking.end) || "—" },
+                  // Always the scheduled return. The real return moment (actualReturnAt, set by a
+                  // normal return or a cancellation with return) is shown on its own row below;
+                  // the invoice and duration still use it as before.
+                  { label: "Return Date & Time", value: formatDateTime(booking.end) || "—" },
                   { label: "Total Rental Days", value: bookingDurationOf(booking).summary },
                 ].map(row => (
                   <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
@@ -1720,6 +1720,16 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                     <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Pending</span>
                   )}
                 </div>
+                {hasHandedOver(booking) && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                    <span style={{ color: C.textMuted }}>Vehicle Return</span>
+                    {booking.actualReturnAt ? (
+                      <span style={{ color: C.navy, fontWeight: 600, textAlign: "right" }}>✅ {formatDateTime(booking.actualReturnAt)}</span>
+                    ) : (
+                      <span style={{ color: "#92400e", fontWeight: 600, textAlign: "right", fontSize: 11 }}>⏳ Pending</span>
+                    )}
+                  </div>
+                )}
               </div>
               )}
               {overviewTab === "Rental" && hasHandedOver(booking) && <CarHistory booking={booking} fleet={fleet} />}
