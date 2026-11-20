@@ -151,6 +151,30 @@ const formatDateTime = (v) => {
 // than trying to read handover state off the status label.
 const hasHandedOver = (b) => !!b.handoverAt;
 
+// ── Actual Return Date & Time (Vehicle Return and Cancel Booking) ───────────
+// One check for both forms; the server applies the same rules again
+// (checkActualReturn in backend/src/models/bookingModel.js):
+//   • not in the future — a past date is fine, today only up to the current time;
+//   • not before the vehicle handover — the current car's (the last Change Car
+//     swap if there was one), compared to the minute.
+const localDateOf = (v) => { const d = new Date(v); return isNaN(d) ? "" : d.toLocaleDateString("en-CA"); };
+const localToday = () => new Date().toLocaleDateString("en-CA");
+const returnFloorOf = (b) => b.currentCarFrom || b.handoverAt || null;
+const actualReturnError = (b, date, time) => {
+  if (!date || !time) return "Enter the Actual Return Date & Time.";
+  const at = new Date(`${date}T${time}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(at) || localDateOf(at) !== date) return "Enter a valid Actual Return Date.";
+  if (date > localToday()) return "Actual Return Date can't be in the future.";
+  if (at.getTime() > Date.now()) return "Actual Return Time can't be later than the current time.";
+  const floor = returnFloorOf(b);
+  if (floor) {
+    const f = new Date(floor);
+    f.setSeconds(0, 0);
+    if (at < f) return `Actual Return Date & Time can't be before the vehicle handover (${formatDateTime(floor)}).`;
+  }
+  return "";
+};
+
 // Rental duration for the list, Rental Summary and details. Under 24h it's
 // reported in HOURS (rounded up, never 0); monthly contracts in months.
 //
@@ -586,7 +610,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   };
   // Defaults to right now (still fully editable) so an on-time return needs
   // no changes, but an early or late return can be corrected before confirming.
-  const [actualReturnDate, setActualReturnDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [actualReturnDate, setActualReturnDate] = useState(localToday);
   const [actualReturnTime, setActualReturnTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
@@ -666,7 +690,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // Actual Return Date & Time captured when cancelling an active rental — drives
   // actualReturnAt so the duration, charges, Booking Details, and Invoice all
   // recalculate to the real return moment (see handleCancelRental).
-  const [cancelDate, setCancelDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cancelDate, setCancelDate] = useState(localToday);
   const [cancelTime, setCancelTime] = useState(() => new Date().toTimeString().slice(0, 5));
   const [cancelReason, setCancelReason] = useState("");
   const [cancelDepositOut, setCancelDepositOut] = useState("");
@@ -867,7 +891,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     setCancelReason("");
     setCancelRefundRef("");
     setCancelRefundMethod("Cash");
-    setCancelDate(new Date().toISOString().slice(0, 10));
+    setCancelDate(localToday());
     setCancelTime(new Date().toTimeString().slice(0, 5));
     setShowCancelForm(true);
   };
@@ -878,7 +902,10 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
   // refund as Deposit Out (amount + reference + date). Deposit Out is a returned
   // liability — Stage 4 surfaces it as a cash outflow that is never revenue.
   const handleCancelRental = () => {
-    if (!cancelDate || !cancelTime) { alert("Enter the Actual Return Date & Time"); return; }
+    {
+      const msg = actualReturnError(booking, cancelDate, cancelTime);
+      if (msg) { alert(msg); return; }
+    }
     const paidRows = (booking.rentSchedule || []).filter(r => r.paid);
     const depositHeld = Number(booking.depositPaid) || Number(booking.deductible) || 0;
     // Who cancelled decides the deposit outcome:
@@ -909,6 +936,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
       cancelledAt: cancelDate,
       cancelledBy: cancelBy,
       actualReturnAt,
+      actualReturnAtUtc: new Date(actualReturnAt).toISOString(),
       returnedAt: new Date().toISOString(),
       cancelReason: cancelReason.trim(),
       depositRefundRef: cancelRefundRef.trim(),
@@ -967,9 +995,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
         return;
       }
     }
-    if (!actualReturnDate || !actualReturnTime) {
-      alert("Enter the Actual Return Date & Time");
-      return;
+    {
+      const msg = actualReturnError(booking, actualReturnDate, actualReturnTime);
+      if (msg) { alert(msg); return; }
     }
     if (!returnLocation.trim()) {
       alert("Drop Location is required to confirm the return.");
@@ -1063,6 +1091,9 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
     const receiptNumber = booking.receiptNumber || nextReceiptNumber(bookings);
     onUpdateBooking(booking.id, {
       mileageIn, customerReturnMileage, fuelIn, actualReturnAt, charges,
+      // The exact moment, so the server can check "not in the future" in its
+      // own time zone (not stored).
+      actualReturnAtUtc: new Date(actualReturnAt).toISOString(),
       drop: returnLocation.trim(),
       receiptNumber,
       forceCompleted: true,
@@ -1825,7 +1856,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                           </div>
                           <div style={{ flex: "1 1 130px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
-                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
+                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} min={localDateOf(returnFloorOf(booking)) || DATE_MIN} max={localToday()} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "0.85 1 110px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>
@@ -2052,7 +2083,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div style={{ flex: "1 1 140px" }}>
                       <div style={detailFieldLabelStyle}>Actual Return Date</div>
-                      <input type="date" value={actualReturnDate} onChange={(e) => setActualReturnDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
+                      <input type="date" value={actualReturnDate} onChange={(e) => setActualReturnDate(e.target.value)} min={localDateOf(returnFloorOf(booking)) || DATE_MIN} max={localToday()} style={detailInputStyle} />
                     </div>
                     <div style={{ flex: "1 1 110px" }}>
                       <div style={detailFieldLabelStyle}>Actual Return Time</div>
@@ -2268,7 +2299,7 @@ const BookingDetailModal = ({ booking, bookings, fleet, activeTab, setActiveTab,
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                           <div style={{ flex: "1 1 130px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Date</div>
-                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} min={DATE_MIN} max={DATE_MAX} style={detailInputStyle} />
+                            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} min={localDateOf(returnFloorOf(booking)) || DATE_MIN} max={localToday()} style={detailInputStyle} />
                           </div>
                           <div style={{ flex: "1 1 110px" }}>
                             <div style={detailFieldLabelStyle}>Actual Return Time</div>

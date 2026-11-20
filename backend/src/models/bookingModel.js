@@ -276,6 +276,54 @@ async function insertBooking(client, b, details) {
   return toBooking(rows[0]);
 }
 
+// ── Actual Return Date & Time (Vehicle Return and Cancel Booking) ───────────
+// Same rules as the screens (actualReturnError in frontend/src/Booking.jsx):
+//   • a real date and time;
+//   • not in the future — with 5 minutes' allowance for a device clock running
+//     slightly ahead of this server's (the screens themselves are exact);
+//   • not before the vehicle handover — the current car's, i.e. the last Change
+//     Car swap if there was one (currentCarFrom), else handoverAt.
+// Booking times are local wall-clock strings with no zone ("2026-11-20T10:23"),
+// and this server may run in another zone, so the browser also sends the exact
+// moment as actualReturnAtUtc (same approach as Change Car's swapAtUtc). It is
+// only trusted when it names the same wall-clock time give or take a real
+// time-zone offset; without it the checks fall back to the most lenient
+// reading, so a genuine return is never refused for the server's zone.
+const RETURN_FUTURE_TOLERANCE_MS = 5 * 60000;
+const HOUR_MS = 3600000;
+const hasZone = (s) => /[zZ]|[+-]\d{2}:?\d{2}$/.test(s);
+const wallAsUtcMs = (s) => new Date(hasZone(s) ? s : `${s}Z`).getTime();
+
+function checkActualReturn(current, value, sentUtc) {
+  const s = String(value || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  const wall = m ? wallAsUtcMs(s) : NaN;
+  const d = Number.isFinite(wall) ? new Date(wall) : null;
+  if (!d || d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3] || +m[4] > 23 || +m[5] > 59) {
+    throw badRequest("Enter a valid Actual Return Date & Time.");
+  }
+  const sent = isBlank(sentUtc) ? NaN : new Date(String(sentUtc)).getTime();
+  const exact = Number.isFinite(sent) && sent >= wall - 14 * HOUR_MS && sent <= wall + 12 * HOUR_MS ? sent : null;
+
+  // Earliest moment this wall-clock time can be (UTC+14) unless the exact one was sent.
+  if ((exact ?? wall - 14 * HOUR_MS) > Date.now() + RETURN_FUTURE_TOLERANCE_MS) {
+    throw badRequest("Actual Return Date & Time can't be in the future.");
+  }
+
+  const floor = current.currentCarFrom || current.handoverAt;
+  if (!isBlank(floor)) {
+    const f = String(floor);
+    // A zoned handover (stored as an ISO instant) is compared as an instant; a
+    // wall-clock one is compared with the return as written (same zone).
+    const floorMs = hasZone(f) ? new Date(f).getTime() : wallAsUtcMs(f);
+    const returnMs = hasZone(f) ? (exact ?? wall + 12 * HOUR_MS) : wall;
+    // Minute precision: the screens record minutes, a handover may carry seconds.
+    if (Number.isFinite(floorMs) && returnMs < Math.floor(floorMs / 60000) * 60000) {
+      throw badRequest("Actual Return Date & Time can't be before the vehicle handover.");
+    }
+  }
+}
+
 // Fields only Change Car may write — a plain update can't rewrite a booking's
 // car history or move its car-change point.
 const SWAP_ONLY_FIELDS = ["carHistory", "currentCarFrom"];
@@ -289,6 +337,9 @@ async function update(id, updates) {
   validateOdometerBounds(updates);
   const patch = { ...updates };
   for (const f of SWAP_ONLY_FIELDS) delete patch[f];
+  // Only used to check the return time below — never stored.
+  const actualReturnAtUtc = patch.actualReturnAtUtc;
+  delete patch.actualReturnAtUtc;
 
   return db.withTransaction(async (client) => {
     // Lock the plates first (current one read without a lock, then re-read
@@ -303,6 +354,11 @@ async function update(id, updates) {
     // allowed to push the return date out depends on the booking's state
     // before this patch, not after it.
     validateExtend(current, patch);
+    // A return time being recorded or changed (Vehicle Return, Cancel Booking).
+    // Unchanged values aren't re-checked, so older records never block other edits.
+    if (!isBlank(patch.actualReturnAt) && patch.actualReturnAt !== current.actualReturnAt) {
+      checkActualReturn(current, patch.actualReturnAt, actualReturnAtUtc);
+    }
     // The car is fixed once it's with the customer; swapping it is Change Car's
     // job, which records the return and handover readings for both cars.
     if (patch.plate !== undefined && patch.plate !== current.plate && current.handoverAt) {
