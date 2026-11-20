@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { bookingWindowsForPlate } from "./useFleetData";
+import { bookingWindowsForPlate, computeRentalDuration } from "./useFleetData";
 
 // ============================================================================
 // Car Availability — calendar-centric redesign.
@@ -67,11 +67,62 @@ const nextDayISO = (iso) => addDaysISO(iso, 1);
 const diffDaysISO = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);
 const combineDateTime = (date, time) => (date ? `${date}T${time || "00:00"}` : "");
 const fmtNice = (iso) => { if (!iso) return "—"; const d = new Date(`${iso}T00:00:00`); if (isNaN(d)) return "—"; return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+// "14:30" → "2:30 PM".
+const fmt12 = (hhmm) => { if (!hhmm) return ""; const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 const fmtShort = (iso) => { if (!iso) return "—"; const d = new Date(`${iso}T00:00:00`); if (isNaN(d)) return "—"; return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); };
 
 // The UI only asks for dates; these clock times build the booking range.
-const PICKUP_TIME = "10:00";
-const RETURN_TIME = "10:00";
+// Pickup and return times are chosen by the user (TimeSelect12h below) — there
+// are no default times; availability is only worked out once both dates and
+// both times are picked.
+
+// Why a car can't be offered for a period ending on `returnDate` ("" if it
+// can): under maintenance, or a COE / insurance that has already expired or
+// expires before the rental ends (the expiry date itself still counts as valid,
+// so a rental returning on that day is fine).
+const carRestriction = (car, returnDate) => {
+  if (car.status === "Maintenance") return "Under maintenance";
+  const today = todayISO();
+  const check = (expiry, what) => {
+    if (!expiry || expiry >= returnDate) return "";
+    return expiry < today ? `${what} expired` : `${what} expires ${fmtShort(expiry)}`;
+  };
+  return check(car.coe, "COE") || check(car.insuranceExpiry, "Insurance");
+};
+
+// 12-hour time picker (hour / minute / AM-PM) that starts BLANK and reports a
+// time only once all three parts are chosen ("HH:MM", 24h — or "" until then),
+// so nothing is ever assumed for the user.
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+function TimeSelect12h({ onChange, testid }) {
+  const [parts, setParts] = useState({ hour: "", minute: "", ampm: "" });
+  const update = (key, v) => {
+    const next = { ...parts, [key]: v };
+    setParts(next);
+    if (!next.hour || !next.minute || !next.ampm) return onChange("");
+    const h = (parseInt(next.hour, 10) % 12) + (next.ampm === "PM" ? 12 : 0);
+    onChange(`${String(h).padStart(2, "0")}:${next.minute}`);
+  };
+  const sel = { flex: 1, minWidth: 0, padding: "5px 4px", border: `1px solid ${G.borderStrong}`, borderRadius: 7, background: G.surface, fontSize: 12.5, fontWeight: 700, color: G.ink, textAlign: "center", textAlignLast: "center", cursor: "pointer", fontFamily: "inherit" };
+  return (
+    <div data-testid={testid} style={{ display: "flex", gap: 4, marginTop: 6 }}>
+      <select aria-label="Hour" value={parts.hour} onChange={(e) => update("hour", e.target.value)} style={sel}>
+        <option value="">hh</option>
+        {HOURS_12.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
+      <select aria-label="Minute" value={parts.minute} onChange={(e) => update("minute", e.target.value)} style={sel}>
+        <option value="">mm</option>
+        {MINUTES_60.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select aria-label="AM or PM" value={parts.ampm} onChange={(e) => update("ampm", e.target.value)} style={sel}>
+        <option value="">--</option>
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
+}
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 // ── Availability primitives (shared convention with useFleetData) ──────────
@@ -193,16 +244,19 @@ function GreenButton({ children, onClick, disabled, full, small, id, dataTestid,
   );
 }
 
-const StatusChip = ({ status }) => {
+// `label` overrides the default text — used by "restricted" to say why
+// (e.g. "Under maintenance", "COE expires 25 Nov").
+const StatusChip = ({ status, label }) => {
   const map = {
     available: { bg: AVAIL.bg, text: AVAIL.text, dot: AVAIL.dot, label: "Available" },
     booked: { bg: G.dangerSoft, text: G.danger, dot: AVAILABILITY_COLORS.booked.dot, label: "On Rental" },
     partial: { bg: AVAILABILITY_COLORS.partial.bg, text: AVAILABILITY_COLORS.partial.text, dot: AVAILABILITY_COLORS.partial.dot, label: "Partial" },
+    restricted: { bg: AVAILABILITY_COLORS.partial.bg, text: AVAILABILITY_COLORS.partial.text, dot: AVAILABILITY_COLORS.partial.dot, label: "Not available" },
   };
   const c = map[status] || { bg: G.primarySofter, text: G.textMuted, dot: G.borderStrong, label: "—" };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: c.bg, color: c.text }}>
-      <span style={{ width: 7, height: 7, borderRadius: "50%", background: c.dot }} /> {c.label}
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: c.dot }} /> {label || c.label}
     </span>
   );
 };
@@ -327,7 +381,7 @@ function FleetRow({ car, periodStatus, active, onSelect }) {
         <div style={{ fontSize: 13.5, fontWeight: 700, color: G.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{car.model || car.plate}</div>
         <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{car.plate} · {meta.join(" · ")}</div>
       </div>
-      {periodStatus && <div style={{ flexShrink: 0 }}><StatusChip status={periodStatus} /></div>}
+      {periodStatus && <div style={{ flexShrink: 0 }}><StatusChip status={periodStatus.status} label={periodStatus.label} /></div>}
       <span style={{ flexShrink: 0, color: active ? G.primary : G.borderStrong, fontSize: 16, fontWeight: 800 }}>›</span>
     </button>
   );
@@ -340,21 +394,35 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
   const ctx = { bookings, checkBookingConflict };
 
   const [monthCursor, setMonthCursor] = useState(new Date());
-  const [rangeStart, setRangeStart] = useState(todayISO());
-  const [rangeEnd, setRangeEnd] = useState(addDaysISO(todayISO(), 3));
+  // Nothing is pre-selected: the user picks the pickup date & time and the
+  // return date & time; until all four are chosen no availability is shown.
+  const [rangeStart, setRangeStart] = useState(null);
+  const [rangeEnd, setRangeEnd] = useState(null);
+  const [pickupTime, setPickupTime] = useState("");
+  const [returnTime, setReturnTime] = useState("");
   const [selectedCar, setSelectedCar] = useState(null); // car whose availability the calendar shows
   const [rightTab, setRightTab] = useState("available"); // "available" | "fleet"
   const [search, setSearch] = useState("");
 
+  // The exact period to check, or null until it's complete and valid. Same-day
+  // periods are fine as long as the return time is after the pickup time.
+  const pickupAt = rangeStart && pickupTime ? combineDateTime(rangeStart, pickupTime) : "";
+  const returnAt = rangeEnd && returnTime ? combineDateTime(rangeEnd, returnTime) : "";
+  const nowMinute = new Date(); nowMinute.setSeconds(0, 0);
+  const periodError =
+    pickupAt && new Date(pickupAt) < nowMinute ? "Pickup time can't be earlier than the current time."
+    : pickupAt && returnAt && new Date(returnAt) <= new Date(pickupAt) ? "Return time must be later than the pickup time."
+    : "";
   const range = useMemo(
-    () => (rangeStart && rangeEnd ? { start: combineDateTime(rangeStart, PICKUP_TIME), end: combineDateTime(rangeEnd, RETURN_TIME) } : null),
-    [rangeStart, rangeEnd]
+    () => (pickupAt && returnAt && !periodError ? { start: pickupAt, end: returnAt } : null),
+    [pickupAt, returnAt, periodError]
   );
 
-  // Click a day: 1st click = pickup, 2nd (later) click = return, else restart.
+  // Click a day: 1st click = pickup, 2nd click on the same or a later day =
+  // return (same day = a single-day rental), an earlier day restarts.
   const onDayClick = (iso) => {
     if (!rangeStart || rangeEnd) { setRangeStart(iso); setRangeEnd(null); }
-    else if (iso > rangeStart) { setRangeEnd(iso); }
+    else if (iso >= rangeStart) { setRangeEnd(iso); }
     else { setRangeStart(iso); setRangeEnd(null); }
   };
 
@@ -364,25 +432,34 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
   const availableCars = useMemo(() => {
     if (!range) return [];
     return fleet
-      .filter(car => isFreeForRange(car.plate, range, ctx))
+      .filter(car => !carRestriction(car, rangeEnd) && isFreeForRange(car.plate, range, ctx))
       .map(car => {
         const run = continuousAvailability(car.plate, rangeStart, ctx);
         return { car, freeDays: run.days, freeUntil: run.until };
       })
       .sort((a, b) => b.freeDays - a.freeDays);
-  }, [range, rangeStart, fleet, bookings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [range, rangeStart, rangeEnd, fleet, bookings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bookCar = (plate) => onBookCar && onBookCar(plate, range?.start || "", range?.end || "");
   const showOnCalendar = (car) => {
     setSelectedCar(car);
-    const s = new Date(`${rangeStart}T00:00:00`);
+    const s = new Date(`${rangeStart || todayISO()}T00:00:00`);
     setMonthCursor(new Date(s.getFullYear(), s.getMonth(), 1));
   };
 
-  const nights = rangeStart && rangeEnd ? diffDaysISO(rangeStart, rangeEnd) : 0;
-  const selectedCarPeriod = selectedCar && range
-    ? (isFreeForRange(selectedCar.plate, range, ctx) ? "available" : "booked")
-    : null;
+  // Same duration rule New Booking prices on (hours under 24h, else days).
+  const duration = range ? computeRentalDuration(range.start, range.end) : null;
+  // A car's state for the selected period: restricted (maintenance / COE /
+  // insurance), booked, or available.
+  const periodStatusOf = (car) => {
+    if (!range) return null;
+    const restriction = carRestriction(car, rangeEnd);
+    if (restriction) return { status: "restricted", label: restriction };
+    return { status: isFreeForRange(car.plate, range, ctx) ? "available" : "booked" };
+  };
+  const selectedCarState = selectedCar ? periodStatusOf(selectedCar) : null;
+  const selectedCarPeriod = selectedCarState?.status || null;
+  const periodText = range ? `${fmtShort(rangeStart)} ${fmt12(pickupTime)} – ${fmtShort(rangeEnd)} ${fmt12(returnTime)}` : "";
 
   // Live search across car name/model, plate, and brand — applied to both the
   // Available results and the Fleet list. Empty query matches everything.
@@ -401,7 +478,7 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
       <div>
         <div style={{ fontSize: 20, fontWeight: 800, color: G.ink }}>Car Availability</div>
         <div style={{ fontSize: 13, color: G.text, marginTop: 4 }}>
-          Pick a pickup &amp; return day on the calendar to see available cars — or open the <b>Fleet</b> tab and tap a car to view its availability.
+          Pick the pickup &amp; return days on the calendar and choose the times to see available cars — or open the <b>Fleet</b> tab and tap a car to view its availability.
         </div>
       </div>
 
@@ -432,19 +509,24 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 120px", background: G.primarySofter, borderRadius: 10, padding: "8px 12px" }}>
+              <div style={{ flex: "1 1 150px", background: G.primarySofter, borderRadius: 10, padding: "8px 12px" }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: G.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Pickup</div>
-                <div style={{ fontSize: 13.5, fontWeight: 800, color: G.ink }}>{fmtNice(rangeStart)}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: rangeStart ? G.ink : G.textMuted }}>{rangeStart ? fmtNice(rangeStart) : "Pick a day"}</div>
+                <TimeSelect12h testid="ca-pickup-time" onChange={setPickupTime} />
               </div>
-              <div style={{ flex: "1 1 120px", background: G.primarySofter, borderRadius: 10, padding: "8px 12px" }}>
+              <div style={{ flex: "1 1 150px", background: G.primarySofter, borderRadius: 10, padding: "8px 12px" }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: G.textMuted, textTransform: "uppercase", letterSpacing: 0.4 }}>Return</div>
                 <div style={{ fontSize: 13.5, fontWeight: 800, color: rangeEnd ? G.ink : G.textMuted }}>{rangeEnd ? fmtNice(rangeEnd) : "Pick a day"}</div>
+                <TimeSelect12h testid="ca-return-time" onChange={setReturnTime} />
               </div>
-              {nights > 0 && (
+              {duration && duration.units > 0 && (
                 <div style={{ textAlign: "center", background: G.primary, color: "#fff", borderRadius: 10, padding: "8px 14px", flexShrink: 0 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{nights}</div>
-                  <div style={{ fontSize: 9.5, fontWeight: 600, marginTop: 2 }}>night{nights === 1 ? "" : "s"}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{duration.units}</div>
+                  <div style={{ fontSize: 9.5, fontWeight: 600, marginTop: 2 }}>{duration.unit}{duration.units === 1 ? "" : "s"}</div>
                 </div>
+              )}
+              {periodError && (
+                <div role="alert" style={{ flexBasis: "100%", fontSize: 12, fontWeight: 600, color: G.danger }}>{periodError}</div>
               )}
             </div>
           )}
@@ -488,8 +570,10 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
               <span style={{ fontWeight: 800 }}>{selectedCarPeriod === "available" ? "✓" : "✕"}</span>
               <div style={{ fontSize: 12.5, fontWeight: 700 }}>
                 {selectedCarPeriod === "available"
-                  ? `Available for ${fmtShort(rangeStart)} – ${fmtShort(rangeEnd)}`
-                  : `On Rental during ${fmtShort(rangeStart)} – ${fmtShort(rangeEnd)}`}
+                  ? `Available for ${periodText}`
+                  : selectedCarPeriod === "restricted"
+                    ? `Not available — ${selectedCarState.label}`
+                    : `On Rental during ${periodText}`}
               </div>
               {selectedCarPeriod === "available" && (
                 <div style={{ marginLeft: "auto" }}>
@@ -522,11 +606,11 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
             <>
               <div style={{ fontSize: 13, fontWeight: 700, color: G.ink, marginBottom: 12 }}>
                 {range ? `${shownAvailable.length} car${shownAvailable.length === 1 ? "" : "s"} available` : "Select a period"}
-                {range && <span style={{ fontWeight: 500, color: G.textMuted }}> · {fmtShort(rangeStart)} – {fmtShort(rangeEnd)}</span>}
+                {range && <span style={{ fontWeight: 500, color: G.textMuted }}> · {periodText}</span>}
               </div>
               {!range ? (
-                <div style={{ fontSize: 12.5, color: G.textMuted, padding: "24px 0", textAlign: "center" }}>
-                  Click a pickup day, then a return day on the calendar.
+                <div style={{ fontSize: 12.5, color: periodError ? G.danger : G.textMuted, padding: "24px 0", textAlign: "center" }}>
+                  {periodError || "Pick the pickup day and return day on the calendar (the same day for a single-day rental), then choose the pickup and return times."}
                 </div>
               ) : shownAvailable.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: G.textMuted, padding: "24px 0", textAlign: "center" }}>
@@ -558,7 +642,7 @@ export default function CarAvailability({ fleet = [], bookings, checkBookingConf
                 ) : (
                   shownFleet.map(car => (
                     <FleetRow key={car.plate} car={car}
-                      periodStatus={range ? (isFreeForRange(car.plate, range, ctx) ? "available" : "booked") : null}
+                      periodStatus={periodStatusOf(car)}
                       active={selectedCar?.plate === car.plate}
                       onSelect={showOnCalendar} />
                   ))
