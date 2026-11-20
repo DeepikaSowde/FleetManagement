@@ -233,7 +233,9 @@ const TravelDateCard = ({ caption, iso, active, onClick, timeValue, onTimeChange
   );
 };
 
-const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSelect, onClear, rangeStart, rangeEnd }) => {
+// `allowPast` (default true, the old behavior) — false for a NEW booking:
+// days before today are disabled and the month nav can't go back past today.
+const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSelect, onClear, rangeStart, rangeEnd, allowPast = true }) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const initial = selectedDate ? new Date(selectedDate + "T00:00:00")
@@ -275,8 +277,9 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
   const isAvailableDay = (d) => !isPast(d) && getStatus(d) === "Available";
   const isBeforeMin = (d) => minDate && toISODate(d) < minDate;
 
-  // Backdated bookings are allowed — the calendar can navigate to any past month.
-  const canGoPrev = true;
+  // Backdated dates are allowed only when allowPast (editing an existing
+  // booking); a new booking can't go back before the current month.
+  const canGoPrev = allowPast || viewYear > today.getFullYear() || (viewYear === today.getFullYear() && viewMonth > today.getMonth());
 
   const goPrev = () => {
     if (!canGoPrev) return;
@@ -304,6 +307,7 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
   const handleDayClick = (day) => {
     const d = new Date(viewYear, viewMonth, day);
     if (isBeforeMin(d)) return;
+    if (!allowPast && isPast(d)) return;
     const iso = toISODate(d);
 
     if (minDate) {
@@ -375,7 +379,8 @@ const SingleDateCalendar = ({ car, bookings, label, selectedDate, minDate, onSel
           // clickable — handleDayClick validates the whole range. Pickup
           // calendar (no minDate): Available days, plus past days (backdated
           // bookings) whose real overlap is caught by the conflict check.
-          const clickable = minDate ? !belowMin : (isAvailableDay(d) || isPast(d));
+          // A new booking (allowPast false) can't pick any day before today.
+          const clickable = (allowPast || !isPast(d)) && (minDate ? !belowMin : (isAvailableDay(d) || isPast(d)));
           const dimmed = !clickable && !isSelected && !isEndpoint;
           const af = availableFromByDate[iso];  // turnover: car returns from a prior booking this day, free after
           const au = availableUntilByDate[iso]; // turnover: a different booking picks up this day, free until then
@@ -1006,6 +1011,12 @@ export default function FleetOpzApp() {
     }
     if (!newBookingData.start || !newBookingData.end) {
       errors.dates = "Pickup Date and Return Date are required";
+    } else if (!editingBookingId && newBookingData.pickupDate < new Date().toLocaleDateString("en-CA")) {
+      // Same rule as the calendar, checked again here so a past pickup can't
+      // slip through (this also re-runs on final submit). Today is allowed.
+      errors.dates = "Pickup Date can't be in the past — choose today or a later date.";
+    } else if (newBookingData.returnDate < newBookingData.pickupDate) {
+      errors.dates = "Return Date can't be earlier than the Pickup Date.";
     } else if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
       errors.returnTime = "Return Date & Time must be after the Pickup Date & Time";
     }
@@ -2702,6 +2713,9 @@ export default function FleetOpzApp() {
                             label="Pickup Date"
                             car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
                             bookings={calendarBookings}
+                            // A new booking can't start in the past; an existing one
+                            // being edited keeps its own (possibly past) pickup.
+                            allowPast={!!editingBookingId}
                             selectedDate={newBookingData.pickupDate}
                             rangeStart={newBookingData.pickupDate}
                             rangeEnd={newBookingData.returnDate}
@@ -2740,6 +2754,7 @@ export default function FleetOpzApp() {
                             label="Return Date"
                             car={fleetData.fleet.find(c => c.plate === newBookingData.plate)}
                             bookings={calendarBookings}
+                            allowPast={!!editingBookingId}
                             selectedDate={newBookingData.returnDate}
                             // Extending can only move the return date later —
                             // never before the date already agreed — so the
