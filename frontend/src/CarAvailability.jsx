@@ -297,7 +297,6 @@ function AvailableCarCard({ car, freeDays, freeUntil, onBook, onViewOnCalendar, 
         <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2 }}>{car.plate}{meta.length ? ` · ${meta.join(" · ")}` : ""}</div>
         <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <StatusChip status="available" />
-          <span style={{ fontSize: 11, color: G.text }}>free <b style={{ color: G.accent }}>{freeDays}</b> day{freeDays === 1 ? "" : "s"}{freeUntil ? ` · until ${fmtShort(freeUntil)}` : ""}</span>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
