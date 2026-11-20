@@ -71,6 +71,24 @@ export const computeRentalDuration = (from, to) => {
   return { hoursExact, isHourly: false, units: Math.max(1, Math.ceil(hoursExact / 24)), unit: "day" };
 };
 
+// ── COE / INSURANCE VALIDITY FOR A RENTAL ───────────────────────────────────
+// Why a car can't be rented for a period that ends on `returnDate`
+// ("YYYY-MM-DD"), or "" if it can: its COE or insurance has already expired,
+// or expires before the rental ends. The expiry date itself still counts as
+// valid, so a rental returning on that day is fine. One rule for Car
+// Availability and New Booking.
+export const coeInsuranceIssue = (car, returnDate) => {
+  if (!car) return "";
+  const today = new Date().toLocaleDateString("en-CA");
+  const until = returnDate && returnDate > today ? returnDate : today;
+  const fmt = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  const check = (expiry, what) => {
+    if (!expiry || expiry >= until) return "";
+    return expiry < today ? `${what} expired` : `${what} expires ${fmt(expiry)}`;
+  };
+  return check(car.coe, "COE") || check(car.insuranceExpiry, "Insurance");
+};
+
 // ── CHANGE CAR: a booking's cars over time ──────────────────────────────────
 // A booking can change car mid-rental (Change Car, see carSwap.js). The cars
 // it used before are closed segments in `carHistory` ({ plate, from, to, ... },

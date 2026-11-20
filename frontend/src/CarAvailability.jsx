@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { bookingWindowsForPlate, computeRentalDuration } from "./useFleetData";
+import { bookingWindowsForPlate, computeRentalDuration, coeInsuranceIssue } from "./useFleetData";
 
 // ============================================================================
 // Car Availability — calendar-centric redesign.
@@ -78,16 +78,11 @@ const fmtShort = (iso) => { if (!iso) return "—"; const d = new Date(`${iso}T0
 
 // Why a car can't be offered for a period ending on `returnDate` ("" if it
 // can): under maintenance, or a COE / insurance that has already expired or
-// expires before the rental ends (the expiry date itself still counts as valid,
-// so a rental returning on that day is fine).
+// expires before the rental ends — coeInsuranceIssue, the same rule New
+// Booking applies.
 const carRestriction = (car, returnDate) => {
   if (car.status === "Maintenance") return "Under maintenance";
-  const today = todayISO();
-  const check = (expiry, what) => {
-    if (!expiry || expiry >= returnDate) return "";
-    return expiry < today ? `${what} expired` : `${what} expires ${fmtShort(expiry)}`;
-  };
-  return check(car.coe, "COE") || check(car.insuranceExpiry, "Insurance");
+  return coeInsuranceIssue(car, returnDate);
 };
 
 // 12-hour time picker (hour / minute / AM-PM) that starts BLANK and reports a

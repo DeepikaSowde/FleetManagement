@@ -9,7 +9,7 @@ import { validatePaymentReference, REFERENCE_LABEL, referencePlaceholder, refere
 import PaymentRefError from "./PaymentRefError";
 import { DATE_MIN, DATE_MAX } from "./validation";
 import { Btn, Badge, Modal, Input, Select, StatusTag } from "./components";
-import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline, computeRentalDuration } from "./useFleetData";
+import { useFleetData, buildAvailabilityConflictMessage, findCustomerByIC, computeCarAvailabilityTimeline, computeRentalDuration, coeInsuranceIssue } from "./useFleetData";
 import { useViewport } from "./useViewport";
 import { CONTACT_COUNTRY_CODES, contactDigitsRequired } from "./contactCodes";
 import { useAuth } from "./context/AuthContext";
@@ -79,6 +79,12 @@ const DRIVER_LICENSE_CHARS_ERROR = "Driving License No. must contain only letter
 // maxLength on the input), so a long paste is never silently truncated;
 // the user sees an error and must shorten it themselves before proceeding.
 const ADDRESS_MAX_LENGTH = 200;
+
+// New Booking's message for a coeInsuranceIssue ("COE expired" /
+// "Insurance expires 25 Nov").
+const coeInsuranceMessage = (issue) => (/expired$/.test(issue)
+  ? `Vehicle cannot be booked because its ${issue}.`
+  : `Vehicle cannot be booked: its ${issue}, before this rental ends. Choose an earlier return date or another vehicle.`);
 
 // Current date ("YYYY-MM-DD") and time ("HH:MM") on the user's own clock —
 // the default stamp for a deposit/advance collected in the New Booking
@@ -998,15 +1004,11 @@ export default function FleetOpzApp() {
       if (selectedCar?.status === "Maintenance") {
         errors.plate = "This vehicle is currently under maintenance and unavailable for booking.";
       } else if (selectedCar) {
-        // A car with an expired COE or Insurance can't legally be on the road,
-        // so it's blocked from new bookings the same way Maintenance is —
-        // date-string compare (both YYYY-MM-DD) avoids timezone drift.
-        const todayStr = new Date().toLocaleDateString("en-CA");
-        const coeExpired = !!selectedCar.coe && selectedCar.coe < todayStr;
-        const insuranceExpired = !!selectedCar.insuranceExpiry && selectedCar.insuranceExpiry < todayStr;
-        if (coeExpired || insuranceExpired) {
-          errors.plate = "Vehicle cannot be booked because COE/Insurance has expired.";
-        }
+        // A car can't legally be on the road with an expired COE or Insurance,
+        // so it's blocked if either has expired or expires before the rental
+        // ends — coeInsuranceIssue, the same rule Car Availability uses.
+        const issue = coeInsuranceIssue(selectedCar, newBookingData.returnDate);
+        if (issue) errors.plate = coeInsuranceMessage(issue);
       }
     }
     if (!newBookingData.start || !newBookingData.end) {
@@ -1015,6 +1017,10 @@ export default function FleetOpzApp() {
       // Same rule as the calendar, checked again here so a past pickup can't
       // slip through (this also re-runs on final submit). Today is allowed.
       errors.dates = "Pickup Date can't be in the past — choose today or a later date.";
+    } else if (!editingBookingId && newBookingData.pickupDate === new Date().toLocaleDateString("en-CA")
+      && new Date(newBookingData.start) < new Date(new Date().setSeconds(0, 0))) {
+      // Pickup today: the time can't already have passed (same rule as Car Availability).
+      errors.dates = "Pickup Time can't be earlier than the current time.";
     } else if (newBookingData.returnDate < newBookingData.pickupDate) {
       errors.dates = "Return Date can't be earlier than the Pickup Date.";
     } else if (new Date(newBookingData.end) <= new Date(newBookingData.start)) {
@@ -2654,11 +2660,10 @@ export default function FleetOpzApp() {
                           </div>
                         )}
                         {!editingBookingId && car.status !== "Maintenance" && (() => {
-                          const todayStr = new Date().toLocaleDateString("en-CA");
-                          const expired = (!!car.coe && car.coe < todayStr) || (!!car.insuranceExpiry && car.insuranceExpiry < todayStr);
-                          return expired && (
+                          const issue = coeInsuranceIssue(car, newBookingData.returnDate);
+                          return issue && (
                             <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, margin: "-4px 0 16px" }}>
-                              ⚠️ Vehicle cannot be booked because COE/Insurance has expired.
+                              ⚠️ {coeInsuranceMessage(issue)}
                             </div>
                           );
                         })()}
